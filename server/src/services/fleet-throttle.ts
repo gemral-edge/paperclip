@@ -111,9 +111,19 @@ export function orderTimerCandidatesFairly<T>(
 
 /** In-process serialization per key (single server process); DB advisory lock covers the rest. */
 const keyedLocks = new Map<string, Promise<void>>();
+export const KEYED_LOCK_WAIT_TIMEOUT_MS = 20_000;
+
 export async function withKeyedLock<T>(key: string, fn: () => Promise<T>): Promise<T> {
   const previous = keyedLocks.get(key) ?? Promise.resolve();
-  const run = previous.then(fn);
+  // GEM-1368: Chống kẹt in-memory lock chain khi previous promise bị treo > 20s.
+  const waitPrevious = Promise.race([
+    previous,
+    new Promise<void>((resolve) => {
+      const t = setTimeout(resolve, KEYED_LOCK_WAIT_TIMEOUT_MS);
+      t.unref?.();
+    }),
+  ]);
+  const run = waitPrevious.then(fn);
   const marker = run.then(
     () => undefined,
     () => undefined,

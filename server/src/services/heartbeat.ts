@@ -334,9 +334,18 @@ function normalizeMaxConcurrentRuns(value: unknown) {
   return Math.max(HEARTBEAT_MAX_CONCURRENT_RUNS_DEFAULT, Math.min(HEARTBEAT_MAX_CONCURRENT_RUNS_MAX, parsed));
 }
 
+const AGENT_START_LOCK_WAIT_TIMEOUT_MS = 20_000;
 async function withAgentStartLock<T>(agentId: string, fn: () => Promise<T>) {
   const previous = startLocksByAgent.get(agentId) ?? Promise.resolve();
-  const run = previous.then(fn);
+  // GEM-1368: Chống kẹt in-memory start lock khi previous promise bị treo > 20s.
+  const waitPrevious = Promise.race([
+    previous,
+    new Promise<void>((resolve) => {
+      const t = setTimeout(resolve, AGENT_START_LOCK_WAIT_TIMEOUT_MS);
+      t.unref?.();
+    }),
+  ]);
+  const run = waitPrevious.then(fn);
   const marker = run.then(
     () => undefined,
     () => undefined,
@@ -1961,7 +1970,7 @@ export function heartbeatService(db: Db) {
     if (!isFleetClaimGateEnabled(fleet)) return doClaim(db);
 
     return withKeyedLock(`fleet-claim:${run.companyId}`, () =>
-      db.transaction(async (tx) => {
+      boundedPoll(db, async (tx) => {
         await tx.execute(
           sql`select pg_advisory_xact_lock(hashtext(${`paperclip:fleet-claim:${run.companyId}`}))`,
         );
@@ -2483,7 +2492,14 @@ export function heartbeatService(db: Db) {
       if (i > 0 && spawnedPrevious) {
         await new Promise<void>((res) => setTimeout(res, 2000));
       }
-      const started = await startNextQueuedRunForAgent(agentIds[i]!);
+      // GEM-1368: Bọc timeout 15s cho từng agent để chống việc 1 agent kẹt làm nghẽn toàn bộ queue.
+      const started = await Promise.race([
+        startNextQueuedRunForAgent(agentIds[i]!),
+        new Promise<never[]>((res) => {
+          const t = setTimeout(() => res([]), 15_000);
+          t.unref?.();
+        }),
+      ]);
       spawnedPrevious = Array.isArray(started) && started.length > 0;
     }
   }
