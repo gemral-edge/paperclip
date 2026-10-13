@@ -37,6 +37,7 @@ import {
 } from './crm/purchase-stage-handler.js';
 import { renderHistoryForPrompt, stripInjectedContext } from './session-history-util.js';
 import { detectPaymentPolicyViolation, PREPAY_POLICY_AGENTS } from './payment-policy.js';
+import { splitIntoHumanMessages } from './human-message-split.js';
 import { loadSalesCloserMediaFromCatalog } from './catalog-media-source.js';
 import { selectInlineJson } from './inline-ssot-select.js';
 import { ProviderQuotaError, ProviderTimeoutError, getTimeoutBreaker, resolveTimeoutFallback, runWithTimeoutFallback, withApiTimeout } from './agy-timeout-fallback.js';
@@ -316,6 +317,11 @@ export async function runAgent(
     const esc = (config as any)._escalation;
     if (esc) {
       (originalMsg as any)._escalation = esc;
+    }
+
+    const msgChunks = (config as any)._messageChunks as MessageChunk[] | undefined;
+    if (msgChunks && msgChunks.length > 1) {
+      (originalMsg as any)._messageChunks = msgChunks;
     }
 
     return reply;
@@ -2168,10 +2174,10 @@ async function parseMediaMarkers(
   // Genuine customer [[...]] and the SEND_MEDIA/MSG_BREAK markers are preserved.
   const preSplit = stripInternalMarkers(text);
 
-  // ── Step 1: Split on [[MSG_BREAK]] ──
-  // Media markers stay with their chunk.
-  const MSG_BREAK_RE = /\[\[\s*MSG_BREAK\s*\]\]/gi;
-  const rawChunks = preSplit.split(MSG_BREAK_RE);
+  // ── Step 1: Split into chat messages ──
+  // [[MSG_BREAK]] + blank-line paragraphs + long paragraphs cut to ≤2 sentences
+  // (14/10: agents ignored MSG_BREAK and sent one long block). Media markers stay with their chunk.
+  const rawChunks = splitIntoHumanMessages(preSplit);
 
   const allMedia: MediaFile[] = [];
   const seenGlobal = new Set<string>();
@@ -2592,6 +2598,11 @@ export async function postProcessReply(
 
   const mediaParsed = await parseMediaMarkers(cleaned, mediaLib);
   cleaned = mediaParsed.cleanedText;
+  // Side-channel for consumer.ts multi-message send (each chunk = 1 bubble, typing delay).
+  // Was read by consumer + test route but never SET — every reply went out as 1 block (14/10).
+  if (mediaParsed.chunks.filter((c) => c.text || c.media?.length).length > 1) {
+    (config as any)._messageChunks = mediaParsed.chunks;
+  }
   if (mediaParsed.media.length > 0) {
     (config as any)._outboundMedia = mediaParsed.media;
     // MediaFile has `filename` (not `id` — id is on MediaLibraryItem).

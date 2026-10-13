@@ -1162,8 +1162,13 @@ async function processResolved(
         | Array<{ text: string; media?: typeof outboundMedia }>
         | undefined;
 
-      if (messageChunks && messageChunks.length > 1) {
+      // Public replies (FB/YouTube comment, group) stay ONE message — several comments in a
+      // row look like spam. Only 1-1 chats get the human multi-bubble style.
+      const isPublicReply = merged.peerKind === 'group' || !!merged.metadata?.comment_id || merged.channel === 'youtube';
+      if (messageChunks && messageChunks.length > 1 && !isPublicReply) {
         console.log(`${logPrefix} Multi-message reply: ${messageChunks.length} chunks`);
+        // Same double-reply guard as the single path: 1 claim per chunk of this burst.
+        const chunkDedupeBase = buildReplyDedupeKey(sessionKey, buildBatchId(claimedIds));
         for (let i = 0; i < messageChunks.length; i++) {
           const chunk = messageChunks[i];
           const chunkMedia = chunk.media;
@@ -1176,6 +1181,8 @@ async function processResolved(
             // Only the FIRST chunk replies-to the customer message; subsequent
             // chunks are standalone follow-ups so threads don't look spammy.
             replyToMessageId: i === 0 ? merged.id : undefined,
+            sessionKey,
+            dedupeKey: `${chunkDedupeBase}:c${i}`,
             metadata: {
               agentSlug,
               sessionKey,

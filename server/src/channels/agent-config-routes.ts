@@ -1894,7 +1894,8 @@ router.post('/:slug/test', async (req, res) => {
     // Surface MSG_BREAK chunks so training room can render multi-message replies
     // exactly like the live channels do (each chunk a separate bubble).
     // Field name matches router.ts side-channel: `_messageChunks`.
-    const messageChunks = (config as any)._messageChunks as string[] | undefined;
+    const rawChunks = (config as any)._messageChunks as Array<string | { text: string }> | undefined;
+    const messageChunks = rawChunks?.map((c) => (typeof c === 'string' ? c : c.text));
 
     // Surface escalation marker so training orchestrator can call handleEscalation()
     // and create a real CRM ticket. Router parses [[ESCALATE: reason]] markers in
