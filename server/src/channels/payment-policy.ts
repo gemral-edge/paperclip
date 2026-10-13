@@ -12,7 +12,7 @@ import { dirname, join } from 'node:path';
 
 /** Agent slugs the prepay policy applies to. */
 // yinyang-support (14/10, plan CSKH-SPLIT): chốt đơn crystal qua chat cũng trả trước 100% — cùng cổng.
-export const PREPAY_POLICY_AGENTS = new Set<string>(['sales-closer', 'yinyang-support']);
+export const PREPAY_POLICY_AGENTS = new Set<string>(['sales-closer', 'yinyang-support', 'edge-sales-closer']);
 
 interface PolicyFile {
   flags: string;

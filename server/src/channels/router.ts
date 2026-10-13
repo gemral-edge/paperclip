@@ -1882,7 +1882,7 @@ const mediaLibraryCache = new Map<string, { lib: MediaLibrary | null; expiresAt:
  * Thương hiệu agent xưng trong luật chat (14/10, plan CSKH-SPLIT §3 bước 3). Trước đây gắn cứng "của Gemral"
  * → yinyang-support trên web Yinyang tự xưng Gemral. Agent không có trong bảng = Gemral như cũ.
  */
-const AGENT_BRAND: Readonly<Record<string, string>> = { 'yinyang-support': 'Yin Yang Masters' };
+const AGENT_BRAND: Readonly<Record<string, string>> = { 'yinyang-support': 'Yin Yang Masters', 'edge-sales-closer': 'Gemral Edge' };
 export function agentBrand(slug: string | undefined): string {
   return (slug && AGENT_BRAND[slug]) || 'Gemral';
 }
