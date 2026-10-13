@@ -21,7 +21,8 @@ const CRON_INTERVAL_MS = 10 * 60 * 1000; // 10 phút
 interface FollowUpRule {
   stage: string;
   stuckHours: number;
-  message: string;
+  message: string;   // vi
+  messageEn: string; // en — khách không nói tiếng Việt (13/10: cskh-web/shopify khách Mỹ nhận câu tiếng Việt)
 }
 
 const FOLLOWUP_RULES: FollowUpRule[] = [
@@ -29,16 +30,19 @@ const FOLLOWUP_RULES: FollowUpRule[] = [
     stage: 'interest',
     stuckHours: 6,
     message: 'Dạ chị ơi, em vẫn đang đây nha 🌸 Có thông tin nào em chưa giải đáp rõ thì chị cứ hỏi em thêm nhé ạ — em luôn sẵn sàng tư vấn 💛',
+    messageEn: "Hi, just checking in. If anything is still unclear, reply here and I'll help you out.",
   },
   {
     stage: 'consideration',
     stuckHours: 12,
     message: 'Dạ chị suy nghĩ thêm rồi cho em biết phần nào còn phân vân nha ạ ✨ Em có thể gửi thêm feedback của khách đã học hoặc demo cho chị tham khảo nếu cần 🙏',
+    messageEn: "Take your time. If something is still holding you back, tell me which part and I can send screenshots or a quick walkthrough.",
   },
   {
     stage: 'intent',
     stuckHours: 2,
     message: 'Dạ chị ơi, em đã chuẩn bị thông tin thanh toán cho chị rồi nha 💛 Chị cần em gửi lại link/STK không ạ? Em hỗ trợ chốt nhanh giúp chị 🌟',
+    messageEn: "Your checkout link is ready whenever you are. Want me to send it again?",
   },
 ];
 
@@ -46,7 +50,30 @@ const CATCHALL_RULE = {
   stuckHours: 24,
   maxFollowups: 1,
   message: 'Dạ chị ơi, em vẫn đang đây nha 🌸 Chị có câu hỏi gì thêm cứ nhắn em nhé — em luôn sẵn sàng hỗ trợ ạ 💛',
+  messageEn: "Hi, I'm still here if you have any questions. Just reply and I'll help.",
 };
+
+const VI_DIACRITIC = /[ăâđêôơưàáạảãằắặẳẵầấậẩẫèéẹẻẽềếệểễìíịỉĩòóọỏõồốộổỗờớợởỡùúụủũừứựửữỳýỵỷỹ]/i;
+
+/** Ngôn ngữ nhắc lại = ngôn ngữ tin khách gửi gần nhất. Zalo luôn vi (khách VN, hay gõ không dấu). */
+export function pickFollowupLang(channelName: string, lastInboundBody: string | null | undefined): 'vi' | 'en' {
+  if (channelName.startsWith('zalo')) return 'vi';
+  const body = (lastInboundBody || '').trim();
+  if (VI_DIACRITIC.test(body)) return 'vi';
+  if (/[a-z]{2,}/i.test(body)) return 'en';
+  return channelName.startsWith('fb') ? 'vi' : 'en';
+}
+
+async function lastInboundBody(sessionKey: string): Promise<string | null> {
+  const { data } = await supabase
+    .from('channel_pending_messages')
+    .select('body')
+    .eq('session_key', sessionKey)
+    .order('created_at', { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  return (data?.body as string | undefined) ?? null;
+}
 
 const MAX_FOLLOWUPS_PER_SESSION = 2;
 
@@ -169,7 +196,7 @@ async function runScanCycle(): Promise<string> {
         continue;
       }
 
-      const inserted = await insertFollowup(sess, rule.message, rule.stage, followupCount);
+      const inserted = await insertFollowup(sess, { vi: rule.message, en: rule.messageEn }, rule.stage, followupCount);
       if (inserted) totalInserted++;
     }
   }
@@ -209,7 +236,7 @@ async function runScanCycle(): Promise<string> {
     for (const sess of eligible) {
       const meta = (sess.metadata as Record<string, unknown>) || {};
       const followupCount = Number(meta.followup_count || 0);
-      const inserted = await insertFollowup(sess, CATCHALL_RULE.message, 'catch-all', followupCount);
+      const inserted = await insertFollowup(sess, { vi: CATCHALL_RULE.message, en: CATCHALL_RULE.messageEn }, 'catch-all', followupCount);
       if (inserted) { totalInserted++; catchallQueued++; }
     }
   }
@@ -262,7 +289,7 @@ async function getCustomerName(customerId: string): Promise<string> {
 
 async function insertFollowup(
   sess: { session_key: string; channel_name: string; customer_id: string; agent_slug: string; last_message_at: string; metadata: unknown },
-  message: string,
+  messages: { vi: string; en: string },
   stage: string,
   prevCount: number,
 ): Promise<boolean> {
@@ -305,6 +332,9 @@ async function insertFollowup(
     return false;
   }
 
+  const lang = pickFollowupLang(sess.channel_name, await lastInboundBody(sess.session_key));
+  const message = messages[lang];
+
   const scheduledAt = new Date(Date.now() + 60 * 1000).toISOString();
   const { error: insErr } = await supabase
     .from('follow_up_queue')
@@ -335,7 +365,7 @@ async function insertFollowup(
 
   const stuckH = Math.round((Date.now() - new Date(sess.last_message_at).getTime()) / 3600000);
   const customerName = await getCustomerName(sess.customer_id);
-  log(`📩 Đặt lịch gửi #${prevCount + 1} → "${customerName}" qua ${channelLabel(sess.channel_name)} | im lặng ${stuckLabel(stuckH)} | loại: ${stage} | agent: ${sess.agent_slug}`);
+  log(`📩 Đặt lịch gửi #${prevCount + 1} → "${customerName}" qua ${channelLabel(sess.channel_name)} | im lặng ${stuckLabel(stuckH)} | loại: ${stage} | ngôn ngữ: ${lang} | agent: ${sess.agent_slug}`);
   return true;
 }
 
