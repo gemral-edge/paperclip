@@ -35,13 +35,13 @@ const FOLLOWUP_RULES: FollowUpRule[] = [
   {
     stage: 'consideration',
     stuckHours: 12,
-    message: 'Dạ chị suy nghĩ thêm rồi cho em biết phần nào còn phân vân nha ạ ✨ Em có thể gửi thêm feedback của khách đã học hoặc demo cho chị tham khảo nếu cần 🙏',
+    message: 'Dạ chị cứ cân nhắc thêm, phần nào còn phân vân thì nhắn em nha ạ ✨ Em gửi chị ảnh màn hình Gemral Edge/Scanner hoặc hướng dẫn nhanh cách dùng để chị xem trước nếu cần 🙏',
     messageEn: "Take your time. If something is still holding you back, tell me which part and I can send screenshots or a quick walkthrough.",
   },
   {
     stage: 'intent',
     stuckHours: 2,
-    message: 'Dạ chị ơi, em đã chuẩn bị thông tin thanh toán cho chị rồi nha 💛 Chị cần em gửi lại link/STK không ạ? Em hỗ trợ chốt nhanh giúp chị 🌟',
+    message: 'Dạ chị ơi, link đăng ký gói Gemral Edge/Scanner vẫn sẵn đây nha 💛 Chị cần em gửi lại link thanh toán không ạ? 🌟',
     messageEn: "Your checkout link is ready whenever you are. Want me to send it again?",
   },
 ];
