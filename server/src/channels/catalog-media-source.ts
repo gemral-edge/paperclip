@@ -71,9 +71,14 @@ export function buildMediaItemFromCatalogEntry(entry: Record<string, any>): Medi
   };
 }
 
-// Đọc product-catalog-index.json → MediaLibrary cho sales-closer. Null-safe GIỐNG loadMediaLibrary
-// gốc (file thiếu/parse lỗi → null, caller degrade an toàn — plan §5.1 "hành vi khi file thiếu/hỏng").
-export function loadSalesCloserMediaFromCatalog(projectRoot: string): MediaLibrary | null {
+// Đọc product-catalog-index.json → MediaLibrary cho agent CSKH (sales-closer, yinyang-support). Null-safe GIỐNG
+// loadMediaLibrary gốc (file thiếu/parse lỗi → null, caller degrade an toàn — plan §5.1 "hành vi khi file thiếu/hỏng").
+// allowTypes: chỉ giữ entry có `type` thuộc tập này (yinyang-support chỉ gửi ảnh crystal, không gửi ảnh Edge/Scanner).
+export function loadSalesCloserMediaFromCatalog(
+  projectRoot: string,
+  agentSlug: string = 'sales-closer',
+  allowTypes: ReadonlySet<string> | null = null,
+): MediaLibrary | null {
   const p = catalogPath(projectRoot);
   if (!existsSync(p)) return null;
   let catalog: any;
@@ -99,6 +104,7 @@ export function loadSalesCloserMediaFromCatalog(projectRoot: string): MediaLibra
   const items: MediaLibraryItem[] = [];
   for (const e of rawItems) {
     if (!e || !e.id) continue;
+    if (allowTypes && !allowTypes.has(String(e.type || ''))) continue;
     if (seenIds.has(e.id)) {
       console.error(`[Router/media] ⚠️ DUPLICATE id trong catalog: '${e.id}' — bỏ bản sau, giữ bản đầu. Sửa catalog.`);
       continue;
@@ -112,10 +118,10 @@ export function loadSalesCloserMediaFromCatalog(projectRoot: string): MediaLibra
     return null;
   }
   return {
-    agent_slug: 'sales-closer',
+    agent_slug: agentSlug,
     version: String(catalog?.version || 'catalog'),
     description:
-      'Media library cho sales-closer — đọc TRỰC TIẾP từ product-catalog-index.json (Option A, ' +
+      `Media library cho ${agentSlug} — đọc` + ' TRỰC TIẾP từ product-catalog-index.json (Option A, ' +
       'transform-on-read). KHÔNG sửa file này; sửa catalog.',
     items,
     instructions_for_agent:

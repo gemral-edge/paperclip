@@ -40,3 +40,28 @@ describe('detectPaymentPolicyViolation — must NOT flag legitimate no-COD / pay
     });
   }
 });
+
+// 14/10 (plan CSKH-SPLIT): yinyang-support trả lời khách web nói tiếng Anh → cổng phải hiểu câu tiếng Anh.
+describe('detectPaymentPolicyViolation — English (yinyang-support)', () => {
+  const bad = [
+    'Would you like to pay by bank transfer or cash on delivery?',
+    'You can pay when you receive the crystal.',
+    'We could arrange COD for you.',
+    'Payment on delivery is fine too.',
+  ];
+  for (const v of bad) {
+    it(`flags: ${v}`, () => {
+      expect(detectPaymentPolicyViolation(v)).not.toBeNull();
+    });
+  }
+  const ok = [
+    "We don't offer cash on delivery, payment is upfront.",
+    'You can pay by card on the checkout page or with VietQR.',
+    'Here is the link to the journal.',
+  ];
+  for (const v of ok) {
+    it(`allows: ${v}`, () => {
+      expect(detectPaymentPolicyViolation(v)).toBeNull();
+    });
+  }
+});

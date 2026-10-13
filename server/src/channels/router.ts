@@ -1873,6 +1873,24 @@ async function loadGrantedSkillsForPrompt(agentSlug: string): Promise<string> {
 const mediaLibraryCache = new Map<string, { lib: MediaLibrary | null; expiresAt: number }>();
 
 /**
+ * Thương hiệu agent xưng trong luật chat (14/10, plan CSKH-SPLIT §3 bước 3). Trước đây gắn cứng "của Gemral"
+ * → yinyang-support trên web Yinyang tự xưng Gemral. Agent không có trong bảng = Gemral như cũ.
+ */
+const AGENT_BRAND: Readonly<Record<string, string>> = { 'yinyang-support': 'Yin Yang Masters' };
+export function agentBrand(slug: string | undefined): string {
+  return (slug && AGENT_BRAND[slug]) || 'Gemral';
+}
+
+/**
+ * Agent CSKH gửi ảnh sản phẩm đọc THẲNG product-catalog-index.json (Option A). yinyang-support
+ * (14/10, plan CSKH-SPLIT §3 bước 3) cần ảnh crystal y như sales-closer — thiếu thì [[SEND_MEDIA]] câm.
+ */
+export const CATALOG_MEDIA_AGENTS: ReadonlyMap<string, ReadonlySet<string> | null> = new Map([
+  ['sales-closer', null],
+  ['yinyang-support', new Set(['crystal', 'crystal-category'])],
+]);
+
+/**
  * Load agents/{slug}/media-library.json — list of files this agent can SEND
  * to users (PDFs, images, videos). Returns null if file missing.
  *
@@ -1887,12 +1905,12 @@ export function loadMediaLibrary(agentSlug: string): MediaLibrary | null {
   const projectRoot = PROJECT_ROOT;
   let lib: MediaLibrary | null = null;
 
-  if (agentSlug === 'sales-closer') {
+  if (CATALOG_MEDIA_AGENTS.has(agentSlug)) {
     // Option A (OD-1, plan §5.1): đọc THẲNG product-catalog-index.json + transform-on-read (derive
     // tags TS khớp Python — parity gate §6.1). Chỉ sales-closer; agent khác giữ đường file cũ.
-    lib = loadSalesCloserMediaFromCatalog(projectRoot);
+    lib = loadSalesCloserMediaFromCatalog(projectRoot, agentSlug, CATALOG_MEDIA_AGENTS.get(agentSlug) ?? null);
     if (lib) {
-      console.log(`[Router/media] sales-closer: loaded ${lib.items.length} item từ catalog (Option A)`);
+      console.log(`[Router/media] ${agentSlug}: loaded ${lib.items.length} item từ catalog (Option A)`);
     } else {
       // Catalog thiếu/hỏng (mount lệch, ghi lỗi, PROJECT_ROOT sai) → KHÔNG để sales-closer câm media.
       // Fallback agents/sales-closer/media-library.json (sync-generated, giữ sống cho social-posting)
@@ -1900,7 +1918,7 @@ export function loadMediaLibrary(agentSlug: string): MediaLibrary | null {
       // có thể CŨ hơn catalog nhưng "có ảnh cũ" > "câm hoàn toàn".
       const fbPath = pathResolve(projectRoot, 'agents', agentSlug, 'media-library.json');
       console.error(
-        `[Router/media] ⚠️ sales-closer CATALOG LOAD FAILED → fallback ${fbPath} (dữ liệu có thể CŨ). ` +
+        `[Router/media] ⚠️ ${agentSlug} CATALOG LOAD FAILED → fallback ${fbPath} (dữ liệu có thể CŨ). ` +
         `Kiểm PROJECT_ROOT + product-catalog-index.json NGAY.`,
       );
       if (existsSync(fbPath)) {
@@ -3328,16 +3346,16 @@ async function buildSystemPrompt(
   // 6. Chat-specific rules
   parts.push([
     '# QUY TẮC CHAT',
-    '- Đây là tin nhắn từ khách hàng qua Zalo/Facebook. Trả lời TRỰC TIẾP.',
+    '- Đây là tin nhắn từ khách hàng qua kênh chat (Zalo / Facebook / chat trên web). Trả lời TRỰC TIẾP.',
     '- NHẮN NGẮN 2-4 câu. Thân thiện. Trả lời bằng đúng ngôn ngữ khách đang dùng (tiếng Anh → tiếng Anh, tiếng Việt → tiếng Việt có dấu đầy đủ, tiếng Trung → tiếng Trung).',
-    `- Bạn là ${config.display_name} của Gemral. KHÔNG xưng là Jennie hay bất kỳ ai khác.`,
+    `- Bạn là ${config.display_name} của ${agentBrand(config.slug)}. KHÔNG xưng là Jennie hay bất kỳ ai khác.`,
     '- Nếu không biết câu trả lời → nói thật, đề nghị chuyển cho người phụ trách.',
-    '- Nếu khách tức giận → "Em chuyển chuyên viên nhé!" → DỪNG.',
+    '- Nếu khách tức giận → 1 câu báo sẽ chuyển chuyên viên (bằng đúng ngôn ngữ của khách) → DỪNG.',
     '- CHỈ TEXT THUẦN. KHÔNG ★, •, **, ##, backticks, headers, bullets đặc biệt.',
     '- Dùng dấu gạch ngang (-) nếu cần list. Viết như tin nhắn bình thường.',
     '- TUYỆT ĐỐI KHÔNG nhắc: Insight, CRM, tracking, database, system, internal, meta-commentary.',
     '- KHÔNG giải thích cách bạn suy nghĩ hay process. Chỉ trả lời khách.',
-    '- KHÁCH ĐANG NHẮN TIN TRỰC TIẾP QUA ZALO/FACEBOOK. KHÔNG hỏi SĐT để gửi qua Zalo — họ ĐÃ Ở ĐÂY.',
+    '- KHÁCH ĐANG NHẮN TIN TRỰC TIẾP TRONG CUỘC CHAT NÀY. KHÔNG xin SĐT để gửi qua kênh khác — họ ĐÃ Ở ĐÂY.',
     '- Muốn gửi hình/link → gửi TRỰC TIẾP trong tin nhắn này, không cần xin SĐT.',
     '- Bạn CÓ MCP tools (check order, CRM, search product, Shopify...). GỌI tools qua MCP protocol đúng cách.',
     '- TUYỆT ĐỐI KHÔNG viết tool call syntax ra text reply: KHÔNG "[CALL: ...]", KHÔNG "[MCP_...]", KHÔNG "[SEARCH: ...]".',

@@ -1,13 +1,16 @@
 {
-  "version": "1.0.0",
-  "note": "SSOT cho phát hiện vi phạm QUY TẮC TIỀN của sales-closer (mời/chấp nhận COD, hỏi hình thức thanh toán). ĐỌC bởi: payment-policy.ts (cổng pre-send ENFORCEMENT) + crypto-pattern-scanner/scripts/audit_cskh.py P-COD (MONITORING). Regex tương thích cả JavaScript lẫn Python (flag 'i'). Sửa file này = sửa CẢ 2 tầng. Không copy regex sang nơi khác.",
+  "version": "1.1.0",
+  "note": "SSOT cho phát hiện vi phạm QUY TẮC TIỀN của agent bán hàng trả trước (PREPAY_POLICY_AGENTS: sales-closer, yinyang-support) (mời/chấp nhận COD, hỏi hình thức thanh toán). ĐỌC bởi: payment-policy.ts (cổng pre-send ENFORCEMENT) + crypto-pattern-scanner/scripts/audit_cskh.py P-COD (MONITORING). Regex tương thích cả JavaScript lẫn Python (flag 'i'). Sửa file này = sửa CẢ 2 tầng. Không copy regex sang nơi khác. 1.1.0 (14/10): thêm mẫu tiếng Anh — yinyang-support trả lời khách web nói tiếng Anh.",
   "flags": "i",
   "sentence_split": "[!?\\n]+|\\.\\s",
   "allowlist": [
     "(không|chưa|ko|chẳng)\\s*(hỗ trợ|nhận|có|áp dụng|làm|ship|giao)\\s*(hàng\\s*)?(cod|khi nhận)",
     "cod[^.!?\\n]{0,30}(chưa|không|ko)\\s*(hỗ trợ|áp dụng|có)",
     "chỉ\\s*(nhận\\s*|áp dụng\\s*)?(thanh toán|chuyển khoản)\\s*trước",
-    "thanh toán trước\\s*(rồi|thì)?\\s*(bên em|nhân viên|mới)"
+    "thanh toán trước\\s*(rồi|thì)?\\s*(bên em|nhân viên|mới)",
+    "(don'?t|do not|doesn'?t|does not|cannot|can'?t|no)\\s+(offer|support|accept|do|have)\\s+(cash on delivery|cod\\b|pay(ment)? on delivery)",
+    "(cash on delivery|cod\\b|pay(ment)? on delivery)[^.!?\\n]{0,30}(not|isn'?t)\\s+(available|supported|offered|accepted)",
+    "(paid|pay|payment)\\s+(in full\\s+)?(upfront|in advance|before (shipping|delivery))"
   ],
   "violation": [
     "(chuyển khoản|ck)[^.!?\\n]{0,40}(hay|hoặc)[^.!?\\n]{0,40}(cod|momo|khi nhận|nhận hàng)",
@@ -17,6 +20,11 @@
     "nhận hàng\\s*(rồi|xong)?\\s*(mới\\s*)?(thanh toán|trả tiền)",
     "ship\\s*cod\\s*(được|cho|nha|nhé|ạ)",
     "(được|có thể)\\s*(chọn\\s*)?(ship\\s*)?cod\\b",
-    "(momo|ví điện tử|zalopay)[^.!?\\n]{0,30}\\?"
+    "(momo|ví điện tử|zalopay)[^.!?\\n]{0,30}\\?",
+    "(bank transfer|transfer)[^.!?\\n]{0,40}\\bor\\b[^.!?\\n]{0,40}(cash on delivery|cod\\b|on delivery)",
+    "(cash on delivery|cod\\b|on delivery)[^.!?\\n]{0,40}\\bor\\b[^.!?\\n]{0,40}(bank transfer|transfer)",
+    "pay(ment)?\\s+(up)?on\\s+delivery",
+    "pay when (you )?(receive|get)\\b",
+    "(we|i)\\s+(can|could|will)\\s+(offer|do|accept|arrange)\\s+(cash on delivery|cod\\b)"
   ]
 }

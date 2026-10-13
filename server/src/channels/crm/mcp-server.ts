@@ -403,7 +403,14 @@ async function shopifyAdmin(
   return text ? JSON.parse(text) : {};
 }
 
-export async function handleCreateShopifyOrder(args: any): Promise<string> {
+// Agent gắn tag đơn: lời gọi in-process (agent-tools.ts) truyền slug theo TỪNG lời gọi; tiến trình MCP stdio
+// (mỗi agent spawn riêng qua agents/<slug>/mcp.json) đọc `--agent <slug>` — KHÔNG dùng biến môi trường chung.
+const CLI_AGENT_SLUG: string | null = (() => {
+  const i = process.argv.indexOf('--agent');
+  return i > 0 && process.argv[i + 1] ? process.argv[i + 1] : null;
+})();
+
+export async function handleCreateShopifyOrder(args: any, agentSlug?: string): Promise<string> {
   try {
     const variantId = args.variant_id;
     if (!variantId) {
@@ -462,7 +469,7 @@ export async function handleCreateShopifyOrder(args: any): Promise<string> {
         city: args.shipping_city || '',
         country: 'Vietnam',
       },
-      tags: args.tags || 'agent-order,chat-order,sales-closer',
+      tags: args.tags || `agent-order,chat-order,${agentSlug || CLI_AGENT_SLUG || 'sales-closer'}`,
       source_name: 'chat',
     };
     if (customerId) draft.customer = { id: customerId };

@@ -81,3 +81,20 @@ describe("loadSalesCloserMediaFromCatalog — fail-closed (trả null → fallba
     rmSync(root, { recursive: true, force: true });
   });
 });
+
+// 14/10 (plan CSKH-SPLIT): yinyang-support chỉ gửi ảnh crystal — lọc theo type, gắn đúng agent_slug.
+describe("loadSalesCloserMediaFromCatalog — lọc type theo agent", () => {
+  it("allowTypes crystal → bỏ entry edge, agent_slug = yinyang-support", () => {
+    const root = makeRootWithCatalog(
+      '{"items":[' +
+        '{"id":"c1","name":"Rose","type":"crystal","description":"d","covers":["Rose"],"all_images":["D:/1.png"]},' +
+        '{"id":"e1","name":"Edge Pro","type":"edge","description":"d","covers":["Edge"],"all_images":["D:/2.png"]}' +
+        "]}",
+    );
+    const lib = loadSalesCloserMediaFromCatalog(root, "yinyang-support", new Set(["crystal"]));
+    expect(lib).not.toBeNull();
+    expect(lib!.items.map((i) => i.id)).toEqual(["c1"]);
+    expect(lib!.agent_slug).toBe("yinyang-support");
+    rmSync(root, { recursive: true, force: true });
+  });
+});

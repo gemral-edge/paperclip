@@ -357,7 +357,7 @@ export async function executeTool(call: ToolCall, ctx: ToolExecutionContext): Pr
         // Handler tự resolve Shopify customer qua customer_phone. mark_paid mặc định false (unpaid).
         // Chat path KHÔNG BAO GIỜ mark paid (AGENTS.md §THANH TOÁN — xác nhận tiền = nhân viên):
         // ép false ở tầng code, không tin prompt.
-        result = wrapMcpResult(await handleCreateShopifyOrder({ ...call.args, mark_paid: false }));
+        result = wrapMcpResult(await handleCreateShopifyOrder({ ...call.args, mark_paid: false }, ctx.agentSlug));
         break;
       case 'create_ticket':
         result = wrapMcpResult(await handleCreateTicket({

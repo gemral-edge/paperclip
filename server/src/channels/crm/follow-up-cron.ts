@@ -23,6 +23,8 @@ interface FollowUpRule {
   stuckHours: number;
   message: string;   // vi
   messageEn: string; // en — khách không nói tiếng Việt (13/10: cskh-web/shopify khách Mỹ nhận câu tiếng Việt)
+  // vi không nhắc Edge/Scanner — cho kênh mà agent KHÔNG bán Edge (14/10: yinyang-support trên web Yinyang)
+  messageViNeutral?: string;
 }
 
 const FOLLOWUP_RULES: FollowUpRule[] = [
@@ -37,12 +39,14 @@ const FOLLOWUP_RULES: FollowUpRule[] = [
     stuckHours: 12,
     message: 'Dạ chị cứ cân nhắc thêm, phần nào còn phân vân thì nhắn em nha ạ ✨ Em gửi chị ảnh màn hình Gemral Edge/Scanner hoặc hướng dẫn nhanh cách dùng để chị xem trước nếu cần 🙏',
     messageEn: "Take your time. If something is still holding you back, tell me which part and I can send screenshots or a quick walkthrough.",
+    messageViNeutral: 'Dạ bạn cứ cân nhắc thêm, phần nào còn phân vân thì nhắn em nha ✨ Em gửi thêm ảnh hoặc mô tả chi tiết sản phẩm để bạn xem trước nếu cần ạ 🙏',
   },
   {
     stage: 'intent',
     stuckHours: 2,
     message: 'Dạ chị ơi, link đăng ký gói Gemral Edge/Scanner vẫn sẵn đây nha 💛 Chị cần em gửi lại link thanh toán không ạ? 🌟',
     messageEn: "Your checkout link is ready whenever you are. Want me to send it again?",
+    messageViNeutral: 'Dạ link sản phẩm bạn đang xem vẫn sẵn đây nha 💛 Bạn cần em gửi lại link không ạ? 🌟',
   },
 ];
 
@@ -196,7 +200,7 @@ async function runScanCycle(): Promise<string> {
         continue;
       }
 
-      const inserted = await insertFollowup(sess, { vi: rule.message, en: rule.messageEn }, rule.stage, followupCount);
+      const inserted = await insertFollowup(sess, { vi: rule.message, en: rule.messageEn, viNeutral: rule.messageViNeutral }, rule.stage, followupCount);
       if (inserted) totalInserted++;
     }
   }
@@ -289,7 +293,7 @@ async function getCustomerName(customerId: string): Promise<string> {
 
 async function insertFollowup(
   sess: { session_key: string; channel_name: string; customer_id: string; agent_slug: string; last_message_at: string; metadata: unknown },
-  messages: { vi: string; en: string },
+  messages: { vi: string; en: string; viNeutral?: string },
   stage: string,
   prevCount: number,
 ): Promise<boolean> {
@@ -323,7 +327,7 @@ async function insertFollowup(
 
   const { data: channelInstance } = await supabase
     .from('channel_instances')
-    .select('id')
+    .select('id, agent_slug')
     .eq('name', sess.channel_name)
     .single();
 
@@ -333,7 +337,10 @@ async function insertFollowup(
   }
 
   const lang = pickFollowupLang(sess.channel_name, await lastInboundBody(sess.session_key));
-  const message = messages[lang];
+  // Agent của KÊNH (SSOT channel_instances.agent_slug) thắng agent cũ ghi trên session — kênh đổi agent thì
+  // session cũ vẫn mang sales-closer. Agent không bán Edge → câu vi trung tính (không mời Edge/Scanner).
+  const agentSlug = (channelInstance.agent_slug as string | null) || sess.agent_slug;
+  const message = lang === 'vi' && agentSlug !== 'sales-closer' && messages.viNeutral ? messages.viNeutral : messages[lang];
 
   const scheduledAt = new Date(Date.now() + 60 * 1000).toISOString();
   const { error: insErr } = await supabase
@@ -341,7 +348,7 @@ async function insertFollowup(
     .insert({
       customer_id: sess.customer_id,
       channel_instance_id: channelInstance.id,
-      agent_slug: sess.agent_slug,
+      agent_slug: agentSlug,
       message,
       scheduled_at: scheduledAt,
       status: 'pending',
@@ -365,7 +372,7 @@ async function insertFollowup(
 
   const stuckH = Math.round((Date.now() - new Date(sess.last_message_at).getTime()) / 3600000);
   const customerName = await getCustomerName(sess.customer_id);
-  log(`📩 Đặt lịch gửi #${prevCount + 1} → "${customerName}" qua ${channelLabel(sess.channel_name)} | im lặng ${stuckLabel(stuckH)} | loại: ${stage} | ngôn ngữ: ${lang} | agent: ${sess.agent_slug}`);
+  log(`📩 Đặt lịch gửi #${prevCount + 1} → "${customerName}" qua ${channelLabel(sess.channel_name)} | im lặng ${stuckLabel(stuckH)} | loại: ${stage} | ngôn ngữ: ${lang} | agent: ${agentSlug}`);
   return true;
 }
 
