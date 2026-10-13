@@ -30,10 +30,14 @@ export const DEFAULT_ANTIGRAVITY_FALLBACK_MODELS: readonly string[] = ["Claude S
 // — agy had shipped them but all three lists still stopped at 3.5.
 // 2026-09-03: +Gemini 3.8 Flash (High/Medium/Low) — agy shipped 3.8; verified verbatim
 // via `agy models` (col 2). gem-master + sales-closer bumped 3.7→3.8 (High).
+// 2026-10-14: +Gemini 4 Argon (High/Medium/Low) — verbatim via `agy models` (col 2).
 export const models = [
   { id: "Gemini 3.8 Flash (High)", label: "Gemini 3.8 Flash (High) — Fast" },
   { id: "Gemini 3.8 Flash (Medium)", label: "Gemini 3.8 Flash (Medium) — Fast" },
   { id: "Gemini 3.8 Flash (Low)", label: "Gemini 3.8 Flash (Low) — Fast" },
+  { id: "Gemini 4 Argon (High)", label: "Gemini 4 Argon (High)" },
+  { id: "Gemini 4 Argon (Medium)", label: "Gemini 4 Argon (Medium)" },
+  { id: "Gemini 4 Argon (Low)", label: "Gemini 4 Argon (Low)" },
   { id: "Gemini 3.7 Flash (High)", label: "Gemini 3.7 Flash (High) — Fast" },
   { id: "Gemini 3.7 Flash (Medium)", label: "Gemini 3.7 Flash (Medium) — Fast" },
   { id: "Gemini 3.7 Flash (Low)", label: "Gemini 3.7 Flash (Low) — Fast" },
