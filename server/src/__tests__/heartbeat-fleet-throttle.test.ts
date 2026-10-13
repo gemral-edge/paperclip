@@ -16,6 +16,7 @@ import { heartbeatService } from "../services/heartbeat.ts";
 import {
   evaluateFleetClaim,
   fleetWindowStart,
+  orderQueuedRunsForClaim,
   orderTimerCandidatesFairly,
   readFleetThrottleConfig,
 } from "../services/fleet-throttle.ts";
@@ -28,6 +29,7 @@ const FLEET_ENV_KEYS = [
   "PAPERCLIP_FLEET_STARTS_PER_10MIN",
   "PAPERCLIP_FLEET_TIMER_WAKES_PER_HOUR",
   "PAPERCLIP_FLEET_TIMER_EXEMPT_AGENTS",
+  "PAPERCLIP_FLEET_TIMER_PRIORITY",
 ] as const;
 
 function setFleetEnv(values: Partial<Record<(typeof FLEET_ENV_KEYS)[number], string>>) {
@@ -58,6 +60,34 @@ describe("fleet throttle pure helpers", () => {
     expect(evaluateFleetClaim(cfg, { running: 0, startsInWindow: 2 })).toMatchObject({ ok: false, reason: "start_window" });
     const off = readFleetThrottleConfig({ PAPERCLIP_FLEET_MAX_RUNNING: "0", PAPERCLIP_FLEET_STARTS_PER_10MIN: "0" });
     expect(evaluateFleetClaim(off, { running: 50, startsInWindow: 50 }).ok).toBe(true);
+  });
+
+  it("rule 4: non-timer claim yields the last free slot to a waiting timer run, timer claim never does", () => {
+    const cfg = readFleetThrottleConfig({});
+    expect(cfg.timerPriority).toBe(true);
+    const counts = { running: 1, startsInWindow: 0 };
+    expect(evaluateFleetClaim(cfg, counts, { invocationSource: "automation", pendingTimerRuns: 1 })).toMatchObject({
+      ok: false,
+      reason: "timer_priority",
+    });
+    expect(evaluateFleetClaim(cfg, counts, { invocationSource: "timer", pendingTimerRuns: 3 }).ok).toBe(true);
+    // Two free slots, one timer waiting → the automation run may take the other slot.
+    expect(evaluateFleetClaim(cfg, { running: 0, startsInWindow: 0 }, { invocationSource: "automation", pendingTimerRuns: 1 }).ok).toBe(true);
+    expect(evaluateFleetClaim(cfg, counts, { invocationSource: "automation", pendingTimerRuns: 0 }).ok).toBe(true);
+    const off = readFleetThrottleConfig({ PAPERCLIP_FLEET_TIMER_PRIORITY: "0" });
+    expect(evaluateFleetClaim(off, counts, { invocationSource: "automation", pendingTimerRuns: 1 }).ok).toBe(true);
+  });
+
+  it("rule 4: claim order puts timer runs first, then oldest first", () => {
+    const cfg = readFleetThrottleConfig({});
+    const runs = [
+      { id: "auto-old", invocationSource: "automation", createdAt: new Date("2026-10-13T04:25:00Z") },
+      { id: "timer-new", invocationSource: "timer", createdAt: new Date("2026-10-13T06:00:00Z") },
+      { id: "auto-mid", invocationSource: "automation", createdAt: new Date("2026-10-13T05:00:00Z") },
+    ];
+    expect(orderQueuedRunsForClaim(cfg, runs).map((r) => r.id)).toEqual(["timer-new", "auto-old", "auto-mid"]);
+    const off = readFleetThrottleConfig({ PAPERCLIP_FLEET_TIMER_PRIORITY: "0" });
+    expect(orderQueuedRunsForClaim(off, runs).map((r) => r.id)).toEqual(["auto-old", "auto-mid", "timer-new"]);
   });
 
   it("orders timer candidates oldest-finished first, never-finished before all", () => {
@@ -91,7 +121,17 @@ describeEmbeddedPostgres("heartbeat fleet throttle (company-wide)", () => {
     }
     runningProcesses.clear();
     // Executed runs create side rows (company_skills, workspaces...) — cascade wipes all.
-    await db.execute(sql`truncate table companies cascade`);
+    // Cancelled runs still finalize in the background; their writes can deadlock the
+    // truncate (40P01), so retry instead of failing an unrelated test.
+    for (let attempt = 0; ; attempt++) {
+      try {
+        await db.execute(sql`truncate table companies cascade`);
+        break;
+      } catch (err) {
+        if ((err as { code?: string }).code !== "40P01" || attempt >= 4) throw err;
+        await new Promise((resolve) => setTimeout(resolve, 500));
+      }
+    }
     setFleetEnv({});
   }, 60_000);
 
@@ -130,13 +170,19 @@ describeEmbeddedPostgres("heartbeat fleet throttle (company-wide)", () => {
     return agentId;
   }
 
-  async function seedQueuedRun(companyId: string, agentId: string) {
+  async function seedQueuedRun(
+    companyId: string,
+    agentId: string,
+    invocationSource = "assignment",
+    createdAt?: Date,
+  ) {
     const runId = randomUUID();
     await db.insert(heartbeatRuns).values({
       id: runId,
       companyId,
       agentId,
-      invocationSource: "assignment",
+      invocationSource,
+      ...(createdAt ? { createdAt } : {}),
       triggerDetail: "system",
       status: "queued",
       contextSnapshot: {},
@@ -241,6 +287,65 @@ describeEmbeddedPostgres("heartbeat fleet throttle (company-wide)", () => {
       .from(heartbeatRuns)
       .where(eq(heartbeatRuns.invocationSource, "timer"));
     expect(timerRunsAfter).toHaveLength(3);
+  }, 60_000);
+
+  it("rule 4: a timer run queued behind 5 older automation runs is claimed first", async () => {
+    setFleetEnv({ PAPERCLIP_FLEET_MAX_RUNNING: "1", PAPERCLIP_FLEET_STARTS_PER_10MIN: "0" });
+    const companyId = await seedCompany();
+    const backlog = await seedAgent(companyId, "Backlog Engineer", { maxConcurrentRuns: 5 });
+    const poster = await seedAgent(companyId, "Timer Poster");
+    for (let i = 0; i < 5; i++) {
+      await seedQueuedRun(companyId, backlog, "automation", new Date(Date.now() - (180 - i) * 60_000));
+    }
+    const timerRunId = await seedQueuedRun(companyId, poster, "timer", new Date());
+
+    await svc.resumeQueuedRuns();
+
+    const running = await db
+      .select({ id: heartbeatRuns.id })
+      .from(heartbeatRuns)
+      .where(eq(heartbeatRuns.status, "running"));
+    expect(running.map((r) => r.id)).toEqual([timerRunId]);
+    expect(await statusCounts(companyId)).toEqual({ running: 1, queued: 5 });
+  }, 60_000);
+
+  it("rule 4: a backlog run finishing cannot hand its freed slot to its own automation run while a timer waits", async () => {
+    setFleetEnv({ PAPERCLIP_FLEET_MAX_RUNNING: "1", PAPERCLIP_FLEET_STARTS_PER_10MIN: "0" });
+    const companyId = await seedCompany();
+    const backlog = await seedAgent(companyId, "Backlog Engineer");
+    const poster = await seedAgent(companyId, "Timer Poster");
+    await seedQueuedRun(companyId, backlog, "automation", new Date(Date.now() - 120 * 60_000));
+    const timerRunId = await seedQueuedRun(companyId, poster, "timer", new Date());
+
+    // The backlog agent's own drain path (what runs when its previous run finishes)
+    // must hold its automation run instead of taking the only free slot.
+    await svc.wakeup(backlog, { source: "automation", triggerDetail: "system" }).catch(() => undefined);
+    const afterOwnDrain = await db
+      .select({ id: heartbeatRuns.id, source: heartbeatRuns.invocationSource })
+      .from(heartbeatRuns)
+      .where(eq(heartbeatRuns.status, "running"));
+    expect(afterOwnDrain.filter((r) => r.source !== "timer")).toEqual([]);
+
+    await svc.resumeQueuedRuns();
+    const running = await db
+      .select({ id: heartbeatRuns.id })
+      .from(heartbeatRuns)
+      .where(eq(heartbeatRuns.status, "running"));
+    expect(running.map((r) => r.id)).toEqual([timerRunId]);
+  }, 60_000);
+
+  it("rule 4: a timer whose agent is paused does not block the fleet", async () => {
+    setFleetEnv({ PAPERCLIP_FLEET_MAX_RUNNING: "1", PAPERCLIP_FLEET_STARTS_PER_10MIN: "0" });
+    const companyId = await seedCompany();
+    const backlog = await seedAgent(companyId, "Backlog Engineer");
+    const poster = await seedAgent(companyId, "Paused Poster");
+    await db.update(agents).set({ status: "paused" }).where(eq(agents.id, poster));
+    const autoRunId = await seedQueuedRun(companyId, backlog, "automation", new Date(Date.now() - 60 * 60_000));
+    await seedQueuedRun(companyId, poster, "timer", new Date());
+
+    await svc.resumeQueuedRuns();
+    const [auto] = await db.select({ status: heartbeatRuns.status }).from(heartbeatRuns).where(eq(heartbeatRuns.id, autoRunId));
+    expect(auto?.status).toBe("running");
   }, 60_000);
 
   it("rule 3: exempt agents bypass the hourly timer cap", async () => {

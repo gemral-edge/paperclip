@@ -12,6 +12,11 @@
  *     hour. Over-cap timer wakes are NOT queued: the tick skips them and re-evaluates
  *     later. Fair pick: agent whose last finished run is oldest goes first.
  *     Assignment / on_demand / automation wakes are exempt from rule 3 (not from 1–2).
+ *  4. Timer priority (GEM-1413): a queued timer run (scheduled posting slot) is claimed
+ *     before a backlog of automation/retry runs. Agents with a queued timer run are
+ *     drained first, and a non-timer claim is held while it would take the last free
+ *     slot that a claimable queued timer run is waiting for. Rule 3 caps timer wakes,
+ *     so automation cannot be starved for long.
  *
  * Config (single place, read at call time so ops can change env + restart):
  *   PAPERCLIP_FLEET_MAX_RUNNING            default 2   (<=0 disables rule 1)
@@ -19,6 +24,7 @@
  *   PAPERCLIP_FLEET_TIMER_WAKES_PER_HOUR   default 3   (<=0 disables rule 3)
  *   PAPERCLIP_FLEET_TIMER_EXEMPT_AGENTS    default ""  (comma list of agent id or name;
  *                                                     exempt from rule 3 only)
+ *   PAPERCLIP_FLEET_TIMER_PRIORITY         default 1   (<=0 disables rule 4)
  */
 
 export const FLEET_MAX_RUNNING_DEFAULT = 2;
@@ -36,6 +42,7 @@ export interface FleetThrottleConfig {
   timerWakesPerHour: number;
   timerWindowMs: number;
   timerExemptAgents: Set<string>;
+  timerPriority: boolean;
 }
 
 function readIntEnv(env: NodeJS.ProcessEnv, key: string, fallback: number) {
@@ -57,6 +64,7 @@ export function readFleetThrottleConfig(env: NodeJS.ProcessEnv = process.env): F
     timerWakesPerHour: readIntEnv(env, "PAPERCLIP_FLEET_TIMER_WAKES_PER_HOUR", FLEET_TIMER_WAKES_PER_HOUR_DEFAULT),
     timerWindowMs: FLEET_TIMER_WINDOW_MS,
     timerExemptAgents: new Set(exempt),
+    timerPriority: readIntEnv(env, "PAPERCLIP_FLEET_TIMER_PRIORITY", 1) > 0,
   };
 }
 
@@ -80,11 +88,18 @@ export function fleetWindowStart(now: Date, windowMs: number, tzOffsetMs = FLEET
 
 export type FleetClaimVerdict =
   | { ok: true }
-  | { ok: false; reason: "max_running" | "start_window"; running: number; startsInWindow: number };
+  | {
+      ok: false;
+      reason: "max_running" | "start_window" | "timer_priority";
+      running: number;
+      startsInWindow: number;
+      pendingTimerRuns?: number;
+    };
 
 export function evaluateFleetClaim(
   config: FleetThrottleConfig,
   counts: { running: number; startsInWindow: number },
+  claim?: { invocationSource: string | null | undefined; pendingTimerRuns: number },
 ): FleetClaimVerdict {
   if (config.maxRunning > 0 && counts.running >= config.maxRunning) {
     return { ok: false, reason: "max_running", ...counts };
@@ -92,7 +107,33 @@ export function evaluateFleetClaim(
   if (config.startsPerWindow > 0 && counts.startsInWindow >= config.startsPerWindow) {
     return { ok: false, reason: "start_window", ...counts };
   }
+  // Rule 4: keep the free slots for claimable queued timer runs.
+  if (config.timerPriority && claim && claim.invocationSource !== "timer" && claim.pendingTimerRuns > 0) {
+    const free = Math.min(
+      config.maxRunning > 0 ? config.maxRunning - counts.running : Infinity,
+      config.startsPerWindow > 0 ? config.startsPerWindow - counts.startsInWindow : Infinity,
+    );
+    if (claim.pendingTimerRuns >= free) {
+      return { ok: false, reason: "timer_priority", ...counts, pendingTimerRuns: claim.pendingTimerRuns };
+    }
+  }
   return { ok: true };
+}
+
+/** Claim order for queued runs: timer runs first (rule 4), then oldest first. */
+export function orderQueuedRunsForClaim<T extends { invocationSource: string | null; createdAt: Date }>(
+  config: FleetThrottleConfig,
+  runs: T[],
+): T[] {
+  const rank = (run: T) => (config.timerPriority && run.invocationSource === "timer" ? 0 : 1);
+  return runs
+    .map((run, index) => ({ run, index }))
+    .sort((a, b) =>
+      rank(a.run) - rank(b.run) ||
+      a.run.createdAt.getTime() - b.run.createdAt.getTime() ||
+      a.index - b.index,
+    )
+    .map((entry) => entry.run);
 }
 
 /**

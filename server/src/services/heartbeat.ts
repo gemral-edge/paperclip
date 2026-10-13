@@ -2,7 +2,7 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { execFile as execFileCallback } from "node:child_process";
 import { promisify } from "node:util";
-import { and, asc, desc, eq, gt, inArray, sql } from "drizzle-orm";
+import { and, asc, desc, eq, gt, inArray, notInArray, sql } from "drizzle-orm";
 import type { Db } from "@paperclipai/db";
 import type { BillingType, ExecutionWorkspace, ExecutionWorkspaceConfig } from "@paperclipai/shared";
 import {
@@ -21,12 +21,13 @@ import { conflict, notFound } from "../errors.js";
 import { logger } from "../middleware/logger.js";
 import { boundedPoll } from "./bounded-poll.js";
 import { publishLiveEvent } from "./live-events.js";
-import { isHeartbeatSkipped } from "./heartbeat-eligibility.js";
+import { HEARTBEAT_SKIP_STATUSES, isHeartbeatSkipped } from "./heartbeat-eligibility.js";
 import {
   evaluateFleetClaim,
   fleetWindowStart,
   isFleetClaimGateEnabled,
   isTimerExempt,
+  orderQueuedRunsForClaim,
   orderTimerCandidatesFairly,
   readFleetThrottleConfig,
   withKeyedLock,
@@ -1987,10 +1988,35 @@ export function heartbeatService(db: Db) {
               sql`(${heartbeatRuns.status} = 'running' or ${heartbeatRuns.startedAt} >= ${windowStart.toISOString()}::timestamptz)`,
             ),
           );
-        const verdict = evaluateFleetClaim(fleet, {
-          running: Number(counts?.running ?? 0),
-          startsInWindow: Number(counts?.startsInWindow ?? 0),
-        });
+        // Rule 4: claimable queued timer runs (agent invokable + no run in flight) that a
+        // non-timer claim must not crowd out. Unclaimable timers are ignored so they can
+        // never block the fleet.
+        let pendingTimerRuns = 0;
+        if (fleet.timerPriority && run.invocationSource !== "timer") {
+          const [pending] = await tx
+            .select({ count: sql<number>`count(*)` })
+            .from(heartbeatRuns)
+            .innerJoin(agents, eq(agents.id, heartbeatRuns.agentId))
+            .where(
+              and(
+                eq(heartbeatRuns.companyId, run.companyId),
+                eq(heartbeatRuns.status, "queued"),
+                eq(heartbeatRuns.invocationSource, "timer"),
+                sql`${heartbeatRuns.id} <> ${run.id}`,
+                notInArray(agents.status, [...HEARTBEAT_SKIP_STATUSES]),
+                sql`not exists (select 1 from heartbeat_runs inflight where inflight.agent_id = ${heartbeatRuns.agentId} and inflight.status = 'running')`,
+              ),
+            );
+          pendingTimerRuns = Number(pending?.count ?? 0);
+        }
+        const verdict = evaluateFleetClaim(
+          fleet,
+          {
+            running: Number(counts?.running ?? 0),
+            startsInWindow: Number(counts?.startsInWindow ?? 0),
+          },
+          { invocationSource: run.invocationSource, pendingTimerRuns },
+        );
         if (!verdict.ok) {
           if (!fleetDeferredRunIds.has(run.id)) {
             if (fleetDeferredRunIds.size > 500) fleetDeferredRunIds.clear();
@@ -2471,14 +2497,20 @@ export function heartbeatService(db: Db) {
     // F2: quét queued bounded 15s (SET LOCAL). Vòng claim/spawn per-agent bên dưới dùng db thường.
     const queuedRuns = await boundedPoll(db, (tx) =>
       tx
-        .select({ agentId: heartbeatRuns.agentId })
+        .select({
+          agentId: heartbeatRuns.agentId,
+          invocationSource: heartbeatRuns.invocationSource,
+          createdAt: heartbeatRuns.createdAt,
+        })
         .from(heartbeatRuns)
         .where(eq(heartbeatRuns.status, "queued"))
         // Fleet throttle fairness: the agent whose run has waited longest goes first.
         .orderBy(asc(heartbeatRuns.createdAt)),
     );
 
-    const agentIds = [...new Set(queuedRuns.map((r) => r.agentId))];
+    // Rule 4 (GEM-1413): agents holding a queued timer run are drained before backlogs.
+    const ordered = orderQueuedRunsForClaim(readFleetThrottleConfig(), queuedRuns);
+    const agentIds = [...new Set(ordered.map((r) => r.agentId))];
     let spawnedPrevious = false;
     for (let i = 0; i < agentIds.length; i++) {
       // GEMRAL FIX 2026-05-10: Stagger subprocess spawning across agents.
@@ -2616,12 +2648,13 @@ export function heartbeatService(db: Db) {
       const availableSlots = Math.max(0, policy.maxConcurrentRuns - runningCount);
       if (availableSlots <= 0) return [];
 
-      const queuedRuns = await db
+      const allQueued = await db
         .select()
         .from(heartbeatRuns)
         .where(and(eq(heartbeatRuns.agentId, agentId), eq(heartbeatRuns.status, "queued")))
-        .orderBy(asc(heartbeatRuns.createdAt))
-        .limit(availableSlots);
+        .orderBy(asc(heartbeatRuns.createdAt));
+      // Rule 4 (GEM-1413): this agent's own timer run goes before its automation backlog.
+      const queuedRuns = orderQueuedRunsForClaim(readFleetThrottleConfig(), allQueued).slice(0, availableSlots);
       if (queuedRuns.length === 0) return [];
 
       const claimedRuns: Array<typeof heartbeatRuns.$inferSelect> = [];
