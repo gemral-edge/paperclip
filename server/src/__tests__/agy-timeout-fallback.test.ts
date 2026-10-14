@@ -72,8 +72,8 @@ describe('resolveAgyFallback', () => {
 
 describe('resolveTimeoutFallback (GEM-1067: claude/gemini cùng lớp lỗi với agy)', () => {
   const env = (o: Record<string, string>) => o as unknown as NodeJS.ProcessEnv;
-  it('claude → gemini flash; gemini → claude sonnet; agy → claude sonnet', () => {
-    expect(resolveTimeoutFallback('claude', env({}))).toEqual({ provider: 'gemini', model: 'gemini-2.5-flash' });
+  it('claude → gemini flash (CHỈ khi LLM_GEMINI_API_FALLBACK=on); gemini → claude sonnet; agy → claude sonnet', () => {
+    expect(resolveTimeoutFallback('claude', env({ LLM_GEMINI_API_FALLBACK: 'on' }))).toEqual({ provider: 'gemini', model: 'gemini-2.5-flash' });
     expect(resolveTimeoutFallback('gemini', env({}))).toEqual({ provider: 'claude', model: 'claude-sonnet-4-6' });
     expect(resolveTimeoutFallback('antigravity', env({}))).toEqual({ provider: 'claude', model: 'claude-sonnet-4-6' });
   });
@@ -81,7 +81,7 @@ describe('resolveTimeoutFallback (GEM-1067: claude/gemini cùng lớp lỗi vớ
     expect(resolveTimeoutFallback('claude', env({ CLAUDE_TIMEOUT_FALLBACK: 'off' }))).toBeNull();
     expect(resolveTimeoutFallback('gemini', env({ CLAUDE_TIMEOUT_FALLBACK: 'off' }))).not.toBeNull();
     expect(resolveTimeoutFallback('gemini', env({ GEMINI_TIMEOUT_FALLBACK_MODEL: ' claude-opus-4-8 ' }))?.model).toBe('claude-opus-4-8');
-    expect(resolveTimeoutFallback('claude', env({ CLAUDE_TIMEOUT_FALLBACK_MODEL: 'gemini-2.5-pro' }))?.model).toBe('gemini-2.5-pro');
+    expect(resolveTimeoutFallback('claude', env({ LLM_GEMINI_API_FALLBACK: 'on', CLAUDE_TIMEOUT_FALLBACK_MODEL: 'gemini-2.5-pro' }))?.model).toBe('gemini-2.5-pro');
   });
   it('provider lạ → null (hành vi cũ)', () => {
     expect(resolveTimeoutFallback('whatever', env({}))).toBeNull();

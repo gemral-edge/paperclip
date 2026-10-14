@@ -42,6 +42,7 @@ import { loadSalesCloserMediaFromCatalog } from './catalog-media-source.js';
 import { selectInlineJson } from './inline-ssot-select.js';
 import { ProviderCrashError, ProviderQuotaError, ProviderTimeoutError, isAgyCrashEmpty, getTimeoutBreaker, resolveTimeoutFallback, runWithTimeoutFallback, withApiTimeout } from './agy-timeout-fallback.js';
 import { loadAgentLinkAllowlist, stripUnlistedLinks } from './link-allowlist.js';
+import { agyReplyTimeoutMs, childEnvWithoutGeminiApi } from './llm-route-policy.js';
 
 // Global event emitter for streaming events
 export const streamEvents = new EventEmitter();
@@ -399,6 +400,8 @@ export async function runAgentWithConfig(
       // Circuit-breaker (GEM-1068): provider timeout liên tiếp → bỏ qua primary một lúc, khách khỏi chờ 5' mỗi tin.
       getTimeoutBreaker(config.provider),
       () => console.warn(`[Router/${config.provider}] ${config.slug}: circuit-breaker MỞ → bỏ qua ${config.provider}, chạy thẳng ${fb?.provider}`),
+      // GEM-1427: caller (gemini-proxy) đóng kết nối → không chạy fallback claude oan vào socket đã đóng.
+      signal,
     );
   };
 
@@ -649,7 +652,7 @@ async function runViaClaude(
     const child = spawnHidden('claude', args, {
       cwd,
       env: {
-        ...process.env,
+        ...childEnvWithoutGeminiApi(process.env),
         GEMRAL_SUPABASE_URL: process.env.GEMRAL_SUPABASE_URL || '',
         GEMRAL_SUPABASE_SERVICE_KEY: process.env.GEMRAL_SUPABASE_SERVICE_KEY || '',
         SHOPIFY_STORE_URL: process.env.SHOPIFY_STORE_URL || '',
@@ -1098,7 +1101,7 @@ async function runViaGemini(
     const child = spawnHidden('gemini', args, {
       cwd,
       env: {
-        ...process.env,
+        ...childEnvWithoutGeminiApi(process.env),
         // Creds for the agent-scoped MCP servers (crm → DB+Shopify, marketing-asset → DB, resend → email)
         GEMRAL_SUPABASE_URL: process.env.GEMRAL_SUPABASE_URL || '',
         GEMRAL_SUPABASE_SERVICE_KEY: process.env.GEMRAL_SUPABASE_SERVICE_KEY || '',
@@ -1435,7 +1438,7 @@ async function runViaAntigravity(
     const child = spawnHidden(agy, args, {
       cwd: PROJECT_ROOT,
       env: {
-        ...process.env,
+        ...childEnvWithoutGeminiApi(process.env),
         GEMRAL_SUPABASE_URL: process.env.GEMRAL_SUPABASE_URL || '',
         GEMRAL_SUPABASE_SERVICE_KEY: process.env.GEMRAL_SUPABASE_SERVICE_KEY || '',
         SUPABASE_URL: process.env.SUPABASE_URL || 'https://pgfkbcnzqozzkohwbgbk.supabase.co',
@@ -1455,7 +1458,7 @@ async function runViaAntigravity(
       timedOut = true;
       child.kill('SIGTERM');
       reject(new ProviderTimeoutError('antigravity', 'Antigravity', config.slug));
-    }, AGENT_TIMEOUT_MS);
+    }, agyReplyTimeoutMs()); // 14/10: 300s → 420s (llm-route-policy.ts), sàn 300s
 
     child.stdout?.setEncoding("utf8");
     child.stdout.on('data', (chunk: Buffer) => {

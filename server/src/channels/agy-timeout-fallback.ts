@@ -11,6 +11,7 @@
 
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { dirname } from 'node:path';
+import { geminiApiFallbackEnabled } from './llm-route-policy.js';
 
 export class ProviderTimeoutError extends Error {
   readonly provider: string;
@@ -114,6 +115,8 @@ export function resolveTimeoutFallback(
   if (!entry) return null;
   const mode = (env[`${entry.envPrefix}_TIMEOUT_FALLBACK`] || 'on').trim().toLowerCase();
   if (mode === 'off' || mode === 'none' || mode === '0' || mode === 'false') return null;
+  // 14/10 chị Jennie: cấm rơi sang Gemini dự phòng (LLM_GEMINI_API_FALLBACK mặc định off) — llm-route-policy.ts.
+  if (entry.provider === 'gemini' && !geminiApiFallbackEnabled(env)) return null;
   const model = (env[`${entry.envPrefix}_TIMEOUT_FALLBACK_MODEL`] || '').trim() || entry.model;
   return { provider: entry.provider, model };
 }
@@ -325,6 +328,7 @@ export async function runWithTimeoutFallback<T>(
   onFallback?: (err: ProviderTimeoutError) => void,
   breaker?: TimeoutCircuitBreaker | null,
   onSkip?: () => void,
+  signal?: AbortSignal,
 ): Promise<T> {
   // Không có fallback ⇒ breaker vô nghĩa (không có chỗ để chuyển) → hành vi cũ.
   const cb = fallback ? breaker ?? null : null;
@@ -333,14 +337,14 @@ export async function runWithTimeoutFallback<T>(
     try {
       return await fallback!();
     } catch (fbErr: any) {
-      if (isAbortError(fbErr)) throw fbErr;
+      if (signal?.aborted || isAbortError(fbErr)) throw fbErr;
       // Mạch mở mà fallback lỗi: thử primary 1 lần xem primary đã hồi phục chưa (GEM-1335)
       try {
         const out = await primary();
         cb.recordSuccess();
         return out;
       } catch (primaryErr) {
-        if (!(primaryErr instanceof ProviderTimeoutError)) {
+        if (signal?.aborted || isAbortError(primaryErr) || !(primaryErr instanceof ProviderTimeoutError)) {
           cb.releaseProbe();
         } else {
           cb.recordTimeout();
@@ -354,7 +358,7 @@ export async function runWithTimeoutFallback<T>(
     cb?.recordSuccess();
     return out;
   } catch (err) {
-    if (!(err instanceof ProviderTimeoutError)) {
+    if (signal?.aborted || isAbortError(err) || !(err instanceof ProviderTimeoutError)) {
       cb?.releaseProbe();
       throw err;
     }
