@@ -3332,8 +3332,12 @@ async function buildSystemPrompt(
     const goalsFilePath = pathResolve(projectRoot, 'memory', 'goals.md');
     tryLoad(goalsFilePath, 'MỤC TIÊU & ĐỊNH HƯỚNG CÔNG TY');
   }
-  const projectsFilePath = pathResolve(projectRoot, 'memory', 'projects.md');
-  tryLoad(projectsFilePath, 'DỰ ÁN ĐANG CHẠY');
+  // memory/projects.md = bảng trạng thái dự án NỘI BỘ (~17,5K ký tự, ~40% prompt gem-master 14/10). Agent trả lời
+  // KHÁCH không dùng tới nó — chỉ làm agy đọc lâu hơn + rủi ro lộ việc nội bộ cho khách (cùng lý do bỏ USER.md 08/10).
+  if (!isCustomerFacingAgent(agentsDir)) {
+    const projectsFilePath = pathResolve(projectRoot, 'memory', 'projects.md');
+    tryLoad(projectsFilePath, 'DỰ ÁN ĐANG CHẠY');
+  }
 
   // 3. Relevant SOPs — walk memory/sops RECURSIVELY. Since the 2026-07 reorg the SOP files
   // live in categorized subdirs (DOC-HTML/, Other_Docs/, SOP_social_media_and_ads/, …) so the
