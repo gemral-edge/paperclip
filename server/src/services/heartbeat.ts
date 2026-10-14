@@ -32,6 +32,7 @@ import {
   readFleetThrottleConfig,
   withKeyedLock,
 } from "./fleet-throttle.js";
+import { lookupAgentConfirmed } from "./agent-lookup-confirm.js";
 import { getRunLogStore, type RunLogHandle } from "./run-log-store.js";
 import { getServerAdapter, runningProcesses, terminateProcessTree } from "../adapters/index.js";
 import type { AdapterExecutionResult, AdapterInvocationMeta, AdapterSessionCodec, UsageSummary } from "../adapters/index.js";
@@ -1076,6 +1077,17 @@ export function heartbeatService(db: Db) {
       .then((rows) => rows[0] ?? null);
   }
 
+  // GEM-1429: a single empty agents read is not proof of deletion — confirm with a second read
+  // before cancelling/failing a run. Throws propagate (run stays queued for the next tick).
+  async function getAgentConfirmed(agentId: string, runId: string) {
+    const outcome = await lookupAgentConfirmed(() => getAgent(agentId));
+    if (outcome.kind === "missing") return null;
+    if (outcome.recoveredOnRetry) {
+      logger.warn({ runId, agentId }, "[heartbeat] agent lookup returned empty once, found on re-read — run kept");
+    }
+    return outcome.agent;
+  }
+
   async function getRun(runId: string) {
     return db
       .select()
@@ -2036,7 +2048,7 @@ export function heartbeatService(db: Db) {
 
   async function claimQueuedRun(run: typeof heartbeatRuns.$inferSelect) {
     if (run.status !== "queued") return run;
-    const agent = await getAgent(run.agentId);
+    const agent = await getAgentConfirmed(run.agentId, run.id);
     if (!agent) {
       await cancelRunInternal(run.id, "Cancelled because the agent no longer exists");
       return null;
@@ -2690,7 +2702,7 @@ export function heartbeatService(db: Db) {
     activeRunExecutions.add(run.id);
 
     try {
-    const agent = await getAgent(run.agentId);
+    const agent = await getAgentConfirmed(run.agentId, run.id);
     if (!agent) {
       await setRunStatus(runId, "failed", {
         error: "Agent not found",
