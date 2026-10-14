@@ -35,6 +35,9 @@ const EXEMPT_PREFIXES = [
   "/channels/facebook-web",
   "/channels/zalo-personal", // Zalo webhook
   "/channels/youtube",
+  // [14/10 EC-086] CHỈ callback (Threads redirect trình duyệt về, không mang key). /oauth/start KHÔNG exempt:
+  // chị bấm start trên localhost:3100 — người lạ không khởi động được luồng gắn token.
+  "/channels/threads/oauth/callback",
 ];
 
 function isRemoteRequest(req: Request): boolean {
