@@ -36,6 +36,11 @@ const PAGE_TOKENS: Record<string, string> = {};
 if (process.env.FB_PAGE_TOKEN_JENNIE) PAGE_TOKENS[process.env.FB_PAGE_ID_JENNIE || '101609408467458'] = process.env.FB_PAGE_TOKEN_JENNIE;
 if (process.env.FB_PAGE_TOKEN_GEMRAL) PAGE_TOKENS[process.env.FB_PAGE_ID_GEMRAL || '893324337205554'] = process.env.FB_PAGE_TOKEN_GEMRAL;
 if (process.env.FB_PAGE_TOKEN_YINYANG) PAGE_TOKENS[process.env.FB_PAGE_ID_YINYANG || '844146582110162'] = process.env.FB_PAGE_TOKEN_YINYANG;
+// Page ngoài 3 Page đã đặt tên (vd Page Yinyang thứ 2 đang nối Instagram) — OAuth ghi FB_PAGE_TOKEN_<pageId>
+for (const [k, v] of Object.entries(process.env)) {
+  const m = /^FB_PAGE_TOKEN_(\d+)$/.exec(k);
+  if (m && v && !PAGE_TOKENS[m[1]]) PAGE_TOKENS[m[1]] = v;
+}
 
 // Page ID → channel name mapping (dynamic from env + hardcoded fallbacks)
 const PAGE_CHANNEL: Record<string, string> = {
@@ -628,8 +633,9 @@ async function setPageToken(pageId: string, token: string, channelName?: string)
   PAGE_CHANNEL[pageId] = ch;
   CHANNEL_PAGE[ch] = pageId;
 
-  // Ghi bền vào .env (chỉ 3 page đã biết có biến env; page lạ chỉ nạp nóng)
-  const envKey = PAGE_ENV_KEY[pageId];
+  // Ghi bền vào .env: 3 page đã đặt tên dùng biến riêng; page khác → FB_PAGE_TOKEN_<pageId>
+  // (trước 14/10 page lạ chỉ nạp nóng → mất token khi restart, Page Yinyang có Instagram bị bỏ sót)
+  const envKey = PAGE_ENV_KEY[pageId] || (/^\d+$/.test(pageId) ? `FB_PAGE_TOKEN_${pageId}` : '');
   if (!envKey) return;
   try {
     const envPath = path.resolve(process.cwd(), '.env');
