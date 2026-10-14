@@ -17,6 +17,10 @@
  *     drained first, and a non-timer claim is held while it would take the last free
  *     slot that a claimable queued timer run is waiting for. Rule 3 caps timer wakes,
  *     so automation cannot be starved for long.
+ *     Plus a reserved slot: non-timer runs may occupy at most
+ *     `maxRunning - timerReservedSlots` running slots, so a multi-hour engineering run
+ *     can never leave a scheduled posting slot waiting (measured 14/10: 8/12 late timer
+ *     runs sat behind a long non-timer run that started before them).
  *
  * Config (single place, read at call time so ops can change env + restart):
  *   PAPERCLIP_FLEET_MAX_RUNNING            default 2   (<=0 disables rule 1)
@@ -25,12 +29,15 @@
  *   PAPERCLIP_FLEET_TIMER_EXEMPT_AGENTS    default ""  (comma list of agent id or name;
  *                                                     exempt from rule 3 only)
  *   PAPERCLIP_FLEET_TIMER_PRIORITY         default 1   (<=0 disables rule 4)
+ *   PAPERCLIP_FLEET_TIMER_RESERVED_SLOTS   default 1   (<=0 disables the reserved slot;
+ *                                                     ignored unless maxRunning > it)
  */
 
 export const FLEET_MAX_RUNNING_DEFAULT = 2;
 export const FLEET_STARTS_PER_WINDOW_DEFAULT = 2;
 export const FLEET_START_WINDOW_MS = 10 * 60 * 1000;
 export const FLEET_TIMER_WAKES_PER_HOUR_DEFAULT = 3;
+export const FLEET_TIMER_RESERVED_SLOTS_DEFAULT = 1;
 export const FLEET_TIMER_WINDOW_MS = 60 * 60 * 1000;
 /** Windows are aligned to Asia/Ho_Chi_Minh wall clock (UTC+7, no DST). */
 export const FLEET_TZ_OFFSET_MS = 7 * 60 * 60 * 1000;
@@ -43,6 +50,7 @@ export interface FleetThrottleConfig {
   timerWindowMs: number;
   timerExemptAgents: Set<string>;
   timerPriority: boolean;
+  timerReservedSlots: number;
 }
 
 function readIntEnv(env: NodeJS.ProcessEnv, key: string, fallback: number) {
@@ -65,6 +73,10 @@ export function readFleetThrottleConfig(env: NodeJS.ProcessEnv = process.env): F
     timerWindowMs: FLEET_TIMER_WINDOW_MS,
     timerExemptAgents: new Set(exempt),
     timerPriority: readIntEnv(env, "PAPERCLIP_FLEET_TIMER_PRIORITY", 1) > 0,
+    timerReservedSlots: Math.max(
+      0,
+      readIntEnv(env, "PAPERCLIP_FLEET_TIMER_RESERVED_SLOTS", FLEET_TIMER_RESERVED_SLOTS_DEFAULT),
+    ),
   };
 }
 
@@ -90,7 +102,7 @@ export type FleetClaimVerdict =
   | { ok: true }
   | {
       ok: false;
-      reason: "max_running" | "start_window" | "timer_priority";
+      reason: "max_running" | "start_window" | "timer_priority" | "timer_reserved";
       running: number;
       startsInWindow: number;
       pendingTimerRuns?: number;
@@ -98,7 +110,7 @@ export type FleetClaimVerdict =
 
 export function evaluateFleetClaim(
   config: FleetThrottleConfig,
-  counts: { running: number; startsInWindow: number },
+  counts: { running: number; startsInWindow: number; runningNonTimer?: number },
   claim?: { invocationSource: string | null | undefined; pendingTimerRuns: number },
 ): FleetClaimVerdict {
   if (config.maxRunning > 0 && counts.running >= config.maxRunning) {
@@ -106,6 +118,16 @@ export function evaluateFleetClaim(
   }
   if (config.startsPerWindow > 0 && counts.startsInWindow >= config.startsPerWindow) {
     return { ok: false, reason: "start_window", ...counts };
+  }
+  // Rule 4 reserved slot: non-timer runs never fill the last `timerReservedSlots` slots.
+  if (
+    claim &&
+    claim.invocationSource !== "timer" &&
+    config.timerReservedSlots > 0 &&
+    config.maxRunning > config.timerReservedSlots &&
+    (counts.runningNonTimer ?? 0) >= config.maxRunning - config.timerReservedSlots
+  ) {
+    return { ok: false, reason: "timer_reserved", ...counts };
   }
   // Rule 4: keep the free slots for claimable queued timer runs.
   if (config.timerPriority && claim && claim.invocationSource !== "timer" && claim.pendingTimerRuns > 0) {

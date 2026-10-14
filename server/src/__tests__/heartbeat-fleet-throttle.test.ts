@@ -30,6 +30,7 @@ const FLEET_ENV_KEYS = [
   "PAPERCLIP_FLEET_TIMER_WAKES_PER_HOUR",
   "PAPERCLIP_FLEET_TIMER_EXEMPT_AGENTS",
   "PAPERCLIP_FLEET_TIMER_PRIORITY",
+  "PAPERCLIP_FLEET_TIMER_RESERVED_SLOTS",
 ] as const;
 
 function setFleetEnv(values: Partial<Record<(typeof FLEET_ENV_KEYS)[number], string>>) {
@@ -76,6 +77,26 @@ describe("fleet throttle pure helpers", () => {
     expect(evaluateFleetClaim(cfg, counts, { invocationSource: "automation", pendingTimerRuns: 0 }).ok).toBe(true);
     const off = readFleetThrottleConfig({ PAPERCLIP_FLEET_TIMER_PRIORITY: "0" });
     expect(evaluateFleetClaim(off, counts, { invocationSource: "automation", pendingTimerRuns: 1 }).ok).toBe(true);
+  });
+
+  it("rule 4: reserved slot keeps non-timer runs to maxRunning - 1, timers may use it", () => {
+    const cfg = readFleetThrottleConfig({});
+    expect(cfg.timerReservedSlots).toBe(1);
+    const oneLongEngineerRun = { running: 1, startsInWindow: 0, runningNonTimer: 1 };
+    expect(evaluateFleetClaim(cfg, oneLongEngineerRun, { invocationSource: "automation", pendingTimerRuns: 0 })).toMatchObject({
+      ok: false,
+      reason: "timer_reserved",
+    });
+    expect(evaluateFleetClaim(cfg, oneLongEngineerRun, { invocationSource: "timer", pendingTimerRuns: 0 }).ok).toBe(true);
+    // A timer holding one slot does not count against the non-timer share.
+    expect(
+      evaluateFleetClaim(cfg, { running: 1, startsInWindow: 0, runningNonTimer: 0 }, { invocationSource: "automation", pendingTimerRuns: 0 }).ok,
+    ).toBe(true);
+    // maxRunning 1 → nothing to reserve; 0 → disabled.
+    const single = readFleetThrottleConfig({ PAPERCLIP_FLEET_MAX_RUNNING: "1" });
+    expect(evaluateFleetClaim(single, { running: 0, startsInWindow: 0, runningNonTimer: 0 }, { invocationSource: "automation", pendingTimerRuns: 0 }).ok).toBe(true);
+    const off = readFleetThrottleConfig({ PAPERCLIP_FLEET_TIMER_RESERVED_SLOTS: "0" });
+    expect(evaluateFleetClaim(off, oneLongEngineerRun, { invocationSource: "automation", pendingTimerRuns: 0 }).ok).toBe(true);
   });
 
   it("rule 4: claim order puts timer runs first, then oldest first", () => {
@@ -202,7 +223,11 @@ describeEmbeddedPostgres("heartbeat fleet throttle (company-wide)", () => {
   }
 
   it("rule 1: 5 agents due at once → only 2 running, the rest stay queued (even with racing claimers)", async () => {
-    setFleetEnv({ PAPERCLIP_FLEET_MAX_RUNNING: "2", PAPERCLIP_FLEET_STARTS_PER_10MIN: "0" });
+    setFleetEnv({
+      PAPERCLIP_FLEET_MAX_RUNNING: "2",
+      PAPERCLIP_FLEET_STARTS_PER_10MIN: "0",
+      PAPERCLIP_FLEET_TIMER_RESERVED_SLOTS: "0",
+    });
     const companyId = await seedCompany();
     for (let i = 0; i < 5; i++) {
       const agentId = await seedAgent(companyId, `Agent ${i}`);
@@ -332,6 +357,28 @@ describeEmbeddedPostgres("heartbeat fleet throttle (company-wide)", () => {
       .from(heartbeatRuns)
       .where(eq(heartbeatRuns.status, "running"));
     expect(running.map((r) => r.id)).toEqual([timerRunId]);
+  }, 60_000);
+
+  it("rule 4: with one long engineering run in flight, a second one waits and the timer gets the free slot", async () => {
+    setFleetEnv({ PAPERCLIP_FLEET_MAX_RUNNING: "2", PAPERCLIP_FLEET_STARTS_PER_10MIN: "0" });
+    const companyId = await seedCompany();
+    const engineerA = await seedAgent(companyId, "Engineer A");
+    const engineerB = await seedAgent(companyId, "Engineer B");
+    const poster = await seedAgent(companyId, "Timer Poster");
+    await seedQueuedRun(companyId, engineerA, "assignment", new Date(Date.now() - 90 * 60_000));
+    await svc.resumeQueuedRuns();
+    expect(await statusCounts(companyId)).toEqual({ running: 1, queued: 0 });
+
+    const engineerBRun = await seedQueuedRun(companyId, engineerB, "automation", new Date(Date.now() - 60 * 60_000));
+    await svc.resumeQueuedRuns();
+    const [held] = await db.select({ status: heartbeatRuns.status }).from(heartbeatRuns).where(eq(heartbeatRuns.id, engineerBRun));
+    expect(held?.status).toBe("queued");
+
+    const timerRunId = await seedQueuedRun(companyId, poster, "timer", new Date());
+    await svc.resumeQueuedRuns();
+    const [timer] = await db.select({ status: heartbeatRuns.status }).from(heartbeatRuns).where(eq(heartbeatRuns.id, timerRunId));
+    expect(timer?.status).toBe("running");
+    expect(await statusCounts(companyId)).toEqual({ running: 2, queued: 1 });
   }, 60_000);
 
   it("rule 4: a timer whose agent is paused does not block the fleet", async () => {

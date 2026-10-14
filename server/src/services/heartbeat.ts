@@ -1991,6 +1991,7 @@ export function heartbeatService(db: Db) {
         const [counts] = await tx
           .select({
             running: sql<number>`count(*) filter (where ${heartbeatRuns.status} = 'running')`,
+            runningNonTimer: sql<number>`count(*) filter (where ${heartbeatRuns.status} = 'running' and ${heartbeatRuns.invocationSource} is distinct from 'timer')`,
             startsInWindow: sql<number>`count(*) filter (where ${heartbeatRuns.startedAt} >= ${windowStart.toISOString()}::timestamptz)`,
           })
           .from(heartbeatRuns)
@@ -2026,6 +2027,7 @@ export function heartbeatService(db: Db) {
           {
             running: Number(counts?.running ?? 0),
             startsInWindow: Number(counts?.startsInWindow ?? 0),
+            runningNonTimer: Number(counts?.runningNonTimer ?? 0),
           },
           { invocationSource: run.invocationSource, pendingTimerRuns },
         );
