@@ -1830,6 +1830,18 @@ router.post('/:slug/test', async (req, res) => {
   const startTime = Date.now();
   const tmpFiles: string[] = [];
 
+  // Hủy ngay subprocess CLI (agy/gemini/claude) khi caller (vd: gemini-proxy ở 38–53.5s)
+  // đóng kết nối HTTP sớm, chống chạy mồ côi tới 300s rồi đốt oan fallback claude-sonnet-4-6
+  // vào socket đã đóng (GEM-1427 / OPS-1014-S1-05).
+  const abortController = new AbortController();
+  const onClientDisconnect = () => {
+    if (!res.writableEnded) {
+      abortController.abort();
+    }
+  };
+  res.once('close', onClientDisconnect);
+  req.once('aborted', onClientDisconnect);
+
   try {
     // Materialize base64 media to tmp files so router resolveMediaToBase64 can read by path
     const resolvedMedia: Array<{ url?: string; path?: string; mimeType: string; filename?: string }> = [];
@@ -1881,9 +1893,15 @@ router.post('/:slug/test', async (req, res) => {
       config as AgentConfig,
       sessionKey,
       message || '',
+      undefined,
+      abortController.signal,
     );
 
     const duration = Date.now() - startTime;
+    if (abortController.signal.aborted || res.writableEnded || res.destroyed) {
+      console.warn(`[AgentTest] Client disconnected early for ${slug} after ${duration}ms — skipping response`);
+      return;
+    }
 
     // Surface outbound media (extracted from [[SEND_MEDIA: id]] markers) so the
     // test UI can preview what would be attached to a real Zalo/FB reply.
@@ -1943,11 +1961,22 @@ router.post('/:slug/test', async (req, res) => {
     });
   } catch (err: any) {
     const duration = Date.now() - startTime;
+    if (
+      abortController.signal.aborted ||
+      err?.name === 'AgentAbortedError' ||
+      res.writableEnded ||
+      res.destroyed
+    ) {
+      console.warn(`[AgentTest] Client disconnected early for ${slug} after ${duration}ms (${err?.message || 'aborted'})`);
+      return;
+    }
     res.status(500).json({
       error: err.message || 'Agent test failed',
       duration_ms: duration,
     });
   } finally {
+    res.off('close', onClientDisconnect);
+    req.off('aborted', onClientDisconnect);
     // Cleanup tmp files
     for (const f of tmpFiles) {
       try { fs.unlinkSync(f); } catch { /* ignore */ }

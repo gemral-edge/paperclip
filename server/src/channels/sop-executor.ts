@@ -364,18 +364,22 @@ async function executeAgentStep(
   });
 
   // Invoke the agent with a hard timeout. We race the agent call against a
-  // timer so a hung provider doesn't stall the entire SOP run.
+  // timer so a hung provider doesn't stall the entire SOP run, and abort the
+  // underlying CLI subprocess on timeout so it does not linger (GEM-1427 §6.5).
   let timedOut = false;
+  const abortController = new AbortController();
+  let timer: ReturnType<typeof setTimeout> | undefined;
   const timeoutPromise = new Promise<string>((_, reject) => {
-    setTimeout(() => {
+    timer = setTimeout(() => {
       timedOut = true;
+      abortController.abort();
       reject(new Error(`Agent step timeout sau ${timeout}ms`));
     }, timeout);
   });
 
   try {
     const reply = await Promise.race([
-      runAgentWithConfig(config, sessionKey, userMessage),
+      runAgentWithConfig(config, sessionKey, userMessage, undefined, abortController.signal),
       timeoutPromise,
     ]);
 
@@ -410,6 +414,8 @@ async function executeAgentStep(
       error: message,
       completedAt: new Date().toISOString(),
     };
+  } finally {
+    if (timer) clearTimeout(timer);
   }
 }
 
