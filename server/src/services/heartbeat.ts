@@ -2472,7 +2472,7 @@ export function heartbeatService(db: Db) {
 
       let retriedRun: typeof heartbeatRuns.$inferSelect | null = null;
       if (shouldRetry) {
-        const agent = await getAgent(run.agentId);
+        const agent = await getAgentConfirmed(run.agentId, run.id);
         if (agent) {
           retriedRun = await enqueueProcessLossRetry(finalizedRun, agent, now);
         }
