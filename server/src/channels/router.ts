@@ -36,7 +36,7 @@ import {
   type PurchaseStage,
 } from './crm/purchase-stage-handler.js';
 import { renderHistoryForPrompt, stripInjectedContext } from './session-history-util.js';
-import { detectPaymentPolicyViolation, PREPAY_POLICY_AGENTS } from './payment-policy.js';
+import { detectPaymentPolicyViolation, NON_SALES_AGENTS, PREPAY_POLICY_AGENTS } from './payment-policy.js';
 import { splitIntoHumanMessages } from './human-message-split.js';
 import { loadSalesCloserMediaFromCatalog } from './catalog-media-source.js';
 import { selectInlineJson } from './inline-ssot-select.js';
@@ -1882,7 +1882,12 @@ const mediaLibraryCache = new Map<string, { lib: MediaLibrary | null; expiresAt:
  * Thương hiệu agent xưng trong luật chat (14/10, plan CSKH-SPLIT §3 bước 3). Trước đây gắn cứng "của Gemral"
  * → yinyang-support trên web Yinyang tự xưng Gemral. Agent không có trong bảng = Gemral như cũ.
  */
-const AGENT_BRAND: Readonly<Record<string, string>> = { 'yinyang-support': 'Yin Yang Masters', 'edge-sales-closer': 'Gemral Edge' };
+const AGENT_BRAND: Readonly<Record<string, string>> = {
+  'yinyang-support': 'Yin Yang Masters',
+  'edge-sales-closer': 'Gemral Edge',
+  // 14/10 (EC-084): bubble jennie.yinyangmasters.com + inbox Page Jennie — team của thương hiệu cá nhân, KHÔNG bán hàng.
+  'jennie-support': 'Jennie Uyên Chu',
+};
 export function agentBrand(slug: string | undefined): string {
   return (slug && AGENT_BRAND[slug]) || 'Gemral';
 }
@@ -2675,6 +2680,13 @@ const ESCALATION_REASON_WHITELIST = new Set([
  * Logs a warning when a violation is scrubbed so we can audit prompt drift.
  */
 const AI_PERSONA_AGENTS = new Set(['gem-master']);
+/**
+ * Agent trả lời trên kênh thương hiệu CÁ NHÂN của chị (14/10, EC-084 jennie-support): tên "Jennie" là tên
+ * thương hiệu công khai (link jennie.yinyangmasters.com, @JennieUyenChu) — Rule 1 đổi tên thành "team chuyên
+ * môn cấp cao" làm hỏng link + câu ("team chuyên môn cấp cao Uyen Chu", ca thật 14/10). Các agent này chỉ
+ * bị chặn cụm nội bộ (sếp em/chị chủ/owner); đời tư vẫn do detectOwnerPersonalInfoLeak chặn.
+ */
+const OWNER_BRAND_AGENTS = new Set(['jennie-support']);
 
 export function scrubBannedPhrases(text: string, agentSlug: string): string {
   if (!text) return text;
@@ -2682,7 +2694,9 @@ export function scrubBannedPhrases(text: string, agentSlug: string): string {
   const violations: string[] = [];
 
   // Rule 1: owner name leak
-  const ownerNameRe = /(chị\s+jennie|dr\.?\s*jennie|jennie\s+uyên\s+chu|jennie(?!\s*team)|sếp\s+em|boss\s+em|chị\s+chủ|owner)/gi;
+  const ownerNameRe = OWNER_BRAND_AGENTS.has(agentSlug)
+    ? /(sếp\s+em|boss\s+em|chị\s+chủ|owner)/gi
+    : /(chị\s+jennie|dr\.?\s*jennie|jennie\s+uyên\s+chu|jennie(?!\s*team)|sếp\s+em|boss\s+em|chị\s+chủ|owner)/gi;
   if (ownerNameRe.test(scrubbed)) {
     violations.push('owner_name');
     // 09/10/2026: reply theo ngôn ngữ khách → câu thay thế cũng theo ngôn ngữ của reply.
@@ -3351,9 +3365,12 @@ async function buildSystemPrompt(
       customerContext.total_orders ? `- Đã mua: ${customerContext.total_orders} đơn` : '',
       '',
       '# VAI TRÒ',
-      isSales
-        ? 'BẠN LÀ TƯ VẤN BÁN HÀNG. Tư vấn sản phẩm, thuyết phục, chốt đơn.'
-        : 'BẠN LÀ CHĂM SÓC SAU MUA. Hỗ trợ, giải quyết vấn đề, giữ chân.',
+      // 14/10 (EC-084): agent không bán hàng (jennie-support) KHÔNG được nhận vai "tư vấn bán hàng, chốt đơn".
+      NON_SALES_AGENTS.has(config.slug)
+        ? 'BẠN LÀ TEAM HỖ TRỢ CỦA THƯƠNG HIỆU. KHÔNG tư vấn bán hàng, KHÔNG chào sản phẩm, KHÔNG chốt đơn — làm đúng phạm vi trong AGENTS.md.'
+        : isSales
+          ? 'BẠN LÀ TƯ VẤN BÁN HÀNG. Tư vấn sản phẩm, thuyết phục, chốt đơn.'
+          : 'BẠN LÀ CHĂM SÓC SAU MUA. Hỗ trợ, giải quyết vấn đề, giữ chân.',
     ].filter(Boolean).join('\n'));
   }
 

@@ -71,3 +71,18 @@ describe('scrubBannedPhrases — tự nhận AI', () => {
     'giữ nguyên: %s', (s) => expect(scrubBannedPhrases(s, 'sales-closer')).not.toMatch(/tư vấn viên/),
   );
 });
+
+// 14/10 (EC-084): jennie-support trả lời trên kênh thương hiệu cá nhân Jennie — tên "Jennie" là tên thương hiệu,
+// đổi thành "team chuyên môn cấp cao" làm hỏng link/handle (ca thật: "team chuyên môn cấp cao Uyen Chu").
+describe('scrubBannedPhrases — kênh thương hiệu cá nhân (jennie-support)', () => {
+  it('giữ tên thương hiệu + link + handle', () => {
+    const s = 'Bạn xem lịch video trên kênh YouTube @JennieUyenChu của chị Jennie nha. Form hợp tác ở https://jennie.yinyangmasters.com/#hop-tac';
+    expect(scrubBannedPhrases(s, 'jennie-support')).toBe(s);
+  });
+  it('vẫn chặn cụm nội bộ "sếp em"', () => {
+    expect(scrubBannedPhrases('Để sếp em xem rồi báo bạn nha', 'jennie-support')).not.toMatch(/sếp em/);
+  });
+  it('agent khác vẫn đổi tên chị như cũ', () => {
+    expect(scrubBannedPhrases('Chị Jennie sẽ trả lời bạn', 'sales-closer')).not.toMatch(/Jennie/i);
+  });
+});

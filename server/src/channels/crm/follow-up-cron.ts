@@ -13,6 +13,7 @@
 import { supabase } from '../zalo-personal/supabase.js';
 import { bus } from '../bus.js';
 import { recordCronRun } from '../../services/cron-registry.js';
+import { NON_SALES_AGENTS } from '../payment-policy.js';
 import type { OutboundMessage } from '../types.js';
 
 const CRON_INTERVAL_MS = 10 * 60 * 1000; // 10 phút
@@ -340,6 +341,11 @@ async function insertFollowup(
   // Agent của KÊNH (SSOT channel_instances.agent_slug) thắng agent cũ ghi trên session — kênh đổi agent thì
   // session cũ vẫn mang sales-closer. Agent không bán Edge → câu vi trung tính (không mời Edge/Scanner).
   const agentSlug = (channelInstance.agent_slug as string | null) || sess.agent_slug;
+  // 14/10 (EC-084): kênh của agent không bán hàng (jennie-support) → không nhắn chăm sóc kiểu bán hàng.
+  if (NON_SALES_AGENTS.has(agentSlug)) {
+    log(`⏭ Bỏ follow-up "${sess.session_key.substring(0, 25)}": agent ${agentSlug} không bán hàng`);
+    return false;
+  }
   const message = lang === 'vi' && agentSlug !== 'sales-closer' && messages.viNeutral ? messages.viNeutral : messages[lang];
 
   const scheduledAt = new Date(Date.now() + 60 * 1000).toISOString();
