@@ -111,6 +111,8 @@ class ChannelManager {
     if (!channel) {
       // Facebook channels have their own outbound handler in webhook.ts — skip silently
       if (msg.channel.startsWith('fb-')) return;
+      // Instagram DM (ig-*) đi chung outbound handler Graph API trong facebook/webhook.ts (EC-089)
+      if (msg.channel.startsWith('ig-')) return;
       // Facebook Web (Reverse Protocol) channels self-handle via FacebookWebChannel.installBusOutboundHandler
       if (msg.channel.startsWith('fbweb-')) return;
       // CSKH internal channel self-handles outbound via CskhChannel.installBusOutboundHandler

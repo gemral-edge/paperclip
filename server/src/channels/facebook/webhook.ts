@@ -11,6 +11,7 @@ import { bus } from '../bus.js';
 import { supabase } from '../zalo-personal/supabase.js';
 import { deliverReplyOnce } from '../deliver-once.js';
 import type { InboundMessage, OutboundMessage } from '../types.js';
+import { loadIgAccounts, verifyMetaSignature, isIgEcho, buildIgInbound, type IgAccount } from './instagram.js';
 
 const router = Router();
 
@@ -49,6 +50,10 @@ const PAGE_CHANNEL: Record<string, string> = {
   [process.env.FB_PAGE_ID_YINYANG || '844146582110162']: 'fb-yinyang',
 };
 
+// Instagram (EC-089): IG account id → {Page, kênh ig-*}. Trả lời dùng Page token của Page nối IG.
+const IG_ACCOUNTS: Record<string, IgAccount> = {};
+for (const a of loadIgAccounts()) IG_ACCOUNTS[a.igId] = a;
+
 // Sender profile cache (avoid hammering Graph API)
 const profileCache = new Map<string, { name: string; expiresAt: number }>();
 const PROFILE_CACHE_TTL = 3600_000; // 1 hour
@@ -75,6 +80,11 @@ router.get('/webhook', (req: Request, res: Response) => {
  */
 router.post('/webhook', async (req: Request, res: Response) => {
   const body = req.body;
+
+  if (body.object === 'instagram') {
+    await handleInstagramWebhook(req, res);
+    return;
+  }
 
   if (body.object !== 'page') {
     res.sendStatus(404);
@@ -113,6 +123,55 @@ router.post('/webhook', async (req: Request, res: Response) => {
     }
   }
 });
+
+/**
+ * Instagram DM webhook (object=instagram). Chữ ký X-Hub-Signature-256 BẮT BUỘC (đường mới, không có
+ * legacy cần chiều) → chặn ai đó POST giả làm khách IG để agent trả lời/ghi rác vào hộp thư.
+ */
+async function handleInstagramWebhook(req: Request, res: Response): Promise<void> {
+  const appSecret = process.env.FB_APP_SECRET || '';
+  const raw = (req as unknown as { rawBody?: Buffer }).rawBody;
+  if (!verifyMetaSignature(raw, req.get('x-hub-signature-256'), appSecret)) {
+    console.warn('[IG] Webhook signature invalid/missing — rejected');
+    res.sendStatus(401);
+    return;
+  }
+  res.sendStatus(200);
+
+  for (const entry of req.body.entry || []) {
+    const acct = IG_ACCOUNTS[String(entry.id)];
+    if (!acct) {
+      console.warn(`[IG] Unknown Instagram account id: ${entry.id}`);
+      continue;
+    }
+    for (const event of entry.messaging || []) {
+      try {
+        await handleInstagramEvent(acct, event);
+      } catch (err: any) {
+        console.error('[IG] Error handling messaging event:', err.message);
+      }
+    }
+  }
+}
+
+async function handleInstagramEvent(acct: IgAccount, event: any): Promise<void> {
+  if (isIgEcho(acct.igId, event)) {
+    // Echo = tin tài khoản IG gửi ra: KHÔNG publish inbound (chống tự trả lời chính mình).
+    // Tin chị gõ tay trong app Instagram → ghi sổ manual (cùng logic Messenger: bỏ qua tin bot đã có sổ).
+    if (event.message?.is_echo) {
+      await handleEchoEvent(acct.channel, event).catch((err) =>
+        console.error('[IG echo] handler failed:', err?.message || err));
+    }
+    return;
+  }
+  const senderId: string | undefined = event?.sender?.id;
+  if (!senderId) return;
+  const senderName = await resolveSenderName(senderId, acct.pageId, 'instagram');
+  const inbound = buildIgInbound(acct, event, senderName);
+  if (!inbound) return;
+  console.log(`[IG] Message from ${inbound.senderName} on ${acct.channel}: ${inbound.content.slice(0, 100)}`);
+  await bus.publishInbound(inbound);
+}
 
 /**
  * Process a single messaging event from Facebook.
@@ -336,8 +395,8 @@ async function handleCommentEvent(pageId: string, channelName: string, value: an
 /**
  * Resolve sender name from Facebook Graph API with caching.
  */
-async function resolveSenderName(senderId: string, pageId: string): Promise<string> {
-  const cacheKey = `${pageId}:${senderId}`;
+async function resolveSenderName(senderId: string, pageId: string, platform: 'facebook' | 'instagram' = 'facebook'): Promise<string> {
+  const cacheKey = `${platform}:${pageId}:${senderId}`;
   const cached = profileCache.get(cacheKey);
   if (cached && cached.expiresAt > Date.now()) {
     return cached.name;
@@ -348,11 +407,15 @@ async function resolveSenderName(senderId: string, pageId: string): Promise<stri
 
   try {
     const profileRes = await fetch(
-      `${GRAPH_API}/${senderId}?fields=first_name,last_name,profile_pic&access_token=${token}`
+      platform === 'instagram'
+        ? `${GRAPH_API}/${senderId}?fields=name,username&access_token=${token}`
+        : `${GRAPH_API}/${senderId}?fields=first_name,last_name,profile_pic&access_token=${token}`
     );
     if (profileRes.ok) {
       const profile = await profileRes.json();
-      const name = `${profile.first_name || ''} ${profile.last_name || ''}`.trim() || senderId;
+      const name = platform === 'instagram'
+        ? (profile.name || (profile.username ? `@${profile.username}` : '') || senderId)
+        : (`${profile.first_name || ''} ${profile.last_name || ''}`.trim() || senderId);
       profileCache.set(cacheKey, { name, expiresAt: Date.now() + PROFILE_CACHE_TTL });
       return name;
     }
@@ -438,7 +501,8 @@ router.post('/send', async (req: Request, res: Response) => {
   //  - Response tới proxy rớt sau Graph OK → transcript ĐÃ có bản này ⇒ người trực không gõ lại.
   //  - Insert lỗi ⇒ KHÔNG gọi Graph (thà 500 còn hơn khách nhận tin mà hệ không có sổ).
   const { data: row, error: claimErr } = await supabase.from('channel_sent_messages').insert({
-    channel_name: PAGE_CHANNEL[page_id] || `fb-${page_id}`,
+    // ig-* dùng chung Page với fb-* → giữ đúng kênh người trực đang gửi, không quy về fb-*.
+    channel_name: (channel_name && CHANNEL_PAGE[channel_name] === page_id ? channel_name : undefined) || PAGE_CHANNEL[page_id] || `fb-${page_id}`,
     thread_id: recipient_id,
     thread_type: 'dm',
     to_uid: recipient_id,
@@ -560,6 +624,8 @@ const CHANNEL_PAGE: Record<string, string> = {};
 for (const [pageId, channelName] of Object.entries(PAGE_CHANNEL)) {
   CHANNEL_PAGE[channelName] = pageId;
 }
+// ig-* → Page nối IG: outbound bus + gửi tay (/send) đi POST /{page_id}/messages recipient=IGSID.
+for (const a of Object.values(IG_ACCOUNTS)) CHANNEL_PAGE[a.channel] = a.pageId;
 
 /**
  * Outbound message handler: subscribe to bus outbound events for fb-* channels.

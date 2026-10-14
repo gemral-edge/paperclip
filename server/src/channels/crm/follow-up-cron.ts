@@ -98,13 +98,15 @@ function stuckLabel(hours: number): string {
 function channelLabel(name: string): string {
   if (name.startsWith('zalo-personal')) return 'Zalo';
   if (name.startsWith('fb-')) return `FB ${name.replace('fb-', '')}`;
+  if (name.startsWith('ig-')) return `IG ${name.replace('ig-', '')}`;
   return name;
 }
 
 const FB_MESSAGING_WINDOW_MS = 24 * 60 * 60 * 1000; // Facebook 24h policy
 
 function isFbChannelOutsideWindow(channelName: string, lastMessageAt: string): boolean {
-  if (!channelName.startsWith('fb-')) return false;
+  // Instagram DM cùng luật cửa sổ 24h của Messenger Platform (EC-089)
+  if (!channelName.startsWith('fb-') && !channelName.startsWith('ig-')) return false;
   return Date.now() - new Date(lastMessageAt).getTime() > FB_MESSAGING_WINDOW_MS;
 }
 
