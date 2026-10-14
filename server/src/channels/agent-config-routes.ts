@@ -1831,6 +1831,58 @@ router.post('/:slug/test', async (req, res) => {
   const startTime = Date.now();
   const tmpFiles: string[] = [];
 
+  // ── Gem Master ASYNC JOB (14/10) ── Cloudflare tunnel cắt 1 request ở ~125s (đo: edge nhận 524 lúc
+  // 125s trong khi agy cần 40-230s). Edge gửi header x-gm-job-id → trả 202 NGAY, chạy agent nền KHÔNG
+  // gắn với kết nối, xong thì tự ghi gem_master_jobs (chỉ khi dòng còn 'pending' + đúng user — edge có
+  // thể đã bỏ cuộc và ghi 'failed' trước). Edge đọc dòng đó để trả cho app/web.
+  const gmJobId = String(req.headers['x-gm-job-id'] || '').trim();
+  if (gmJobId && trainingSessionId?.startsWith('gemmaster:')) {
+    const gmUserId = trainingSessionId.slice('gemmaster:'.length).trim();
+    const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    if (!UUID_RE.test(gmJobId) || !UUID_RE.test(gmUserId) || !hasText) {
+      return res.status(400).json({ error: 'invalid gem master job' });
+    }
+    const callerAgyTimeoutAsync = agyCallerTimeoutMs(req.headers['x-agy-timeout-ms']);
+    if (callerAgyTimeoutAsync) (config as any)._agyTimeoutMs = callerAgyTimeoutAsync;
+    res.status(202).json({ accepted: true, job_id: gmJobId });
+    void (async () => {
+      let reply = '';
+      try {
+        reply = (await AgentRouter.runAgentWithConfig(
+          config as AgentConfig,
+          `training:${slug}:${trainingSessionId}`,
+          message || '',
+        )) || '';
+        const esc = (config as any)._escalation as
+          | { reason: string; priority: 'low' | 'normal' | 'high' | 'urgent'; summary?: string }
+          | undefined;
+        if (esc?.reason === 'agent_output_corrupted') {
+          void containGemMasterCorruptedOutput(gmUserId, message || '', esc).catch((err) =>
+            console.error('[GM-contain] async containment failed', err),
+          );
+          reply = '';
+        }
+      } catch (err: any) {
+        console.error(`[AgentTest/async] ${slug} job ${gmJobId} failed: ${err?.message || err}`);
+        reply = '';
+      }
+      const ok = reply.trim().length > 0;
+      // Hụt: KHÔNG tự đánh 'failed' — chỉ ghi `error` để edge chốt (edge gắn câu "quá tải" + ghi sổ),
+      // nhờ vậy client không bao giờ thấy 'failed' mà reply rỗng.
+      const { error: upErr } = await supabase
+        .from('gem_master_jobs')
+        .update(ok
+          ? { status: 'done', reply: reply.trim(), backend: 'antigravity', finished_at: new Date().toISOString() }
+          : { error: 'paperclip_no_reply' })
+        .eq('id', gmJobId)
+        .eq('user_id', gmUserId)
+        .eq('status', 'pending');
+      if (upErr) console.error(`[AgentTest/async] job ${gmJobId} update failed: ${upErr.message}`);
+      console.log(`[AgentTest/async] ${slug} job ${gmJobId} ${ok ? 'done' : 'failed'} after ${Date.now() - startTime}ms`);
+    })();
+    return;
+  }
+
   // Hủy ngay subprocess CLI (agy/gemini/claude) khi caller (vd: gemini-proxy ở 38–53.5s)
   // đóng kết nối HTTP sớm, chống chạy mồ côi tới 300s rồi đốt oan fallback claude-sonnet-4-6
   // vào socket đã đóng (GEM-1427 / OPS-1014-S1-05).
