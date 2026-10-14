@@ -1892,7 +1892,10 @@ export function agentBrand(slug: string | undefined): string {
  * (14/10, plan CSKH-SPLIT §3 bước 3) cần ảnh crystal y như sales-closer — thiếu thì [[SEND_MEDIA]] câm.
  */
 export const CATALOG_MEDIA_AGENTS: ReadonlyMap<string, ReadonlySet<string> | null> = new Map([
-  ['sales-closer', null],
+  // 14/10 (EC-054): sales-closer chỉ còn kênh VN — KHÔNG gửi ảnh Edge/Scanner (edge-sales-closer lo). Allow-list
+  // = mọi type catalog TRỪ edge/scanner (thêm type mới vào catalog ⇒ nhớ thêm vào đây).
+  ['sales-closer', new Set(['crystal', 'crystal-category', 'course', 'gem-pack', 'brand-asset', 'media-guide',
+                            'lead-magnet', 'chatbot', 'affiliate', 'digital-tool'])],
   ['yinyang-support', new Set(['crystal', 'crystal-category'])],
 ]);
 
