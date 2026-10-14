@@ -116,18 +116,40 @@ export class CskhChannel implements Channel {
     // (khác Zalo gửi qua protocol). Additive: không media → return, reply text như cũ.
     if (!msg.media || msg.media.length === 0) return;
 
-    // Codex H2: a MEDIA-ONLY reply (no text) skipped the claim above, so a duplicate
-    // emit could send the image twice. Claim once here to gate the media dispatch.
-    // (When there was text, the claim above already gated the whole reply.)
+    // Codex H2 + GEM-1423: a MEDIA-ONLY reply (no text, hoặc chunk thuần [[SEND_MEDIA]] sau khi
+    // human-message-split tách) cần deliverReplyOnce chặn gửi trùng, NHƯNG dòng claim trong
+    // channel_sent_messages PHẢI chính là dòng media đầu tiên (update body/content_type/media thật
+    // + mirror sang cskh_messages với origin_message_id = sentRowId), KHÔNG được để lại dòng cổng
+    // body='[media]' mồ côi làm lệch P2 (sent > mirror) và hiện bong bóng '[media]' thừa trong inbox.
     const hadText = !!(msg.content && msg.content.trim());
     if (!hadText && msg.dedupeKey) {
+      let claimedRowConsumed = false;
       const outcome = await deliverReplyOnce(
         msg.dedupeKey,
         { channel_name: msg.channel, thread_id: threadId, thread_type: 'dm', to_uid: threadId,
-          body: '[media]', content_type: 'image', sent_by: sentBy },
-        async () => ({ platformMessageId: null }), // media sent in the loop below
+          body: '[Hình ảnh]', content_type: 'file', sent_by: sentBy },
+        async (sentRowId) => {
+          for (const item of msg.media!) {
+            try {
+              const reuseRowId = !claimedRowConsumed ? sentRowId : null;
+              const didSend = await this.sendMediaToCustomer(
+                threadId, msg.channel, agentSlug, sentBy, item, isVisitor, reuseRowId,
+              );
+              if (didSend && reuseRowId) claimedRowConsumed = true;
+            } catch (err: any) {
+              console.error('[cskh] send media failed:', err?.message || err);
+            }
+          }
+          if (!claimedRowConsumed && sentRowId) {
+            // Không có media item nào gửi được (vd không resolve được URL) → xoá dòng claim tạm
+            // để không để lại dòng channel_sent_messages mồ côi thiếu mirror (P2).
+            await supabase.from('channel_sent_messages').delete().eq('id', sentRowId);
+          }
+          return { platformMessageId: null };
+        },
       );
       if (outcome !== 'sent') return; // duplicate media-only → skip
+      return;
     }
 
     for (const item of msg.media) {
@@ -139,11 +161,16 @@ export class CskhChannel implements Channel {
     }
   }
 
-  /** Gửi 1 media item cho khách CSKH: upload local→bucket public → log inbox + mirror cskh_messages + báo. */
+  /**
+   * Gửi 1 media item cho khách CSKH: upload local→bucket public → log inbox + mirror cskh_messages + báo.
+   * Khi `claimedSentRowId` được truyền vào (chunk thuần media đã qua deliverReplyOnce), tái sử dụng
+   * chính dòng channel_sent_messages đó (update body/content_type/media) thay vì insert dòng thứ 2.
+   * Trả về `true` nếu đã ghi & mirror thành công, `false` nếu bị skip (không có URL hợp lệ).
+   */
   private async sendMediaToCustomer(
     threadId: string, channel: string, agentSlug: string | null, sentBy: string,
-    item: MediaFile, isVisitor: boolean,
-  ): Promise<void> {
+    item: MediaFile, isVisitor: boolean, claimedSentRowId: string | null = null,
+  ): Promise<boolean> {
     const isImg = isImageMedia(item);
     // Resolve local path (path media-library / download url) → upload bucket → public URL.
     const { localPath, cleanup } = await resolveMediaToLocalPath(item);
@@ -157,33 +184,46 @@ export class CskhChannel implements Channel {
     }
     if (!publicUrl) {
       console.warn(`[cskh] media skipped (no servable url): ${item.filename || '(unknown)'}`);
-      return;
+      return false;
     }
     const attachmentType = isImg ? 'image' : 'file';
     const attachFileName = decodeURIComponent((publicUrl.split('?')[0].split('/').pop()) || 'tệp đính kèm');
 
     // Log inbox Paperclip (ảnh→content_type='image'+media[url]; tệp→'file'+body-JSON → FileMsg).
     const sentBody = isImg ? '[Hình ảnh]' : JSON.stringify({ fileName: attachFileName, href: publicUrl });
-    const { data: sentRow, error: sentErr } = await supabase.from('channel_sent_messages').insert({
-      channel_name: channel, thread_id: threadId, thread_type: 'dm', to_uid: threadId,
-      body: sentBody, content_type: attachmentType,
-      media: isImg ? [publicUrl] : null,
-      status: 'sent', sent_by: sentBy,
-    }).select('id').single();
-    if (sentErr) console.error('[cskh] media sent log failed:', sentErr.message);
-    const mediaSentId = (sentRow as { id: string } | null)?.id ?? null;
+    let mediaSentId: string | null = claimedSentRowId;
+    if (claimedSentRowId) {
+      const { error: updErr } = await supabase.from('channel_sent_messages').update({
+        body: sentBody,
+        content_type: attachmentType,
+        media: isImg ? [publicUrl] : null,
+      }).eq('id', claimedSentRowId);
+      if (updErr) console.error('[cskh] media claimed row update failed:', updErr.message);
+    } else {
+      const { data: sentRow, error: sentErr } = await supabase.from('channel_sent_messages').insert({
+        channel_name: channel, thread_id: threadId, thread_type: 'dm', to_uid: threadId,
+        body: sentBody, content_type: attachmentType,
+        media: isImg ? [publicUrl] : null,
+        status: 'sent', sent_by: sentBy,
+      }).select('id').single();
+      if (sentErr) console.error('[cskh] media sent log failed:', sentErr.message);
+      mediaSentId = (sentRow as { id: string } | null)?.id ?? null;
+    }
 
     // Mirror cho khách (role='assistant' = BOT, KHÁC operator 'human'). KHÔNG leak item.caption
     // (LLM meta = description trong media-library, không phải customer-facing; incident Zalo 2026-05-01).
     const preview = isImg ? '📷 Hình ảnh' : '📎 Tệp đính kèm';
     if (isVisitor) {
-      await mirrorReplyToVisitor(threadId, 'assistant', '', mediaSentId, agentSlug, channel, publicUrl, attachmentType);
+      const r = await mirrorReplyToVisitor(threadId, 'assistant', '', mediaSentId, agentSlug, channel, publicUrl, attachmentType);
+      if (r.error) throw new Error(`cskh media mirror failed: ${r.error}`);
       // Qua edge-call (28/07): khoá đúng + KHÔNG nuốt lỗi im lặng như `.catch(()=>{})` cũ.
       void goiEdgeGemral('cskh-notify-offline', { visitor_id: threadId, channel, preview });
     } else {
-      await mirrorReplyToCustomer(threadId, 'assistant', '', mediaSentId, agentSlug, publicUrl, attachmentType);
-      await pushSupportReply(threadId, preview);
+      const r = await mirrorReplyToCustomer(threadId, 'assistant', '', mediaSentId, agentSlug, publicUrl, attachmentType);
+      if (r.error) throw new Error(`cskh media mirror failed: ${r.error}`);
+      try { await pushSupportReply(threadId, preview); } catch (e: any) { console.error('[cskh] media push failed (best-effort):', e?.message || e); }
     }
+    return true;
   }
 
   /** Đọc file local → upload lên bucket cskh-attachments (service_role, public) → public URL. */
