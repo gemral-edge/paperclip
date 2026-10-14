@@ -11,7 +11,7 @@
 
 /** StatusIcon circle: text + border classes */
 export const issueStatusIcon: Record<string, string> = {
-  backlog: "text-muted-foreground border-muted-foreground",
+  backlog: "text-slate-400 border-slate-400 border-dashed",
   todo: "text-blue-600 border-blue-600 dark:text-blue-400 dark:border-blue-400",
   in_progress: "text-yellow-600 border-yellow-600 dark:text-yellow-400 dark:border-yellow-400",
   in_review: "text-violet-600 border-violet-600 dark:text-violet-400 dark:border-violet-400",
@@ -24,7 +24,7 @@ export const issueStatusIconDefault = "text-muted-foreground border-muted-foregr
 
 /** Text-only color for issue statuses (dropdowns, labels) */
 export const issueStatusText: Record<string, string> = {
-  backlog: "text-muted-foreground",
+  backlog: "text-slate-500 dark:text-slate-400",
   todo: "text-blue-600 dark:text-blue-400",
   in_progress: "text-yellow-600 dark:text-yellow-400",
   in_review: "text-violet-600 dark:text-violet-400",
@@ -34,6 +34,16 @@ export const issueStatusText: Record<string, string> = {
 };
 
 export const issueStatusTextDefault = "text-muted-foreground";
+
+export const issueStatusDescription: Record<string, string> = {
+  backlog: "Ý tưởng, ghi nhận tạm thời, chưa ưu tiên làm ngay.",
+  todo: "Đã lên kế hoạch, chuẩn bị làm.",
+  in_progress: "Đang được thực hiện (bởi agent hoặc người).",
+  in_review: "Đang chờ kiểm tra, đánh giá trước khi hoàn thành.",
+  done: "Đã hoàn thành và nghiệm thu.",
+  cancelled: "Đã hủy bỏ, không làm nữa.",
+  blocked: "Đang bị vướng mắc, cần tháo gỡ để làm tiếp.",
+};
 
 // ---------------------------------------------------------------------------
 // Badge colors — used by StatusBadge for all entity types
@@ -67,7 +77,7 @@ export const statusBadge: Record<string, string> = {
   rejected: "bg-red-100 text-red-700 dark:bg-red-900/50 dark:text-red-300",
 
   // Issue statuses — consistent hues with issueStatusIcon above
-  backlog: "bg-muted text-muted-foreground",
+  backlog: "bg-slate-100 text-slate-700 dark:bg-slate-900/50 dark:text-slate-300",
   todo: "bg-blue-100 text-blue-700 dark:bg-blue-900/50 dark:text-blue-300",
   in_progress: "bg-yellow-100 text-yellow-700 dark:bg-yellow-900/50 dark:text-yellow-300",
   in_review: "bg-violet-100 text-violet-700 dark:bg-violet-900/50 dark:text-violet-300",

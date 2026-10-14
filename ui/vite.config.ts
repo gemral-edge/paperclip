@@ -43,6 +43,12 @@ export default defineConfig({
   build: {
     target: "esnext",
     minify: false,
+    // ignoreDynamicRequires: bỏ esbuild dynamic-require scanner → dùng regex thay thế
+    // KHÁC commonjsOptions.ignore (ignore = skip transform hoàn toàn → require() còn lại → browser crash)
+    // ignoreDynamicRequires chỉ skip bước esbuild analysis, vẫn transform CJS→ESM bình thường
+    commonjsOptions: {
+      ignoreDynamicRequires: true,
+    },
   },
   esbuild: false,
 });

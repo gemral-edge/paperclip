@@ -1,8 +1,9 @@
 import { useState } from "react";
 import { cn } from "../lib/utils";
-import { issueStatusIcon, issueStatusIconDefault } from "../lib/status-colors";
+import { issueStatusIcon, issueStatusIconDefault, issueStatusDescription } from "../lib/status-colors";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Button } from "@/components/ui/button";
+import { Tooltip, TooltipContent, TooltipTrigger, TooltipProvider } from "@/components/ui/tooltip";
 
 const allStatuses = ["backlog", "todo", "in_progress", "in_review", "done", "cancelled", "blocked"];
 
@@ -50,21 +51,29 @@ export function StatusIcon({ status, onChange, className, showLabel }: StatusIco
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>{trigger}</PopoverTrigger>
       <PopoverContent className="w-40 p-1" align="start">
-        {allStatuses.map((s) => (
-          <Button
-            key={s}
-            variant="ghost"
-            size="sm"
-            className={cn("w-full justify-start gap-2 text-xs", s === status && "bg-accent")}
-            onClick={() => {
-              onChange(s);
-              setOpen(false);
-            }}
-          >
-            <StatusIcon status={s} />
-            {statusLabel(s)}
-          </Button>
-        ))}
+        <TooltipProvider>
+          {allStatuses.map((s) => (
+            <Tooltip key={s} delayDuration={300}>
+              <TooltipTrigger asChild>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className={cn("w-full justify-start gap-2 text-xs", s === status && "bg-accent")}
+                  onClick={() => {
+                    onChange(s);
+                    setOpen(false);
+                  }}
+                >
+                  <StatusIcon status={s} />
+                  {statusLabel(s)}
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent side="right" className="max-w-[240px]">
+                {issueStatusDescription[s]}
+              </TooltipContent>
+            </Tooltip>
+          ))}
+        </TooltipProvider>
       </PopoverContent>
     </Popover>
   );
