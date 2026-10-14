@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { allowedLinksFromHtml, stripUnlistedLinks } from '../channels/link-allowlist.js';
+import { AGENT_LINK_SOURCES, allowedLinksFromHtml, stripUnlistedLinks } from '../channels/link-allowlist.js';
 
 // 14/10: jennie-support bịa "Instagram: https://www.instagram.com/jennieuyenchu/" — trang Jennie không có link
 // Instagram. Agent có trang nguồn → chỉ được gửi link có NGUYÊN VĂN trong trang (máy chặn, không trông prompt).
@@ -51,5 +51,28 @@ describe('email trong trang nguồn', () => {
   it('email có trong trang → giữ; email bịa → bỏ dòng', () => {
     expect(stripUnlistedLinks('Email: jennieuyenchu@gmail.com', a).removed).toEqual([]);
     expect(stripUnlistedLinks('Email: contact@jennieuyenchu.com', a).removed).toEqual(['contact@jennieuyenchu.com']);
+  });
+});
+
+// 14/10 mở rộng cho agent bán hàng — đo 30 ngày: 6 link ngoài danh sách = 1 bịa (gemral.com/product/tu-duy-trieu-phu 404)
+// + 2 link thật thêm đoạn ngôn ngữ /vi/ + 3 ảnh kho Supabase.
+describe('agent bán hàng: đoạn ngôn ngữ + kho ảnh', () => {
+  const a = allowedLinksFromHtml('"url": "https://yinyang-web.vercel.app/products/duyen-khoi-thach" https://www.gemral.com/product/duyen-khoi-thach', null);
+  it('thêm /vi/ vào link thật → vẫn giữ', () => {
+    expect(stripUnlistedLinks('https://yinyang-web.vercel.app/vi/products/duyen-khoi-thach', a).removed).toEqual([]);
+  });
+  it('ảnh kho Supabase công khai → giữ', () => {
+    expect(stripUnlistedLinks('https://pgfkbcnzqozzkohwbgbk.supabase.co/storage/v1/object/public/cskh-attachments/cskh/x.jpg', a).removed).toEqual([]);
+  });
+  it('đường dẫn bịa trên chính tên miền của mình (404 thật) → bỏ', () => {
+    expect(stripUnlistedLinks('Xem tại https://www.gemral.com/product/tu-duy-trieu-phu', a).removed).toHaveLength(1);
+  });
+});
+
+describe('AGENT_LINK_SOURCES', () => {
+  it('đăng ký đủ agent trả lời khách', () => {
+    for (const s of ['jennie-support', 'sales-closer', 'yinyang-support', 'edge-sales-closer']) {
+      expect(AGENT_LINK_SOURCES[s]).toBeDefined();
+    }
   });
 });
