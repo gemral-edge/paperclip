@@ -319,6 +319,58 @@ export async function isSessionPaused(sessionKey: string): Promise<boolean> {
   }
 }
 
+/**
+ * Lý do "khách CHƯA nhận gì" — phiếu loại này hết nghĩa khi bot đã gửi được câu trả lời sau đó
+ * trên cùng phiên (thử lại / tin kế tiếp / chạy lại sau restart). 14/10 TK-20261014-001: phiếu
+ * agent_silent mở lúc 13:18, bot trả lời 14:47 cùng tin đó mà phiếu vẫn mở → nhắc 18:00 báo sai
+ * "khách đang chờ". Phiếu lý do khác (khách bức xúc, đơn hàng…) KHÔNG tự đóng.
+ */
+export const AUTO_RESOLVE_ON_REPLY_REASONS = ['agent_silent', 'agent_output_corrupted'] as const;
+
+/**
+ * Bot vừa gửi được câu trả lời trên phiên → đóng các phiếu "khách chưa nhận gì" còn mở của phiên đó.
+ * Best-effort, không ném lỗi (không được làm hỏng luồng gửi). Trả số phiếu đã đóng.
+ */
+export async function autoResolveNoReplyTickets(sessionKey: string, agentSlug: string): Promise<number> {
+  if (!sessionKey) return 0;
+  try {
+    const { data: open } = await supabase
+      .from('crm_tickets')
+      .select('id, ticket_number, metadata, timeline')
+      .eq('source_session_key', sessionKey)
+      .in('status', ['open', 'pending', 'in_progress'])
+      .in('metadata->>escalation_reason', [...AUTO_RESOLVE_ON_REPLY_REASONS])
+      .limit(20);
+    let closed = 0;
+    const nowIso = new Date().toISOString();
+    for (const t of (open || []) as Array<{ id: string; ticket_number?: string; metadata?: any; timeline?: any }>) {
+      const note = `Tự đóng: bot ${agentSlug} đã gửi được câu trả lời trên phiên này sau khi phiếu mở`;
+      const timeline = Array.isArray(t.timeline) ? t.timeline : [];
+      const { error } = await supabase
+        .from('crm_tickets')
+        .update({
+          status: 'resolved',
+          resolved_at: nowIso,
+          updated_at: nowIso,
+          metadata: { ...(t.metadata || {}), resolution_note: note, resolved_by: 'auto:reply_delivered' },
+          timeline: [...timeline, { at: nowIso, by: `auto:${agentSlug}`, action: 'resolved', note }],
+        })
+        .eq('id', t.id)
+        .in('status', ['open', 'pending', 'in_progress']);
+      if (error) {
+        console.warn(`[Escalation/${agentSlug}] auto-resolve ${t.ticket_number ?? t.id} failed: ${error.message}`);
+      } else {
+        closed++;
+        console.log(`[Escalation/${agentSlug}] ✓ Auto-resolved ${t.ticket_number ?? t.id} (bot replied later)`);
+      }
+    }
+    return closed;
+  } catch (err: any) {
+    console.warn(`[Escalation/${agentSlug}] auto-resolve check failed: ${err?.message}`);
+    return 0;
+  }
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 
 function mapReasonToCategory(reason: string): string {

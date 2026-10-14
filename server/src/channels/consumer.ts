@@ -15,7 +15,7 @@ import { supabase } from './zalo-personal/supabase.js';
 import { CustomerResolver } from './crm/customer-resolver.js';
 import { ContextBuilder } from './crm/context-builder.js';
 import { AISummarizer } from './crm/ai-summarizer.js';
-import { handleEscalation, isSessionPaused, type EscalationContext } from './crm/escalation-handler.js';
+import { autoResolveNoReplyTickets, handleEscalation, isSessionPaused, type EscalationContext } from './crm/escalation-handler.js';
 import { persistPurchaseStage, type PurchaseStage } from './crm/purchase-stage-handler.js';
 import { buildHumanReplyBlock } from './human-reply-block.js';
 import { extractEntitiesAsync } from './kg-extractor.js';
@@ -1281,6 +1281,12 @@ async function processResolved(
 
       // ── Step 11: Update pending message status (whole coalesced batch) ──
       await markBatch(agentSlug, 'handled');
+
+      // Bot đã gửi được câu trả lời → phiếu "khách chưa nhận gì" (agent_silent/agent_output_corrupted)
+      // còn mở của phiên này hết đúng (14/10 TK-20261014-001). Không đóng nếu chính lượt này vừa escalate.
+      if (!escalation && merged.peerKind !== 'group' && merged.peerKind !== 'comment') {
+        autoResolveNoReplyTickets(sessionKey, agentSlug).catch(() => { /* best-effort */ });
+      }
 
       // ── KG: Fire-and-forget entity extraction from chat ──
       extractEntitiesAsync(merged.content, replyText, agentSlug);
