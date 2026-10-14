@@ -44,3 +44,12 @@ describe('link allowlist (trang nguồn)', () => {
     expect(stripUnlistedLinks('Chào bạn nha', allow)).toEqual({ text: 'Chào bạn nha', removed: [] });
   });
 });
+
+describe('email trong trang nguồn', () => {
+  const a = allowedLinksFromHtml('<script>{"email": "jennieuyenchu@gmail.com"}</script>', 'https://jennie.yinyangmasters.com');
+  it('thu email công khai', () => expect([...a.emails]).toEqual(['jennieuyenchu@gmail.com']));
+  it('email có trong trang → giữ; email bịa → bỏ dòng', () => {
+    expect(stripUnlistedLinks('Email: jennieuyenchu@gmail.com', a).removed).toEqual([]);
+    expect(stripUnlistedLinks('Email: contact@jennieuyenchu.com', a).removed).toEqual(['contact@jennieuyenchu.com']);
+  });
+});

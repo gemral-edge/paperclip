@@ -107,3 +107,17 @@ describe('scrubBannedPhrases — không đụng link/handle', () => {
     expect(out).toBe('team chuyên môn cấp cao gửi bạn link https://www.youtube.com/@JennieUyenChu nha');
   });
 });
+
+// 14/10: email hợp tác CÔNG KHAI trên trang Jennie (jennieuyenchu@gmail.com) bị coi là "gmail riêng" → chặn cả tin.
+describe('detectOwnerPersonalInfoLeak — liên hệ công khai của trang nguồn', () => {
+  const s = 'Bên bạn gửi đề xuất tài trợ cho chị Jennie qua email jennieuyenchu@gmail.com nha';
+  it('liên hệ có trong danh sách công khai → không chặn', () => {
+    expect(detectOwnerPersonalInfoLeak(s, ['jennieuyenchu@gmail.com'])).toBe(false);
+  });
+  it('không truyền danh sách → vẫn chặn như cũ', () => {
+    expect(detectOwnerPersonalInfoLeak(s)).toBe(true);
+  });
+  it('gmail KHÁC (không công khai) vẫn chặn', () => {
+    expect(detectOwnerPersonalInfoLeak('Gmail riêng của chị Jennie là abc@gmail.com', ['jennieuyenchu@gmail.com'])).toBe(true);
+  });
+});

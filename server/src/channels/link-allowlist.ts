@@ -13,10 +13,12 @@ export const AGENT_LINK_SOURCES: Record<string, { file: string; siteOrigin: stri
 
 export interface LinkAllowlist {
   urls: Set<string>;
+  emails: Set<string>;
   siteOrigin: string;
 }
 
 const URL_RE = /https?:\/\/[^\s<>"')\]]+/gi;
+const EMAIL_RE = /[\w.+-]+@[\w-]+(?:\.[\w-]+)+/gi;
 
 function normalize(url: string): string {
   return url.replace(/[.,!?;:…]+$/, '').replace(/\/+$/, '').toLowerCase();
@@ -26,7 +28,9 @@ export function allowedLinksFromHtml(html: string, siteOrigin: string): LinkAllo
   // MỌI link trong trang (href + JSON-LD sameAs …), không chỉ href — 14/10 chỉ đọc href nên chặn oan Instagram thật.
   const urls = new Set<string>();
   for (const m of html.matchAll(URL_RE)) urls.add(normalize(m[0]));
-  return { urls, siteOrigin: normalize(siteOrigin) };
+  const emails = new Set<string>();
+  for (const m of html.matchAll(EMAIL_RE)) emails.add(m[0].toLowerCase());
+  return { urls, emails, siteOrigin: normalize(siteOrigin) };
 }
 
 function isAllowed(url: string, allow: LinkAllowlist): boolean {
@@ -35,11 +39,13 @@ function isAllowed(url: string, allow: LinkAllowlist): boolean {
   return allow.urls.has(n);
 }
 
-/** Bỏ nguyên DÒNG có link không nằm trong danh sách (để khỏi sót nhãn trơ "Instagram:"). */
+/** Bỏ nguyên DÒNG có link/email không nằm trong danh sách (để khỏi sót nhãn trơ "Instagram:"). */
 export function stripUnlistedLinks(text: string, allow: LinkAllowlist): { text: string; removed: string[] } {
   const removed: string[] = [];
   const kept = text.split('\n').filter((line) => {
-    const bad = (line.match(URL_RE) || []).filter((u) => !isAllowed(u, allow));
+    // Email: bỏ phần URL trước để "x@y" trong link (vd youtube.com/@x) không bị đọc thành email.
+    const badEmails = (line.replace(URL_RE, ' ').match(EMAIL_RE) || []).filter((e) => !allow.emails.has(e.toLowerCase()));
+    const bad = [...(line.match(URL_RE) || []).filter((u) => !isAllowed(u, allow)), ...badEmails];
     removed.push(...bad);
     return bad.length === 0;
   });

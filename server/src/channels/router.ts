@@ -2455,9 +2455,13 @@ export function detectOperatorReportLeak(reply: string): string | null {
 /** true khi reply nói về đời tư chủ/người sáng lập (owner + thuộc tính cá nhân trong cùng ~80 ký tự). */
 const OWNER_REF_RE = /(jennie|uyên\s+chu|người\s+sáng\s+lập|nhà\s+sáng\s+lập|founder|chủ\s+(?:shop|gemral|công\s+ty|doanh\s+nghiệp)|sếp\s+(?:em|mình|bên\s+em)|bà\s+chủ|chị\s+chủ|owner|team\s+chuyên\s+môn\s+cấp\s+cao)/iu;
 const PERSONAL_ATTR_RE = /(ngày\s+sinh|sinh\s+(?:năm|ngày|tháng)|năm\s+sinh|bao\s+nhiêu\s+tuổi|\d+\s+tuổi|lá\s+số|tử\s+vi\s+của|cung\s+hoàng\s+đạo\s+của|địa\s+chỉ\s+nhà|nhà\s+ở|đang\s+sống\s+ở|quê\s+(?:ở|quán)|số\s+điện\s+thoại\s+(?:riêng|cá\s+nhân)|sđt\s+(?:riêng|cá\s+nhân)|căn\s+cước|cccd|cmnd|hộ\s+chiếu|passport|chồng|vợ|người\s+yêu|con\s+(?:gái|trai)|gia\s+đình|email\s+(?:riêng|cá\s+nhân)|gmail)/iu;
-export function detectOwnerPersonalInfoLeak(reply: string): boolean {
+export function detectOwnerPersonalInfoLeak(reply: string, publicContacts: string[] = []): boolean {
   if (!reply) return false;
-  const text = reply.normalize('NFC');
+  // 14/10: liên hệ CÔNG KHAI trên trang nguồn của agent (email hợp tác, link kênh) không phải đời tư.
+  let text = reply.normalize('NFC');
+  for (const c of publicContacts) {
+    if (c) text = text.replace(new RegExp(c.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'gi'), ' ');
+  }
   const g = new RegExp(OWNER_REF_RE.source, 'giu');
   for (const m of text.matchAll(g)) {
     const start = Math.max(0, (m.index ?? 0) - 80);
@@ -2595,7 +2599,9 @@ export async function postProcessReply(
   // ── Final defense: owner personal-info leak (chị Jennie 08/10/2026) ──
   // Reply nói về đời tư người sáng lập/chủ (ngày sinh, địa chỉ, SĐT riêng, căn cước, gia đình…) →
   // chặn CẢ câu, im lặng + báo người. Rule 1 chỉ đổi TÊN; câu "người sáng lập sinh năm…" không có tên vẫn lộ.
-  if (detectOwnerPersonalInfoLeak(reply)) {
+  const ownAllow = loadAgentLinkAllowlist(config.slug, PROJECT_ROOT);
+  const publicContacts = ownAllow ? [...ownAllow.emails, ...ownAllow.urls] : [];
+  if (detectOwnerPersonalInfoLeak(reply, publicContacts)) {
     console.error(
       `[Router/${config.provider}] ${config.slug}: postProcessReply REFUSED owner personal-info leak `
         + `(${reply.length} chars). Head: ${JSON.stringify(reply.slice(0, 200))}`,
