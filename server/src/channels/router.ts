@@ -41,6 +41,7 @@ import { splitIntoHumanMessages } from './human-message-split.js';
 import { loadSalesCloserMediaFromCatalog } from './catalog-media-source.js';
 import { selectInlineJson } from './inline-ssot-select.js';
 import { ProviderCrashError, ProviderQuotaError, ProviderTimeoutError, isAgyCrashEmpty, getTimeoutBreaker, resolveTimeoutFallback, runWithTimeoutFallback, withApiTimeout } from './agy-timeout-fallback.js';
+import { loadAgentLinkAllowlist, stripUnlistedLinks } from './link-allowlist.js';
 
 // Global event emitter for streaming events
 export const streamEvents = new EventEmitter();
@@ -2514,6 +2515,16 @@ export async function postProcessReply(
   }
 
   let cleaned = scrubBannedPhrases(reply, config.slug);
+
+  // Chốt link bịa (14/10): agent có trang nguồn chỉ gửi link có nguyên văn trong trang (link-allowlist.ts).
+  const linkAllow = loadAgentLinkAllowlist(config.slug, PROJECT_ROOT);
+  if (linkAllow) {
+    const { text, removed } = stripUnlistedLinks(cleaned, linkAllow);
+    if (removed.length) {
+      console.warn(`[Router/links] ${config.slug}: bỏ ${removed.length} link không có trong trang nguồn: ${removed.join(', ')}`);
+      cleaned = text;
+    }
+  }
 
   // ── Collapse guard: scrub nuked ALL real content (incident 2026-06-10) ──
   // When the agent leaks Claude-Code explanatory output (★ Insight blocks, **bold**,
