@@ -11,7 +11,7 @@ import { bus } from '../bus.js';
 import { supabase } from '../zalo-personal/supabase.js';
 import { deliverReplyOnce } from '../deliver-once.js';
 import type { InboundMessage, OutboundMessage } from '../types.js';
-import { loadIgAccounts, verifyMetaSignature, isIgEcho, buildIgInbound, type IgAccount } from './instagram.js';
+import { loadIgAccounts, requireMetaSignature, isIgEcho, buildIgInbound, type IgAccount } from './instagram.js';
 
 const router = Router();
 
@@ -48,6 +48,9 @@ const PAGE_CHANNEL: Record<string, string> = {
   [process.env.FB_PAGE_ID_JENNIE || '101609408467458']: 'fb-jennie',
   [process.env.FB_PAGE_ID_GEMRAL || '893324337205554']: 'fb-gemral',
   [process.env.FB_PAGE_ID_YINYANG || '844146582110162']: 'fb-yinyang',
+  // Page Yinyang THỨ 2 "Tinh thể đá quý" (nối IG @yinyangmasters): Messenger vào fb-yinyang-ig,
+  // agent yinyang-support như ig-yinyang (brand_asset_map yinyang-instagram). Thiếu dòng này = "Unknown page ID" drop.
+  [process.env.FB_PAGE_ID_YINYANG_IG || '578361712032089']: 'fb-yinyang-ig',
 };
 
 // Instagram (EC-089): IG account id → {Page, kênh ig-*}. Trả lời dùng Page token của Page nối IG.
@@ -78,7 +81,7 @@ router.get('/webhook', (req: Request, res: Response) => {
 /**
  * POST /api/channels/facebook/webhook — receive inbound messages
  */
-router.post('/webhook', async (req: Request, res: Response) => {
+router.post('/webhook', requireMetaSignature(() => process.env.FB_APP_SECRET || ''), async (req: Request, res: Response) => {
   const body = req.body;
 
   if (body.object === 'instagram') {
@@ -125,17 +128,10 @@ router.post('/webhook', async (req: Request, res: Response) => {
 });
 
 /**
- * Instagram DM webhook (object=instagram). Chữ ký X-Hub-Signature-256 BẮT BUỘC (đường mới, không có
- * legacy cần chiều) → chặn ai đó POST giả làm khách IG để agent trả lời/ghi rác vào hộp thư.
+ * Instagram DM webhook (object=instagram). Chữ ký X-Hub-Signature-256 đã kiểm ở middleware
+ * requireMetaSignature của POST /webhook (áp MỌI object, kể cả page).
  */
 async function handleInstagramWebhook(req: Request, res: Response): Promise<void> {
-  const appSecret = process.env.FB_APP_SECRET || '';
-  const raw = (req as unknown as { rawBody?: Buffer }).rawBody;
-  if (!verifyMetaSignature(raw, req.get('x-hub-signature-256'), appSecret)) {
-    console.warn('[IG] Webhook signature invalid/missing — rejected');
-    res.sendStatus(401);
-    return;
-  }
   res.sendStatus(200);
 
   for (const entry of req.body.entry || []) {

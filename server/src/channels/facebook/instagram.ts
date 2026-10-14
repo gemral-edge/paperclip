@@ -46,6 +46,25 @@ export function verifyMetaSignature(rawBody: Buffer | string | undefined, header
 }
 
 /**
+ * Middleware cho POST /webhook: MỌI object Meta gửi (page · instagram · …) phải có X-Hub-Signature-256
+ * hợp lệ trên raw body (app.ts express.json verify giữ req.rawBody). Thiếu/sai → 401, không xử lý.
+ * Trước 14/10 chỉ nhánh instagram kiểm → ai cũng POST giả tin Messenger được (agent trả lời + ghi hộp thư).
+ * Đo 14/10: chỉ app 998 đăng ký webhook cả 5 Page, FB_APP_SECRET khớp app đó (appsecret_proof OK).
+ */
+export function requireMetaSignature(getSecret: () => string) {
+  return (req: any, res: any, next: () => void): void => {
+    const secret = getSecret();
+    if (!verifyMetaSignature(req.rawBody, req.get('x-hub-signature-256'), secret)) {
+      const why = !secret ? 'FB_APP_SECRET missing' : !req.get('x-hub-signature-256') ? 'header missing' : 'mismatch';
+      console.warn(`[FB] Webhook signature rejected (${why}) object=${req.body?.object ?? '?'}`);
+      res.sendStatus(401);
+      return;
+    }
+    next();
+  };
+}
+
+/**
  * Echo = tin do CHÍNH tài khoản IG gửi ra (bot Send API / chị gõ tay app Instagram).
  * IG gửi echo trong field `messages` với `message.is_echo=true` và sender.id = IG account id.
  * Kiểm cả 2 dấu hiệu để không bao giờ coi tin của mình là tin khách (vòng lặp tự trả lời).

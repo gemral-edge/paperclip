@@ -2,8 +2,10 @@
 import { createHmac } from "crypto";
 import { readFileSync } from "fs";
 import path from "path";
+import express from "express";
+import request from "supertest";
 import { describe, expect, it } from "vitest";
-import { buildIgInbound, isIgEcho, loadIgAccounts, verifyMetaSignature } from "../channels/facebook/instagram.js";
+import { buildIgInbound, isIgEcho, loadIgAccounts, requireMetaSignature, verifyMetaSignature } from "../channels/facebook/instagram.js";
 
 const accts = loadIgAccounts({} as NodeJS.ProcessEnv);
 const byId = Object.fromEntries(accts.map((a) => [a.igId, a]));
@@ -92,14 +94,55 @@ describe("wiring guard — webhook.ts + manager.ts", () => {
   const dir = path.resolve(__dirname, "../channels");
   const webhook = readFileSync(path.join(dir, "facebook/webhook.ts"), "utf8");
   const manager = readFileSync(path.join(dir, "manager.ts"), "utf8");
-  it("POST /webhook nhận object instagram (không 404) + bắt buộc chữ ký", () => {
+  it("POST /webhook nhận object instagram (không 404) + chữ ký ở middleware cho MỌI object", () => {
     expect(webhook).toMatch(/body\.object === 'instagram'/);
-    expect(webhook).toMatch(/verifyMetaSignature\(raw, req\.get\('x-hub-signature-256'\)/);
+    expect(webhook).toMatch(/router\.post\('\/webhook', requireMetaSignature\(/);
+  });
+  it("Page Yinyang thứ 2 (578361712032089) có kênh fb-yinyang-ig (không 'Unknown page ID')", () => {
+    expect(webhook).toMatch(/'578361712032089'\]: 'fb-yinyang-ig'/);
   });
   it("ig-* có trong CHANNEL_PAGE để outbound gửi qua Page", () => {
     expect(webhook).toMatch(/CHANNEL_PAGE\[a\.channel\] = a\.pageId/);
   });
   it("manager không ghi 'failed Channel not found' cho ig-*", () => {
     expect(manager).toMatch(/startsWith\('ig-'\)\) return;/);
+  });
+});
+
+describe("requireMetaSignature — POST /webhook mọi object (object=page lẫn instagram)", () => {
+  const secret = "test_secret";
+  function app() {
+    const a = express();
+    a.use(express.json({ verify: (req, _res, buf) => { (req as any).rawBody = buf; } }));
+    a.post("/webhook", requireMetaSignature(() => secret), (req, res) => res.json({ reached: true, object: req.body.object }));
+    return a;
+  }
+  const body = JSON.stringify({ object: "page", entry: [{ id: "101609408467458", messaging: [] }] });
+  const sign = (b: string, s = secret) => "sha256=" + createHmac("sha256", s).update(b).digest("hex");
+  const post = () => request(app()).post("/webhook").set("content-type", "application/json");
+
+  it("object=page KHÔNG chữ ký → 401", async () => {
+    const res = await post().send(body);
+    expect(res.status).toBe(401);
+  });
+  it("object=page chữ ký sai secret → 401", async () => {
+    const res = await post().set("x-hub-signature-256", sign(body, "wrong")).send(body);
+    expect(res.status).toBe(401);
+  });
+  it("object=page chữ ký ký trên body KHÁC (body bị sửa) → 401", async () => {
+    const res = await post().set("x-hub-signature-256", sign(body)).send(body.replace("101609408467458", "1"));
+    expect(res.status).toBe(401);
+  });
+  it("object=page chữ ký đúng → 200 qua handler", async () => {
+    const res = await post().set("x-hub-signature-256", sign(body)).send(body);
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({ reached: true, object: "page" });
+  });
+  it("thiếu FB_APP_SECRET → 401 (fail-closed)", async () => {
+    const a = express();
+    a.use(express.json({ verify: (req, _res, buf) => { (req as any).rawBody = buf; } }));
+    a.post("/webhook", requireMetaSignature(() => ""), (_req, res) => res.json({ reached: true }));
+    const res = await request(a).post("/webhook").set("content-type", "application/json").set("x-hub-signature-256", sign(body)).send(body);
+    expect(res.status).toBe(401);
   });
 });
