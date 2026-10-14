@@ -783,6 +783,22 @@ const NODE_TIMER_SEEDS: NodeTimerSeed[] = [
     },
   },
   {
+    id: 'node-threads-token-refresh',
+    display_name: 'Threads API Token Refresh',
+    cron_expression: 'every 21600s',
+    category: 'channel',
+    owner_ref: 'paperclip_server',
+    description: 'Refreshes Threads long-lived tokens (THREADS_TOKEN_*) when <10 days remain',
+    priority: 'high',
+    source_file: 'paperclip/server/src/channels/threads/token-store.ts',
+    execution_spec: {
+      reads_tables: [],
+      writes_tables: [],
+      output_endpoint: 'paperclip/server/.env THREADS_TOKEN_* + THREADS_TOKEN_EXPIRES_AT_*',
+      description_detail: 'Mỗi 6 giờ (lần đầu 60s sau khởi động) đọc token Threads từng tài khoản (jennie, gemral_edge). Còn <10 ngày và token ≥24h tuổi → gọi graph.threads.net/refresh_access_token (th_refresh_token) → ghi .env + nạp nóng. Hết hạn → log lỗi, phải bấm lại /api/channels/threads/oauth/start. Probe gác: crypto scripts/audit_threads_token_health.py.',
+    },
+  },
+  {
     id: 'node-dedupe-cleanup',
     display_name: 'Message Dedupe Cleanup',
     cron_expression: 'every 300s',

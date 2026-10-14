@@ -39,6 +39,8 @@ import channelRoutes from "./channels/routes.js";
 import agentConfigRoutes from "./channels/agent-config-routes.js";
 import qaRoutes from "./channels/qa-routes.js";
 import facebookWebhook from "./channels/facebook/webhook.js";
+import threadsRoutes from "./channels/threads/routes.js";
+import { startThreadsTokenRefresher } from "./channels/threads/token-store.js";
 import facebookWebRoutes, { resumeAllFacebookWebChannels } from "./channels/facebook-web/routes.js";
 import { cskhRouter, resumeCskhChannel } from "./channels/cskh/routes.js";
 import youtubeRoutes from "./channels/youtube/routes.js";
@@ -261,6 +263,7 @@ export async function createApp(
     }),
   );
   api.use("/channels/facebook", facebookWebhook);
+  api.use("/channels/threads", threadsRoutes);
   api.use("/channels/facebook-web", facebookWebRoutes);
   api.use("/channels/cskh", cskhRouter);
   api.use("/channels/youtube", youtubeRoutes);
@@ -481,6 +484,9 @@ export async function createApp(
       console.warn("[Startup] Cron registry OS scan failed:", err?.message);
     }
   });
+
+  // Threads API token (EC-086): tự gia hạn long-lived token khi còn <10 ngày (mỗi 6h)
+  startThreadsTokenRefresher();
 
   // Restore Zalo + Facebook Web channels + start consumer on startup
   resumeAllFacebookWebChannels().then(() => {
