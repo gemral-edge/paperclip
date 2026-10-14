@@ -38,3 +38,17 @@ export function agyReplyTimeoutMs(env: NodeJS.ProcessEnv = process.env): number 
   if (!Number.isFinite(raw) || raw <= 0) return AGY_DEFAULT_REPLY_TIMEOUT_MS;
   return Math.max(AGY_MIN_REPLY_TIMEOUT_MS, Math.round(raw));
 }
+
+// 14/10 (Gem Master async job): caller có trần cứng (edge Supabase wall-clock 400s) gửi header
+// x-agy-timeout-ms để agy bị cắt SỚM hơn trần đó, chừa chỗ cho fallback claude CLI 1 lần trả lời kịp.
+// Chỉ được RÚT NGẮN (không vượt agyReplyTimeoutMs), sàn 60s; header lạ/rỗng → undefined (dùng mặc định).
+export const AGY_CALLER_MIN_TIMEOUT_MS = 60_000;
+
+export function agyCallerTimeoutMs(
+  raw: unknown,
+  env: NodeJS.ProcessEnv = process.env,
+): number | undefined {
+  const n = Number(Array.isArray(raw) ? raw[0] : raw);
+  if (!Number.isFinite(n) || n <= 0) return undefined;
+  return Math.min(agyReplyTimeoutMs(env), Math.max(AGY_CALLER_MIN_TIMEOUT_MS, Math.round(n)));
+}

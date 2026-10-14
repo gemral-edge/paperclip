@@ -12,6 +12,7 @@ import * as AgentRouter from './router.js';
 import type { AgentConfig } from './types.js';
 import { handleEscalation } from './crm/escalation-handler.js';
 import { isHumanSent } from './sent-by-utils.js';
+import { agyCallerTimeoutMs } from './llm-route-policy.js';
 
 // Agent files directory — crypto-pattern-scanner/agents/
 // NOTE: fallback MUST include /agents to match buildSystemPrompt (router.ts),
@@ -1875,6 +1876,11 @@ router.post('/:slug/test', async (req, res) => {
         }
       }
     }
+
+    // 14/10 Gem Master async job: caller có trần cứng (edge 400s) → rút ngắn trần agy để fallback
+    // claude CLI kịp trả lời trước khi caller ngắt (ngắt = huỷ subprocess, GEM-1427).
+    const callerAgyTimeout = agyCallerTimeoutMs(req.headers['x-agy-timeout-ms']);
+    if (callerAgyTimeout) (config as any)._agyTimeoutMs = callerAgyTimeout;
 
     // Inject media into config via the same `_media` channel that runAgent uses
     if (resolvedMedia.length > 0) {

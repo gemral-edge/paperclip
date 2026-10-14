@@ -4,6 +4,7 @@ import { resolveTimeoutFallback } from '../channels/agy-timeout-fallback.js';
 import {
   AGY_DEFAULT_REPLY_TIMEOUT_MS,
   AGY_MIN_REPLY_TIMEOUT_MS,
+  agyCallerTimeoutMs,
   agyReplyTimeoutMs,
   childEnvWithoutGeminiApi,
   geminiApiFallbackEnabled,
@@ -39,5 +40,13 @@ describe('llm-route-policy (no Gemini API fallback, agy timeout)', () => {
     expect(agyReplyTimeoutMs(env({ AGY_REPLY_TIMEOUT_MS: '60000' }))).toBe(AGY_MIN_REPLY_TIMEOUT_MS);
     expect(agyReplyTimeoutMs(env({ AGY_REPLY_TIMEOUT_MS: '600000' }))).toBe(600_000);
     expect(agyReplyTimeoutMs(env({ AGY_REPLY_TIMEOUT_MS: 'abc' }))).toBe(420_000);
+  });
+  it('header x-agy-timeout-ms chỉ rút ngắn, sàn 60s, lạ → mặc định', () => {
+    expect(agyCallerTimeoutMs(undefined, env({}))).toBeUndefined();
+    expect(agyCallerTimeoutMs('abc', env({}))).toBeUndefined();
+    expect(agyCallerTimeoutMs('200000', env({}))).toBe(200_000);
+    expect(agyCallerTimeoutMs(['150000'], env({}))).toBe(150_000);
+    expect(agyCallerTimeoutMs('1000', env({}))).toBe(60_000);
+    expect(agyCallerTimeoutMs('9999999', env({}))).toBe(420_000);
   });
 });

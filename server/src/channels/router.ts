@@ -1458,7 +1458,8 @@ async function runViaAntigravity(
       timedOut = true;
       child.kill('SIGTERM');
       reject(new ProviderTimeoutError('antigravity', 'Antigravity', config.slug));
-    }, agyReplyTimeoutMs()); // 14/10: 300s → 420s (llm-route-policy.ts), sàn 300s
+    }, Number((config as any)._agyTimeoutMs) > 0 ? Number((config as any)._agyTimeoutMs) : agyReplyTimeoutMs());
+    // 14/10: 300s → 420s (llm-route-policy.ts), sàn 300s; caller có trần cứng (header x-agy-timeout-ms) được rút ngắn.
 
     child.stdout?.setEncoding("utf8");
     child.stdout.on('data', (chunk: Buffer) => {
