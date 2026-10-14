@@ -422,3 +422,28 @@ describe('Breaker quan sát được + sống qua restart (GEM-1094)', () => {
     resetTimeoutBreakers();
   });
 });
+
+// 14/10: agy thoát lỗi (exit≠0/null) mà không ra reply → khách im lặng (đo log: 37/~1.090 lượt agy rỗng,
+// ca thật cskh-jennie 92504a91 + zalo khách 775721998332536475). Coi như sự cố provider → đổi provider 1 lần.
+import { ProviderCrashError, isAgyCrashEmpty } from '../channels/agy-timeout-fallback.js';
+
+describe('isAgyCrashEmpty', () => {
+  it('rỗng + exit 1 / 3 / null → crash', () => {
+    expect(isAgyCrashEmpty('', 1, false)).toBe(true);
+    expect(isAgyCrashEmpty('', 3, false)).toBe(true);
+    expect(isAgyCrashEmpty('', null, false)).toBe(true);
+  });
+  it('rỗng + exit 0 = agent cố ý im (spam/cảm ơn) → KHÔNG đổi provider', () => {
+    expect(isAgyCrashEmpty('', 0, false)).toBe(false);
+  });
+  it('có reply hoặc khách nhắn mới (aborted) → KHÔNG', () => {
+    expect(isAgyCrashEmpty('Dạ', 1, false)).toBe(false);
+    expect(isAgyCrashEmpty('', 1, true)).toBe(false);
+  });
+  it('ProviderCrashError đi đúng đường fallback 1 lần', async () => {
+    const primary = vi.fn().mockRejectedValue(new ProviderCrashError('antigravity', 'Antigravity', 'jennie-support', 1));
+    const fallback = vi.fn().mockResolvedValue('Dạ bạn ơi');
+    await expect(runWithTimeoutFallback(primary, fallback)).resolves.toBe('Dạ bạn ơi');
+    expect(fallback).toHaveBeenCalledTimes(1);
+  });
+});

@@ -34,6 +34,23 @@ export class ProviderQuotaError extends ProviderTimeoutError {
   }
 }
 
+/**
+ * Provider CLI thoát lỗi (exit≠0 hoặc bị giết) mà không ra reply nào — khách sẽ bị im lặng. Đi cùng đường
+ * đổi provider 1 lần như timeout (14/10: đo log 37/~1.090 lượt agy rỗng, phần lớn exit 1/3).
+ */
+export class ProviderCrashError extends ProviderTimeoutError {
+  constructor(provider: string, label: string, slug: string, code: number | null) {
+    super(provider, label, slug);
+    this.message = `${label} CLI exited ${code} with no reply for ${slug}`;
+    this.name = 'ProviderCrashError';
+  }
+}
+
+/** Rỗng + exit 0 = agent cố ý im (spam, "ok", thả tim) → giữ im. Rỗng + exit≠0/null = sự cố → đổi provider. */
+export function isAgyCrashEmpty(reply: string, code: number | null, aborted: boolean): boolean {
+  return !reply && code !== 0 && !aborted;
+}
+
 export interface TimeoutFallback {
   provider: 'claude' | 'gemini';
   model: string;

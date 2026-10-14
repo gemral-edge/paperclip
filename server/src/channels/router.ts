@@ -40,7 +40,7 @@ import { detectPaymentPolicyViolation, NON_SALES_AGENTS, PREPAY_POLICY_AGENTS } 
 import { splitIntoHumanMessages } from './human-message-split.js';
 import { loadSalesCloserMediaFromCatalog } from './catalog-media-source.js';
 import { selectInlineJson } from './inline-ssot-select.js';
-import { ProviderQuotaError, ProviderTimeoutError, getTimeoutBreaker, resolveTimeoutFallback, runWithTimeoutFallback, withApiTimeout } from './agy-timeout-fallback.js';
+import { ProviderCrashError, ProviderQuotaError, ProviderTimeoutError, isAgyCrashEmpty, getTimeoutBreaker, resolveTimeoutFallback, runWithTimeoutFallback, withApiTimeout } from './agy-timeout-fallback.js';
 
 // Global event emitter for streaming events
 export const streamEvents = new EventEmitter();
@@ -1519,6 +1519,13 @@ async function runViaAntigravity(
           console.warn(`[Router/antigravity] ${config.slug}: mọi model agy cạn credits/quota → đổi provider`);
           streamEvents.emit('agent:error', { agentSlug: config.slug, streamKey, error: 'antigravity quota: hết chuỗi model' });
           reject(new ProviderQuotaError('antigravity', 'Antigravity', config.slug));
+          return;
+        }
+
+        // agy thoát lỗi mà không có reply (14/10: ~3% lượt) → đổi provider 1 lần thay vì để khách im lặng.
+        if (isAgyCrashEmpty(reply, code, !!signal?.aborted)) {
+          streamEvents.emit('agent:error', { agentSlug: config.slug, streamKey, error: `antigravity exit ${code}, no reply` });
+          reject(new ProviderCrashError('antigravity', 'Antigravity', config.slug, code));
           return;
         }
 
