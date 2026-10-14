@@ -35,6 +35,11 @@ describe('link allowlist (trang nguồn)', () => {
     expect(stripUnlistedLinks('Kênh nè: https://www.youtube.com/@JennieUyenChu/.', allow).removed).toEqual([]);
   });
 
+  it('link trong khối JSON-LD sameAs (không phải href) cũng hợp lệ — 14/10 em chặn oan Instagram thật', () => {
+    const a2 = allowedLinksFromHtml(`${html}<script type="application/ld+json">{"sameAs":["https://www.instagram.com/jennieuyenchu/"]}</script>`, 'https://jennie.yinyangmasters.com');
+    expect(stripUnlistedLinks('Instagram: https://www.instagram.com/jennieuyenchu/', a2).removed).toEqual([]);
+  });
+
   it('tin không có link → giữ nguyên', () => {
     expect(stripUnlistedLinks('Chào bạn nha', allow)).toEqual({ text: 'Chào bạn nha', removed: [] });
   });

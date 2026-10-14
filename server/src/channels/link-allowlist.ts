@@ -23,10 +23,9 @@ function normalize(url: string): string {
 }
 
 export function allowedLinksFromHtml(html: string, siteOrigin: string): LinkAllowlist {
+  // MỌI link trong trang (href + JSON-LD sameAs …), không chỉ href — 14/10 chỉ đọc href nên chặn oan Instagram thật.
   const urls = new Set<string>();
-  for (const m of html.matchAll(/href="([^"]+)"/gi)) {
-    if (/^https?:\/\//i.test(m[1])) urls.add(normalize(m[1]));
-  }
+  for (const m of html.matchAll(URL_RE)) urls.add(normalize(m[0]));
   return { urls, siteOrigin: normalize(siteOrigin) };
 }
 
