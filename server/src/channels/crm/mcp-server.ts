@@ -11,6 +11,7 @@ import {
 import { createClient } from '@supabase/supabase-js';
 import * as fs from 'fs';
 import { matchGemralUser, enrichWithGemralData } from './gemral-bridge.js';
+import { checkOutboundEmail } from '../outbound-gate.js';
 
 // Initialize Supabase — same config as channels/zalo-personal/supabase.ts
 const supabaseUrl = process.env.GEMRAL_SUPABASE_URL || 'https://pgfkbcnzqozzkohwbgbk.supabase.co';
@@ -642,6 +643,12 @@ export async function handleSendEmail(args: any): Promise<string> {
   const resendKey = process.env.RESEND_API_KEY;
   if (!resendKey) {
     return JSON.stringify({ success: false, error: 'Resend API key chưa cấu hình' });
+  }
+
+  // Cổng KHÔNG-GỌI-KHÔNG-HỌP (chị Jennie 15/10/2026, SOP-CUSTOMER-FACING-AGENT-PRIVACY §7)
+  const blocked = await checkOutboundEmail(String(args.body ?? ''), String(args.subject ?? ''), 'crm.send_email');
+  if (blocked) {
+    return JSON.stringify({ success: false, error: 'BLOCKED_BY_NO_CALL_GATE', detail: blocked });
   }
 
   try {

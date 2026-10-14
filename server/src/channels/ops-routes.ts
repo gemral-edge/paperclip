@@ -11,6 +11,7 @@ import fs from 'fs';
 import { pushScript, updatePageStatus, bulkUpdatePageStatus, notionPushEnabled } from './notion-push.js';
 import DOMPurify from 'dompurify';
 import { JSDOM } from 'jsdom';
+import { checkOutboundEmail } from './outbound-gate.js';
 
 // HTML sanitizer for user-pasted email bodies. Allows the standard email-safe tag
 // surface (basic block/inline tags + a/img + tables + inline style) and strips
@@ -1034,6 +1035,12 @@ router.post('/email/send', async (req, res) => {
     const apiKey = process.env.RESEND_API_KEY;
     if (!apiKey) {
       return res.status(500).json({ success: false, error: 'RESEND_API_KEY chưa được cấu hình' });
+    }
+
+    // Cổng KHÔNG-GỌI-KHÔNG-HỌP (chị Jennie 15/10/2026, SOP-CUSTOMER-FACING-AGENT-PRIVACY §7)
+    const blockedByGate = await checkOutboundEmail(String(html), String(subject), 'ops.email.send');
+    if (blockedByGate) {
+      return res.status(422).json({ success: false, error: 'BLOCKED_BY_NO_CALL_GATE', detail: blockedByGate });
     }
 
     const payload: Record<string, unknown> = {
