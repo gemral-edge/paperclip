@@ -48,7 +48,7 @@ import {
 import detectPort from "detect-port";
 import { createApp } from "./app.js";
 import { loadConfig } from "./config.js";
-import { logger } from "./middleware/logger.js";
+import { logger, redirectStdioToServerLog } from "./middleware/logger.js";
 import { setupLiveEventsWebSocketServer } from "./realtime/live-events-ws.js";
 import { trainingRouter, setupTrainingWebSocket } from "./training/training-routes.js";
 import { heartbeatService, reconcilePersistedRuntimeServicesOnStartup, routineService, scheduledIssueWakeupService } from "./services/index.js";
@@ -98,6 +98,9 @@ export interface StartedServer {
 }
 
 export async function startServer(): Promise<StartedServer> {
+  if (process.env.PAPERCLIP_LOG_STDOUT !== "true" && !process.env.VITEST) {
+    redirectStdioToServerLog();
+  }
   let config = loadConfig();
   // GEM-1094: trạng thái circuit-breaker provider AI sống qua restart (mạch đang mở thì giữ mở tới hết cooldown).
   configureBreakerPersistence(resolve(resolvePaperclipInstanceRoot(), "data", "provider-breakers.json"));

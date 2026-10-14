@@ -3,7 +3,11 @@ import fs from "node:fs";
 import pino from "pino";
 import { pinoHttp } from "pino-http";
 import { readConfigFile } from "../config-file.js";
-import { resolveDefaultLogsDir, resolveHomeAwarePath } from "../home-paths.js";
+import {
+  resolveDefaultLogsDir,
+  resolveHomeAwarePath,
+  resolvePaperclipHomeDir,
+} from "../home-paths.js";
 
 function resolveServerLogDir(): string {
   const envOverride = process.env.PAPERCLIP_LOG_DIR?.trim();
@@ -15,16 +19,152 @@ function resolveServerLogDir(): string {
   return resolveDefaultLogsDir();
 }
 
+export function resolvePrimaryServerLogFile(): string {
+  const envFile =
+    process.env.PAPERCLIP_SERVER_LOG_FILE?.trim() ||
+    process.env.pm_out_log_path?.trim();
+  if (envFile) return resolveHomeAwarePath(envFile);
+  return path.join(resolvePaperclipHomeDir(), "logs", "server.log");
+}
+
 const logDir = resolveServerLogDir();
 fs.mkdirSync(logDir, { recursive: true });
 
-const logFile = path.join(logDir, "server.log");
+export const logFile = path.join(logDir, "server.log");
+export const primaryLogFile = resolvePrimaryServerLogFile();
+fs.mkdirSync(path.dirname(primaryLogFile), { recursive: true });
 
 const sharedOpts = {
   translateTime: "HH:MM:ss",
   ignore: "pid,hostname",
   singleLine: true,
 };
+
+export interface PinoTransportBuildOptions {
+  primaryLogFile?: string;
+  debugLogFile?: string;
+  logToStdout?: boolean;
+}
+
+/**
+ * Build pino transport targets.
+ * On Windows under PM2, writing to stdout (fd 1) pushes bytes into an anonymous
+ * 64 KB pipe owned by PM2's Daemon.js. If Daemon.js wedges (e.g. wmic/pidusage
+ * stall), the pipe fills and blocks the Node.js event loop mid-transaction.
+ * Therefore Target 1 writes directly to primaryLogFile (~/.paperclip/logs/server.log)
+ * unless PAPERCLIP_LOG_STDOUT=true is explicitly set.
+ */
+export function buildPinoTransportTargets(opts: PinoTransportBuildOptions = {}) {
+  const primaryDest = opts.primaryLogFile ?? primaryLogFile;
+  const debugDest = opts.debugLogFile ?? logFile;
+  const logToStdout =
+    opts.logToStdout ?? process.env.PAPERCLIP_LOG_STDOUT === "true";
+
+  const primaryDestination: string | number = logToStdout ? 1 : primaryDest;
+  const sameFileTarget =
+    !logToStdout && path.resolve(primaryDest) === path.resolve(debugDest);
+
+  const targets: Array<{
+    target: string;
+    options: Record<string, unknown>;
+    level: string;
+  }> = [
+    {
+      target: "pino-pretty",
+      options: {
+        ...sharedOpts,
+        ignore: "pid,hostname,req,res,responseTime",
+        colorize: true,
+        destination: primaryDestination,
+        ...(typeof primaryDestination === "string" ? { mkdir: true } : {}),
+      },
+      level: "info",
+    },
+  ];
+
+  if (!sameFileTarget) {
+    targets.push({
+      target: "pino-pretty",
+      options: {
+        ...sharedOpts,
+        colorize: false,
+        destination: debugDest,
+        mkdir: true,
+      },
+      level: "debug",
+    });
+  }
+
+  return targets;
+}
+
+const STDIO_REDIRECTED_SYMBOL = Symbol.for("paperclip.stdioRedirectedToFile");
+
+export function redirectStdioToServerLog(
+  targetFile: string = primaryLogFile,
+  streams: {
+    stdout: Pick<NodeJS.WriteStream, "write">;
+    stderr: Pick<NodeJS.WriteStream, "write">;
+  } = {
+    stdout: process.stdout,
+    stderr: process.stderr,
+  },
+): { logStream: fs.WriteStream; restore: () => void } {
+  fs.mkdirSync(path.dirname(targetFile), { recursive: true });
+  const logStream = fs.createWriteStream(targetFile, { flags: "a" });
+  logStream.on("error", () => {
+    // Ignore file stream errors so logging never crashes the server
+  });
+
+  const stdoutAny = streams.stdout as Record<symbol, unknown> & {
+    write: typeof process.stdout.write;
+  };
+  const stderrAny = streams.stderr as Record<symbol, unknown> & {
+    write: typeof process.stderr.write;
+  };
+
+  if (stdoutAny[STDIO_REDIRECTED_SYMBOL]) {
+    return stdoutAny[STDIO_REDIRECTED_SYMBOL] as {
+      logStream: fs.WriteStream;
+      restore: () => void;
+    };
+  }
+
+  const origStdoutWrite = streams.stdout.write.bind(streams.stdout);
+  const origStderrWrite = streams.stderr.write.bind(streams.stderr);
+
+  const writeToFile = ((
+    chunk: Uint8Array | string,
+    encodingOrCb?: BufferEncoding | ((err?: Error | null) => void),
+    cb?: (err?: Error | null) => void,
+  ): boolean => {
+    if (typeof encodingOrCb === "function") {
+      return logStream.write(chunk, encodingOrCb);
+    }
+    if (encodingOrCb !== undefined) {
+      return logStream.write(chunk, encodingOrCb, cb);
+    }
+    return logStream.write(chunk, cb);
+  }) as typeof process.stdout.write;
+
+  streams.stdout.write = writeToFile;
+  streams.stderr.write = writeToFile;
+
+  const handle = {
+    logStream,
+    restore: () => {
+      streams.stdout.write = origStdoutWrite;
+      streams.stderr.write = origStderrWrite;
+      delete stdoutAny[STDIO_REDIRECTED_SYMBOL];
+      delete stderrAny[STDIO_REDIRECTED_SYMBOL];
+      logStream.end();
+    },
+  };
+
+  stdoutAny[STDIO_REDIRECTED_SYMBOL] = handle;
+  stderrAny[STDIO_REDIRECTED_SYMBOL] = handle;
+  return handle;
+}
 
 // ── Custom formatter for console output ──
 // Replaces pino-pretty's default with cleaner, emoji-tagged format
@@ -51,22 +191,14 @@ function shortUrl(url: string): string {
     .replace(/\?.*$/, (q) => q.length > 40 ? q.substring(0, 40) + '…' : q);
 }
 
-export const logger = pino({
-  level: "debug",
-}, pino.transport({
-  targets: [
-    {
-      target: "pino-pretty",
-      options: { ...sharedOpts, ignore: "pid,hostname,req,res,responseTime", colorize: true, destination: 1 },
-      level: "info",
-    },
-    {
-      target: "pino-pretty",
-      options: { ...sharedOpts, colorize: false, destination: logFile, mkdir: true },
-      level: "debug",
-    },
-  ],
-}));
+export const logger = pino(
+  {
+    level: "debug",
+  },
+  pino.transport({
+    targets: buildPinoTransportTargets(),
+  }),
+);
 
 export const httpLogger = pinoHttp({
   logger,
