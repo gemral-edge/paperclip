@@ -6,9 +6,13 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
-/** agent → [trang nguồn (tương đối PROJECT_ROOT), gốc site của chính trang]. */
-export const AGENT_LINK_SOURCES: Record<string, { file: string; siteOrigin: string }> = {
-  'jennie-support': { file: 'jennie-web/index.html', siteOrigin: 'https://jennie.yinyangmasters.com' },
+/** agent → [file nguồn link (tương đối PROJECT_ROOT), gốc site của chính trang]. */
+export const AGENT_LINK_SOURCES: Record<string, { files: string[]; siteOrigin: string }> = {
+  // Trang Jennie + bảng link chung (khách hỏi Gemral thì được đưa link forum/Telegram/app — chị chốt 14/10).
+  'jennie-support': {
+    files: ['jennie-web/index.html', 'memory/sops/DOC-HTML/reference_and_policies/REF-PRODUCT-CATALOG.md'],
+    siteOrigin: 'https://jennie.yinyangmasters.com',
+  },
 };
 
 export interface LinkAllowlist {
@@ -62,9 +66,10 @@ export function loadAgentLinkAllowlist(slug: string, projectRoot: string): LinkA
   if (hit && Date.now() - hit.at < 5 * 60_000) return hit.allow;
   let allow: LinkAllowlist | null = null;
   try {
-    allow = allowedLinksFromHtml(readFileSync(join(projectRoot, src.file), 'utf8'), src.siteOrigin);
+    const text = src.files.map((f) => readFileSync(join(projectRoot, f), 'utf8')).join('\n');
+    allow = allowedLinksFromHtml(text, src.siteOrigin);
   } catch (err) {
-    console.warn(`[Router/links] ${slug}: không đọc được trang nguồn ${src.file} — bỏ qua chốt link`, err);
+    console.warn(`[Router/links] ${slug}: không đọc được file nguồn ${src.files.join(', ')} — bỏ qua chốt link`, err);
   }
   cache.set(slug, { at: Date.now(), allow });
   return allow;
