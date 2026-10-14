@@ -2688,6 +2688,16 @@ const AI_PERSONA_AGENTS = new Set(['gem-master']);
  */
 const OWNER_BRAND_AGENTS = new Set(['jennie-support']);
 
+// Link (http/www/tên-miền) và @handle — các luật đổi chữ không được chạm vào bên trong.
+const LINK_OR_HANDLE_RE = /(https?:\/\/\S+|www\.\S+|[\w-]+(?:\.[\w-]+)*\.(?:com|vn|net|org|io|me|co|app)\b\S*|@[\w.]+)/gi;
+
+function replaceOutsideLinks(text: string, re: RegExp, replacement: string): string {
+  return text
+    .split(LINK_OR_HANDLE_RE)
+    .map((part, i) => (i % 2 === 1 ? part : part.replace(re, replacement)))
+    .join('');
+}
+
 export function scrubBannedPhrases(text: string, agentSlug: string): string {
   if (!text) return text;
   let scrubbed = text;
@@ -2696,12 +2706,14 @@ export function scrubBannedPhrases(text: string, agentSlug: string): string {
   // Rule 1: owner name leak
   const ownerNameRe = OWNER_BRAND_AGENTS.has(agentSlug)
     ? /(sếp\s+em|boss\s+em|chị\s+chủ|owner)/gi
-    : /(chị\s+jennie|dr\.?\s*jennie|jennie\s+uyên\s+chu|jennie(?!\s*team)|sếp\s+em|boss\s+em|chị\s+chủ|owner)/gi;
-  if (ownerNameRe.test(scrubbed)) {
+    : /(chị\s+jennie|dr\.?\s*jennie|jennie\s+uy[eê]n\s+chu|jennie(?!\s*team)|sếp\s+em|boss\s+em|chị\s+chủ|owner)/gi;
+  // 14/10: KHÔNG đổi tên bên trong link/@handle — đổi ở đó làm hỏng link ("facebook.com/team chuyên môn cấp
+  // caochuofficial", "youtube.com/@team" — ca thật sales-closer). Link công khai của kênh không phải đời tư.
+  const isViReply = /[ăâđêôơưạảấầẩẫậắằẳẵặẹẻẽếềểễệỉịọỏốồổỗộớờởỡợụủứừửữựỳỵỷỹ]/i.test(scrubbed);
+  const ownerScrubbed = replaceOutsideLinks(scrubbed, ownerNameRe, isViReply ? 'team chuyên môn cấp cao' : 'our senior support team');
+  if (ownerScrubbed !== scrubbed) {
     violations.push('owner_name');
-    // 09/10/2026: reply theo ngôn ngữ khách → câu thay thế cũng theo ngôn ngữ của reply.
-    const isViReply = /[ăâđêôơưạảấầẩẫậắằẳẵặẹẻẽếềểễệỉịọỏốồổỗộớờởỡợụủứừửữựỳỵỷỹ]/i.test(scrubbed);
-    scrubbed = scrubbed.replace(ownerNameRe, isViReply ? 'team chuyên môn cấp cao' : 'our senior support team');
+    scrubbed = ownerScrubbed;
   }
 
   // Rule 1c: bot tự nhận là AI/bot/mô hình (chị Jennie 08/10/2026) → chỉ được xưng tư vấn viên.

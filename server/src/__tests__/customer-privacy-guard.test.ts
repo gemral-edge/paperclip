@@ -86,3 +86,24 @@ describe('scrubBannedPhrases — kênh thương hiệu cá nhân (jennie-support
     expect(scrubBannedPhrases('Chị Jennie sẽ trả lời bạn', 'sales-closer')).not.toMatch(/Jennie/i);
   });
 });
+
+// 14/10: luật đổi tên chị cắt cả link/handle cho MỌI agent — ca thật sales-closer 10/09
+// "facebook.com/team chuyên môn cấp caochuofficial", 12/08 "youtube.com/@team", 14/10 "team chuyên môn cấp cao Uyen Chu".
+describe('scrubBannedPhrases — không đụng link/handle', () => {
+  it.each([
+    'Fanpage: https://www.facebook.com/jenniechuofficial',
+    'Kênh: https://www.youtube.com/@JennieUyenChu',
+    'TikTok @jennieuyenchu_ nha',
+    'Form ở jennie.yinyangmasters.com/#hop-tac',
+  ])('giữ nguyên link: %s', (s) => {
+    expect(scrubBannedPhrases(s, 'sales-closer')).toBe(s);
+  });
+  it('tên không dấu "Jennie Uyen Chu" đổi trọn cụm, không chừa "Uyen Chu"', () => {
+    const out = scrubBannedPhrases('Bạn theo dõi YouTube của Jennie Uyen Chu nha', 'sales-closer');
+    expect(out).not.toMatch(/Uyen|Jennie/i);
+  });
+  it('tên ngoài link vẫn bị đổi', () => {
+    const out = scrubBannedPhrases('Chị Jennie gửi bạn link https://www.youtube.com/@JennieUyenChu nha', 'sales-closer');
+    expect(out).toBe('team chuyên môn cấp cao gửi bạn link https://www.youtube.com/@JennieUyenChu nha');
+  });
+});
