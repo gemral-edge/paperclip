@@ -695,15 +695,22 @@ export async function execute(ctx: AdapterExecutionContext): Promise<AdapterExec
     savedPersonaHash !== currentPersonaHash;
   const cwdMatches =
     runtimeSessionCwd.length === 0 || path.resolve(runtimeSessionCwd) === path.resolve(cwd);
+  // GEM-1452: a persisted brain id whose dir is gone (agy GC / profile reset) makes agy
+  // print `conversation "<id>" not found` and exit non-zero -> run failed -> agent=error.
+  const runtimeBrainExists =
+    runtimeSessionId.length > 0 &&
+    existsSync(path.join(os.homedir(), ".gemini", "antigravity-cli", "brain", runtimeSessionId));
   const canResumeSession =
-    runtimeSessionId.length > 0 && cwdMatches && !personaChanged;
+    runtimeSessionId.length > 0 && cwdMatches && !personaChanged && runtimeBrainExists;
   const sessionId = canResumeSession ? runtimeSessionId : null;
   if (runtimeSessionId && !canResumeSession) {
     const reason = !cwdMatches
       ? `saved for cwd "${runtimeSessionCwd}" and will not be resumed in "${cwd}"`
       : personaChanged
         ? `persona files changed (${PERSONA_FILE_NAMES.join("/")}) — forcing fresh session so agent re-reads updated instructions`
-        : "session cannot be resumed";
+        : !runtimeBrainExists
+          ? "brain directory no longer exists — starting a fresh conversation"
+          : "session cannot be resumed";
     await onLog(
       "stdout",
       `[paperclip] Gemini session "${runtimeSessionId}" ${reason}.\n`,
@@ -1235,7 +1242,7 @@ export async function execute(ctx: AdapterExecutionContext): Promise<AdapterExec
   const configuredBrainExists =
     configuredConversationId.length > 0 &&
     existsSync(path.join(os.homedir(), ".gemini", "antigravity-cli", "brain", configuredConversationId));
-  const conversationId =
+  let conversationId =
     (configuredBrainExists ? configuredConversationId : "") ||
     (canResumeSession ? runtimeSessionId : runId);
   // Live transcript: agy is TTY-blind, so nothing streams via the process stdout while
@@ -1279,7 +1286,21 @@ export async function execute(ctx: AdapterExecutionContext): Promise<AdapterExec
       for (let i = 0; ; i++) {
         const attemptModel = modelChain[i] ?? model;
         modelsTried.push(attemptModel);
-        const attempt = await runAttempt(conversationId, attemptModel);
+        let attempt = await runAttempt(conversationId, attemptModel);
+        // GEM-1452: race (brain deleted between the existsSync check and agy start) ->
+        // retry ONCE on a fresh conversation (runId) instead of failing the whole run.
+        if (
+          conversationId !== runId &&
+          (attempt.proc.exitCode ?? 0) !== 0 &&
+          /conversation\s+"?[0-9a-f-]{8,}"?\s+not found/i.test(attempt.proc.stderr ?? "")
+        ) {
+          await onLog(
+            "stderr",
+            `[paperclip] agy: conversation "${conversationId}" not found -> retrying once with a fresh conversation.\n`,
+          );
+          conversationId = runId;
+          attempt = await runAttempt(conversationId, attemptModel);
+        }
         const next = modelChain[i + 1];
         if (!next || !shouldAntigravityFallback({ stderr: attempt.proc.stderr })) return attempt;
         await onLog(

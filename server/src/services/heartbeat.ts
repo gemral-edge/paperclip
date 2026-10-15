@@ -2097,7 +2097,7 @@ export function heartbeatService(db: Db) {
   async function finalizeAgentStatus(
     agentId: string,
     outcome: "succeeded" | "failed" | "cancelled" | "timed_out",
-    opts?: { retryScheduled?: boolean },
+    opts?: { retryScheduled?: boolean; infraFault?: boolean },
   ) {
     const existing = await getAgent(agentId);
     if (!existing) return;
@@ -2111,7 +2111,7 @@ export function heartbeatService(db: Db) {
     const nextStatus =
       runningCount > 0
         ? "running"
-        : outcome === "succeeded" || outcome === "cancelled" || opts?.retryScheduled
+        : outcome === "succeeded" || outcome === "cancelled" || opts?.retryScheduled || opts?.infraFault
           ? "idle"
           : "error";
 
@@ -2495,7 +2495,8 @@ export function heartbeatService(db: Db) {
         },
       });
 
-      await finalizeAgentStatus(run.agentId, "failed");
+      // GEM-1452: process lost = server/PM2 restart, not an agent fault -> idle, not error.
+      await finalizeAgentStatus(run.agentId, "failed", { infraFault: true });
       await startNextQueuedRunForAgent(run.agentId);
       runningProcesses.delete(run.id);
       reaped.push(run.id);
