@@ -39,6 +39,7 @@ import type { AdapterExecutionResult, AdapterInvocationMeta, AdapterSessionCodec
 import { createLocalAgentJwt } from "../agent-auth-jwt.js";
 import { parseObject, asBoolean, asNumber, asString, appendWithCap, MAX_EXCERPT_BYTES } from "../adapters/utils.js";
 import { parseCron, nextCronTick, validateCron, type ParsedCron } from "./cron.js";
+import { classifyCronCatchUp, shouldDeferForTickBudget } from "./cron-catch-up.js";
 import { costService } from "./costs.js";
 import { companySkillService } from "./company-skills.js";
 import { budgetService, type BudgetEnforcementScope } from "./budgets.js";
@@ -82,6 +83,10 @@ import {
   resolveSessionCompactionPolicy,
   type SessionCompactionPolicy,
 } from "@paperclipai/adapter-utils";
+
+// GEM-1443: cron slots that passed before this process started were missed while the
+// server was down (keep the stale guard); slots after it were missed by us (fire late).
+const SCHEDULER_PROCESS_STARTED_AT_MS = Date.now();
 
 const MAX_LIVE_LOG_CHUNK_BYTES = 8 * 1024;
 const HEARTBEAT_MAX_CONCURRENT_RUNS_DEFAULT = 1;
@@ -2229,13 +2234,15 @@ export function heartbeatService(db: Db) {
     return budget;
   }
 
-  async function lastFinishedAtByAgent(agentIds: string[]) {
+  async function lastFinishedAtByAgent(agentIds: string[], companyIds: string[]) {
     const result = new Map<string, Date | null>();
     if (agentIds.length === 0) return result;
+    // GEM-1443: company_id filter lets Postgres use heartbeat_runs_company_agent_started_idx
+    // (agent_id alone = seq scan of the 140MB table every tick with ≥2 fires, ~550ms measured).
     const rows = await db
       .select({ agentId: heartbeatRuns.agentId, lastFinishedAt: sql<string | null>`max(${heartbeatRuns.finishedAt})` })
       .from(heartbeatRuns)
-      .where(inArray(heartbeatRuns.agentId, agentIds))
+      .where(and(inArray(heartbeatRuns.companyId, companyIds), inArray(heartbeatRuns.agentId, agentIds)))
       .groupBy(heartbeatRuns.agentId);
     for (const row of rows) {
       result.set(row.agentId, row.lastFinishedAt ? new Date(row.lastFinishedAt) : null);
@@ -4848,8 +4855,17 @@ export function heartbeatService(db: Db) {
     resumeQueuedRuns,
 
     tickTimers: async (now = new Date()) => {
+      const tickStartedAtMs = Date.now();
       // F2: quét danh sách agent bounded 15s (SET LOCAL). Pass 2 (fire/enqueue per-agent) dùng db thường.
       const allAgents = await boundedPoll(db, (tx) => tx.select().from(agents));
+      // GEM-1443: per-phase timing so a slow tick says WHERE it spent the time.
+      const phases: Record<string, number> = { pollAgents: Date.now() - tickStartedAtMs };
+      let phaseStartedAtMs = Date.now();
+      const endPhase = (name: string) => {
+        const t = Date.now();
+        phases[name] = t - phaseStartedAtMs;
+        phaseStartedAtMs = t;
+      };
       let checked = 0;
       let enqueued = 0;
       let skipped = 0;
@@ -4891,7 +4907,15 @@ export function heartbeatService(db: Db) {
             // later (e.g. a 07:00 brief first noticed at 14:00 after a restart),
             // firing the overdue slot now would run a "morning" job in the
             // afternoon. Skip it; resync baseline so it fires on time next cycle.
-            if (graceMs > 0 && lateMs > graceMs) {
+            // GEM-1443: a slot that passed while the server was up but ticks were
+            // failing is fired (flagged late) instead of silently dropped.
+            const decision = classifyCronCatchUp({
+              nextMs: next.getTime(),
+              nowMs: now.getTime(),
+              graceMs,
+              processStartMs: SCHEDULER_PROCESS_STARTED_AT_MS,
+            });
+            if (decision === "skip_stale") {
               staleResyncIds.push(agent.id);
               logger.info(
                 { agentId: agent.id, cron: policy.cronExpression, lateMs, graceMs },
@@ -4900,6 +4924,13 @@ export function heartbeatService(db: Db) {
             } else {
               shouldFire = true;
               reason = `cron_elapsed:${policy.cronExpression}`;
+              if (decision === "fire_late") {
+                reason = `cron_elapsed_late:${policy.cronExpression}`;
+                logger.warn(
+                  { agentId: agent.id, cron: policy.cronExpression, lateMs, graceMs },
+                  "[tickTimers] Firing late cron slot missed during scheduler tick outage",
+                );
+              }
             }
           }
         } else {
@@ -4918,9 +4949,11 @@ export function heartbeatService(db: Db) {
       // GEMRAL FIX 2026-06-10 (B): resync baseline for agents whose overdue cron was
       // skipped as stale — set lastHeartbeatAt=now so nextCronTick targets the NEXT
       // scheduled time instead of re-detecting the same stale slot on every tick.
-      for (const agentId of staleResyncIds) {
-        await db.update(agents).set({ lastHeartbeatAt: now, updatedAt: now }).where(eq(agents.id, agentId));
+      // GEM-1443: one statement for all stale agents instead of one round-trip each.
+      if (staleResyncIds.length > 0) {
+        await db.update(agents).set({ lastHeartbeatAt: now, updatedAt: now }).where(inArray(agents.id, staleResyncIds));
       }
+      endPhase("classify");
 
       // GEM-316 fix: Batch-fetch task status for agents whose timers fired.
       // Skip timer wakeup when an agent has ONLY blocked tasks (no actionable
@@ -4977,6 +5010,7 @@ export function heartbeatService(db: Db) {
         }
         fireable.push(pending);
       }
+      endPhase("taskFlags");
 
       // Fleet throttle rule 3 (fleet-throttle.ts): at most N timer wakes per wall-clock
       // hour per company. Over-cap fires are NOT enqueued and their baseline is NOT
@@ -4987,9 +5021,16 @@ export function heartbeatService(db: Db) {
       let deferredByFleet = 0;
       let orderedFires = fireable;
       if (timerBudget && fireable.length > 1) {
-        const lastFinished = await lastFinishedAtByAgent(fireable.map((p) => p.agent.id));
+        const lastFinished = await lastFinishedAtByAgent(
+          fireable.map((p) => p.agent.id),
+          [...new Set(fireable.map((p) => p.agent.companyId))],
+        );
         orderedFires = orderTimerCandidatesFairly(fireable, (p) => lastFinished.get(p.agent.id));
       }
+      endPhase("fleetBudget");
+
+      let deferredByTickBudget = 0;
+      const enqueueLoopStartedAtMs = Date.now();
 
       for (const { agent, policy, reason } of orderedFires) {
         const capped = timerBudget !== null && !timerExemptIds.has(agent.id);
@@ -4999,6 +5040,12 @@ export function heartbeatService(db: Db) {
             { agentId: agent.id, timerWakesPerHour: fleet.timerWakesPerHour },
             "[fleet-throttle] timer wake skipped — hourly company cap reached; re-evaluated next tick",
           );
+          continue;
+        }
+
+        // GEM-1443: tick time budget — leave the rest due (baseline untouched) for the next tick.
+        if (shouldDeferForTickBudget({ enqueuedInThisTick, loopStartedAtMs: enqueueLoopStartedAtMs, nowMs: Date.now() })) {
+          deferredByTickBudget += 1;
           continue;
         }
 
@@ -5020,6 +5067,8 @@ export function heartbeatService(db: Db) {
             now: now.toISOString(),
             cronExpression: policy.cronExpression || undefined,
             intervalSec: policy.cron ? undefined : policy.intervalSec,
+            // GEM-1443: agent decides whether a late slot still fits its time window.
+            late: reason.startsWith("cron_elapsed_late:") || undefined,
           },
         });
         if (run) {
@@ -5043,6 +5092,8 @@ export function heartbeatService(db: Db) {
         }
       }
 
+      endPhase("enqueue");
+
       // GEM-1004: quota retries ride the same tick (persisted plan, fires after restart too).
       let quotaRetries = { due: 0, fired: 0 };
       try {
@@ -5054,7 +5105,22 @@ export function heartbeatService(db: Db) {
       if (deferredByFleet > 0) {
         logger.debug({ deferredByFleet }, "[fleet-throttle] timer wakes deferred this tick");
       }
-      return { checked, enqueued, skipped, deferredByFleet, quotaRetries };
+      if (deferredByTickBudget > 0) {
+        logger.info({ deferredByTickBudget }, "[tickTimers] timer wakes deferred to next tick (tick time budget)");
+      }
+      endPhase("quotaRetries");
+      const durationMs = Date.now() - tickStartedAtMs;
+      return {
+        checked,
+        enqueued,
+        skipped,
+        deferredByFleet,
+        deferredByTickBudget,
+        staleSkipped: staleResyncIds.length,
+        quotaRetries,
+        durationMs,
+        phases,
+      };
     },
 
     cancelRun: (runId: string) => cancelRunInternal(runId),

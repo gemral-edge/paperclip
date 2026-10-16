@@ -22,6 +22,7 @@ process.on('unhandledRejection', (reason: unknown) => {
 });
 
 import { existsSync, readFileSync, rmSync } from "node:fs";
+import { createSchedulerHealthAlerts, sendSchedulerAlertTelegram } from "./services/scheduler-health-alert.js";
 import { createServer } from "node:http";
 import { resolve } from "node:path";
 import { createInterface } from "node:readline/promises";
@@ -680,11 +681,17 @@ export async function startServer(): Promise<StartedServer> {
       recovery: null,
     };
     const SCHEDULER_TICK_JOB_TIMEOUT_MS = 60_000;
+    // GEM-1443: Telegram when ticks keep timing out or cron slots get dropped mid-uptime.
+    const schedulerAlerts = createSchedulerHealthAlerts({
+      processStartMs: Date.now(),
+      send: sendSchedulerAlertTelegram,
+    });
     const runTickJob = (
       key: string,
       label: string,
       fn: () => Promise<void>,
       onSettle?: () => void,
+      onError?: (err: unknown) => void,
     ): void => {
       const startedTickAt = Date.now();
       const inFlightSince = tickInFlight[key];
@@ -715,6 +722,7 @@ export async function startServer(): Promise<StartedServer> {
       void Promise.race([fn(), timeoutPromise])
         .catch((err) => {
           logger.error({ err }, `${label} tick failed`);
+          onError?.(err);
         })
         .finally(() => {
           if (tickInFlight[key] === startedTickAt) {
@@ -733,10 +741,18 @@ export async function startServer(): Promise<StartedServer> {
             if (result.enqueued > 0) {
               logger.info({ ...result }, "heartbeat timer tick enqueued runs");
             }
+            // GEM-1443: measurable tick latency (target p95 < 10s); probe reads this line.
+            if (result.durationMs > 10_000) {
+              logger.warn({ ...result }, "heartbeat timer tick slow");
+            }
+            schedulerAlerts.recordStaleSkip(result.staleSkipped);
           }),
         // Mark alive on settle (success OR failure), not on invocation — a hung promise
         // that never settles is exactly the failure mode this catches (incident 2026-08-09).
         () => markAlive("heartbeat-scheduler-tick"),
+        (err) => {
+          if (err instanceof Error && err.message.includes("tick timed out")) schedulerAlerts.recordTickTimeout();
+        },
       );
 
       runTickJob("routines", "routine scheduler", () =>
