@@ -32,6 +32,7 @@ export interface ThreadsAccount {
 export const THREADS_ACCOUNTS: Record<string, ThreadsAccount> = {
   jennie: { suffix: 'JENNIE', expectedUsername: 'jennieuyenchu' },
   gemral_edge: { suffix: 'GEMRAL_EDGE', expectedUsername: 'gemraledge' },
+  yinyang: { suffix: 'YINYANG', expectedUsername: 'yinyangmasters' },
 };
 
 export function envKeys(suffix: string) {
