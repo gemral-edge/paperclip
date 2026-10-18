@@ -29,6 +29,7 @@ import {
   fleetWindowStart,
   isFleetClaimGateEnabled,
   isTimerExempt,
+  coalescedTimerPromotion,
   orderQueuedRunsForClaim,
   orderTimerCandidatesFairly,
   readFleetThrottleConfig,
@@ -4231,6 +4232,9 @@ export function heartbeatService(db: Db) {
               .update(heartbeatRuns)
               .set({
                 contextSnapshot: mergedContextSnapshot,
+                ...(activeExecutionRun.agentId === agentId
+                  ? coalescedTimerPromotion(activeExecutionRun, source)
+                  : null),
                 updatedAt: new Date(),
               })
               .where(eq(heartbeatRuns.id, activeExecutionRun.id))
@@ -4373,7 +4377,13 @@ export function heartbeatService(db: Db) {
       });
 
       if (outcome.kind === "deferred" || outcome.kind === "skipped") return null;
-      if (outcome.kind === "coalesced") return outcome.run;
+      if (outcome.kind === "coalesced") {
+        // GEM-1515: a timer-promoted queued run must be claimed now, not at the next recovery tick.
+        if (source === "timer" && outcome.run.status === "queued") {
+          await startNextQueuedRunForAgent(outcome.run.agentId);
+        }
+        return outcome.run;
+      }
 
       const newRun = outcome.run;
       publishLiveEvent({
@@ -4416,10 +4426,12 @@ export function heartbeatService(db: Db) {
         coalescedTargetRun.contextSnapshot,
         contextSnapshot,
       );
+      const timerPromotion = coalescedTimerPromotion(coalescedTargetRun, source);
       const mergedRun = await db
         .update(heartbeatRuns)
         .set({
           contextSnapshot: mergedContextSnapshot,
+          ...timerPromotion,
           updatedAt: new Date(),
         })
         .where(eq(heartbeatRuns.id, coalescedTargetRun.id))
@@ -4441,6 +4453,7 @@ export function heartbeatService(db: Db) {
         runId: mergedRun.id,
         finishedAt: new Date(),
       });
+      if (timerPromotion) await startNextQueuedRunForAgent(agent.id);
       return mergedRun;
     }
 

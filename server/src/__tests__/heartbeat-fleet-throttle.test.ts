@@ -6,6 +6,7 @@ import {
   companies,
   createDb,
   heartbeatRuns,
+  issues,
 } from "@paperclipai/db";
 import {
   getEmbeddedPostgresTestSupport,
@@ -18,6 +19,7 @@ import {
   computeAgentHeartbeatJitterMs,
   computeAgentHeartbeatJitterSec,
   computeJitteredDueAtMs,
+  coalescedTimerPromotion,
   computeSchedulerInitialTickDelayMs,
   evaluateFleetClaim,
   fleetWindowStart,
@@ -104,6 +106,15 @@ describe("fleet throttle pure helpers", () => {
     expect(evaluateFleetClaim(single, { running: 0, startsInWindow: 0, runningNonTimer: 0 }, { invocationSource: "automation", pendingTimerRuns: 0 }).ok).toBe(true);
     const off = readFleetThrottleConfig({ PAPERCLIP_FLEET_TIMER_RESERVED_SLOTS: "0" });
     expect(evaluateFleetClaim(off, oneLongEngineerRun, { invocationSource: "automation", pendingTimerRuns: 0 }).ok).toBe(true);
+  });
+
+  it("GEM-1515: a timer wake coalescing into a queued non-timer run promotes it to timer", () => {
+    expect(coalescedTimerPromotion({ status: "queued", invocationSource: "automation" }, "timer")).toEqual({
+      invocationSource: "timer",
+    });
+    expect(coalescedTimerPromotion({ status: "running", invocationSource: "automation" }, "timer")).toBeNull();
+    expect(coalescedTimerPromotion({ status: "queued", invocationSource: "timer" }, "timer")).toBeNull();
+    expect(coalescedTimerPromotion({ status: "queued", invocationSource: "automation" }, "assignment")).toBeNull();
   });
 
   it("rule 4: claim order puts timer runs first, then oldest first", () => {
@@ -448,6 +459,52 @@ describeEmbeddedPostgres("heartbeat fleet throttle (company-wide)", () => {
     const [timer] = await db.select({ status: heartbeatRuns.status }).from(heartbeatRuns).where(eq(heartbeatRuns.id, timerRunId));
     expect(timer?.status).toBe("running");
     expect(await statusCounts(companyId)).toEqual({ running: 2, queued: 1 });
+  }, 60_000);
+
+  it("GEM-1515: a timer wake coalesced into a held process_lost_retry run takes the reserved slot", async () => {
+    setFleetEnv({ PAPERCLIP_FLEET_MAX_RUNNING: "2", PAPERCLIP_FLEET_STARTS_PER_10MIN: "0" });
+    const companyId = await seedCompany();
+    const engineer = await seedAgent(companyId, "Engineer");
+    const poster = await seedAgent(companyId, "Edge Threads");
+    await seedQueuedRun(companyId, engineer, "assignment", new Date(Date.now() - 90 * 60_000));
+    await svc.resumeQueuedRuns();
+    expect(await statusCounts(companyId)).toEqual({ running: 1, queued: 0 });
+
+    // Retry from a lost child process: non-timer, attached to the agent's evergreen
+    // heartbeat thread (as in prod), so the reserved timer slot holds it.
+    const threadIssueId = randomUUID();
+    await db.insert(issues).values({
+      id: threadIssueId,
+      companyId,
+      title: "Heartbeat Thread — Edge Threads",
+      status: "in_progress",
+      priority: "low",
+      assigneeAgentId: poster,
+    });
+    await db.update(agents).set({ heartbeatThreadIssueId: threadIssueId }).where(eq(agents.id, poster));
+    const retryRunId = randomUUID();
+    await db.insert(heartbeatRuns).values({
+      id: retryRunId,
+      companyId,
+      agentId: poster,
+      invocationSource: "automation",
+      triggerDetail: "system",
+      status: "queued",
+      createdAt: new Date(Date.now() - 7 * 60 * 60_000),
+      contextSnapshot: { issueId: threadIssueId, taskId: threadIssueId, taskKey: threadIssueId, heartbeatThread: true },
+    });
+    await svc.resumeQueuedRuns();
+    const [held] = await db.select({ status: heartbeatRuns.status }).from(heartbeatRuns).where(eq(heartbeatRuns.id, retryRunId));
+    expect(held?.status).toBe("queued");
+
+    // The 19:20 timer slot coalesces into the held retry — it must not be swallowed.
+    await svc.wakeup(poster, { source: "timer", triggerDetail: "system", reason: "heartbeat_timer" });
+    const [promoted] = await db
+      .select({ status: heartbeatRuns.status, source: heartbeatRuns.invocationSource })
+      .from(heartbeatRuns)
+      .where(eq(heartbeatRuns.id, retryRunId));
+    expect(promoted).toEqual({ status: "running", source: "timer" });
+    expect(await statusCounts(companyId)).toEqual({ running: 2, queued: 0 });
   }, 60_000);
 
   it("rule 4: a timer whose agent is paused does not block the fleet", async () => {

@@ -240,6 +240,22 @@ export function evaluateFleetClaim(
   return { ok: true };
 }
 
+/**
+ * GEM-1515: a timer wake that coalesces into a QUEUED non-timer run (e.g. a
+ * process_lost_retry) must carry its timer priority onto that run. Otherwise the
+ * merged run keeps `automation`, stays held by `timer_reserved` / `timer_priority`,
+ * and every later timer slot coalesces into it too — the scheduled post is lost.
+ * Running targets are left alone (they already hold a slot).
+ */
+export function coalescedTimerPromotion(
+  target: { status: string; invocationSource: string | null },
+  wakeSource: string,
+): { invocationSource: "timer" } | null {
+  if (wakeSource !== "timer") return null;
+  if (target.status !== "queued" || target.invocationSource === "timer") return null;
+  return { invocationSource: "timer" };
+}
+
 /** Claim order for queued runs: timer runs first (rule 4), then oldest first. */
 export function orderQueuedRunsForClaim<T extends { invocationSource: string | null; createdAt: Date }>(
   config: FleetThrottleConfig,
