@@ -23,6 +23,8 @@ import { boundedPoll } from "./bounded-poll.js";
 import { publishLiveEvent } from "./live-events.js";
 import { HEARTBEAT_SKIP_STATUSES, isHeartbeatSkipped } from "./heartbeat-eligibility.js";
 import {
+  computeAgentHeartbeatJitterMs,
+  computeJitteredDueAtMs,
   evaluateFleetClaim,
   fleetWindowStart,
   isFleetClaimGateEnabled,
@@ -4854,8 +4856,13 @@ export function heartbeatService(db: Db) {
 
     resumeQueuedRuns,
 
-    tickTimers: async (now = new Date()) => {
+    tickTimers: async (
+      now = new Date(),
+      options: { processStartMs?: number } = { processStartMs: SCHEDULER_PROCESS_STARTED_AT_MS },
+    ) => {
       const tickStartedAtMs = Date.now();
+      const fleet = readFleetThrottleConfig();
+      const effectiveProcessStartMs = options.processStartMs ?? SCHEDULER_PROCESS_STARTED_AT_MS;
       // F2: quét danh sách agent bounded 15s (SET LOCAL). Pass 2 (fire/enqueue per-agent) dùng db thường.
       const allAgents = await boundedPoll(db, (tx) => tx.select().from(agents));
       // GEM-1443: per-phase timing so a slow tick says WHERE it spent the time.
@@ -4893,13 +4900,21 @@ export function heartbeatService(db: Db) {
         const baseline = new Date(agent.lastHeartbeatAt ?? agent.createdAt);
 
         // GEMRAL FIX 2026-04-06 P2: Cron expression takes precedence over intervalSec.
-        // If cron is set: fire when `now >= nextCronTick(cron, baseline)`.
-        // Otherwise: fall back to legacy intervalSec behaviour.
+        // GEM-1500: Apply deterministic per-agent hash jitter (`hash(agent_id) % 30s`)
+        // on both recurring slots and the first catch-up slot after a server restart.
         let shouldFire = false;
         let reason = "";
         if (policy.cron) {
           const next = nextCronTick(policy.cron, baseline);
-          if (next && now.getTime() >= next.getTime()) {
+          const dueAtMs = next
+            ? computeJitteredDueAtMs({
+                baseDueAtMs: next.getTime(),
+                agentId: agent.id,
+                maxJitterSec: fleet.heartbeatJitterMaxSec,
+                processStartMs: effectiveProcessStartMs,
+              })
+            : null;
+          if (next && dueAtMs !== null && now.getTime() >= dueAtMs) {
             const lateMs = now.getTime() - next.getTime();
             const graceMs = policy.catchUpGraceSec * 1000;
             // GEMRAL FIX 2026-06-10 (B): staleness guard. If the scheduler was
@@ -4913,7 +4928,7 @@ export function heartbeatService(db: Db) {
               nextMs: next.getTime(),
               nowMs: now.getTime(),
               graceMs,
-              processStartMs: SCHEDULER_PROCESS_STARTED_AT_MS,
+              processStartMs: effectiveProcessStartMs,
             });
             if (decision === "skip_stale") {
               staleResyncIds.push(agent.id);
@@ -4934,8 +4949,14 @@ export function heartbeatService(db: Db) {
             }
           }
         } else {
-          const elapsedMs = now.getTime() - baseline.getTime();
-          if (elapsedMs >= policy.intervalSec * 1000) {
+          const baseDueAtMs = baseline.getTime() + policy.intervalSec * 1000;
+          const dueAtMs = computeJitteredDueAtMs({
+            baseDueAtMs,
+            agentId: agent.id,
+            maxJitterSec: fleet.heartbeatJitterMaxSec,
+            processStartMs: effectiveProcessStartMs,
+          });
+          if (now.getTime() >= dueAtMs) {
             shouldFire = true;
             reason = "interval_elapsed";
           }
@@ -5015,7 +5036,6 @@ export function heartbeatService(db: Db) {
       // Fleet throttle rule 3 (fleet-throttle.ts): at most N timer wakes per wall-clock
       // hour per company. Over-cap fires are NOT enqueued and their baseline is NOT
       // advanced, so the next tick re-evaluates them. Fair pick = oldest last-finished.
-      const fleet = readFleetThrottleConfig();
       const timerExemptIds = new Set(allAgents.filter((a) => isTimerExempt(fleet, a)).map((a) => a.id));
       const timerBudget = await computeTimerWakeBudget(now, fleet, timerExemptIds);
       let deferredByFleet = 0;
@@ -5067,6 +5087,7 @@ export function heartbeatService(db: Db) {
             now: now.toISOString(),
             cronExpression: policy.cronExpression || undefined,
             intervalSec: policy.cron ? undefined : policy.intervalSec,
+            heartbeatJitterMs: computeAgentHeartbeatJitterMs(agent.id, fleet.heartbeatJitterMaxSec),
             // GEM-1443: agent decides whether a late slot still fits its time window.
             late: reason.startsWith("cron_elapsed_late:") || undefined,
           },

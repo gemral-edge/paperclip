@@ -31,6 +31,7 @@
  *   PAPERCLIP_FLEET_TIMER_PRIORITY         default 1   (<=0 disables rule 4)
  *   PAPERCLIP_FLEET_TIMER_RESERVED_SLOTS   default 1   (<=0 disables the reserved slot;
  *                                                     ignored unless maxRunning > it)
+ *   PAPERCLIP_HEARTBEAT_JITTER_MAX_SEC     default 30  (<=0 disables per-agent hash jitter, GEM-1500)
  */
 
 export const FLEET_MAX_RUNNING_DEFAULT = 2;
@@ -39,6 +40,17 @@ export const FLEET_START_WINDOW_MS = 10 * 60 * 1000;
 export const FLEET_TIMER_WAKES_PER_HOUR_DEFAULT = 3;
 export const FLEET_TIMER_RESERVED_SLOTS_DEFAULT = 1;
 export const FLEET_TIMER_WINDOW_MS = 60 * 60 * 1000;
+export const FLEET_HEARTBEAT_JITTER_MAX_SEC_DEFAULT = 30;
+export const FLEET_POST_RESTART_JITTER_WINDOW_MS = 60 * 60 * 1000;
+/** Stagger offsets (ms) between the 4 scheduler tick jobs inside each interval so they do not hit PgBouncer on the same millisecond. */
+export const SCHEDULER_TICK_JOB_STAGGER_MS: Readonly<
+  Record<"timers" | "wakeups" | "routines" | "recovery", number>
+> = {
+  timers: 0,
+  wakeups: 2_500,
+  routines: 5_000,
+  recovery: 7_500,
+};
 /** Windows are aligned to Asia/Ho_Chi_Minh wall clock (UTC+7, no DST). */
 export const FLEET_TZ_OFFSET_MS = 7 * 60 * 60 * 1000;
 
@@ -51,6 +63,7 @@ export interface FleetThrottleConfig {
   timerExemptAgents: Set<string>;
   timerPriority: boolean;
   timerReservedSlots: number;
+  heartbeatJitterMaxSec: number;
 }
 
 function readIntEnv(env: NodeJS.ProcessEnv, key: string, fallback: number) {
@@ -77,7 +90,92 @@ export function readFleetThrottleConfig(env: NodeJS.ProcessEnv = process.env): F
       0,
       readIntEnv(env, "PAPERCLIP_FLEET_TIMER_RESERVED_SLOTS", FLEET_TIMER_RESERVED_SLOTS_DEFAULT),
     ),
+    heartbeatJitterMaxSec: Math.max(
+      0,
+      readIntEnv(env, "PAPERCLIP_HEARTBEAT_JITTER_MAX_SEC", FLEET_HEARTBEAT_JITTER_MAX_SEC_DEFAULT),
+    ),
   };
+}
+
+/**
+ * GEM-1500: Deterministic per-agent heartbeat jitter in seconds (`0 .. maxJitterSec - 1`).
+ * Uses FNV-1a 32-bit hash of the normalized agent ID so each agent keeps a stable phase
+ * offset across restarts while spreading fleet wakeups across a 30s window.
+ */
+export function computeAgentHeartbeatJitterSec(
+  agentId: string,
+  maxJitterSec: number = FLEET_HEARTBEAT_JITTER_MAX_SEC_DEFAULT,
+): number {
+  const cap = Math.floor(maxJitterSec);
+  if (!agentId || !Number.isFinite(cap) || cap <= 0) return 0;
+  const normalized = agentId.trim().toLowerCase();
+  if (!normalized) return 0;
+  let hash = 0x811c9dc5;
+  for (let i = 0; i < normalized.length; i++) {
+    hash ^= normalized.charCodeAt(i);
+    hash = Math.imul(hash, 0x01000193) >>> 0;
+  }
+  return hash % cap;
+}
+
+export function computeAgentHeartbeatJitterMs(
+  agentId: string,
+  maxJitterSec: number = FLEET_HEARTBEAT_JITTER_MAX_SEC_DEFAULT,
+): number {
+  return computeAgentHeartbeatJitterSec(agentId, maxJitterSec) * 1000;
+}
+
+/**
+ * GEM-1500: Compute the effective due timestamp (ms) for an agent's schedule slot,
+ * applying deterministic per-agent hash jitter (`hash(agent_id) % maxJitterSec` seconds)
+ * on BOTH recurring ticks AND the first tick after a server restart.
+ *
+ * When PM2/watchdog restarts the server at `processStartMs`, any slot `baseDueAtMs` that
+ * fell shortly before `processStartMs` (within `postRestartWindowMs`, default 1h) would
+ * otherwise already satisfy `now >= baseDueAtMs + jitterMs` on the very first tick for
+ * every agent, causing a post-restart thundering herd. Anchoring recent pre-boot slots
+ * to `Math.max(baseDueAtMs + jitterMs, processStartMs + jitterMs)` preserves each agent's
+ * deterministic `0..29s` offset on the first tick after restart as well.
+ */
+export function computeJitteredDueAtMs(input: {
+  baseDueAtMs: number;
+  agentId: string;
+  maxJitterSec?: number;
+  processStartMs?: number;
+  postRestartWindowMs?: number;
+}): number {
+  const jitterMs = computeAgentHeartbeatJitterMs(
+    input.agentId,
+    input.maxJitterSec ?? FLEET_HEARTBEAT_JITTER_MAX_SEC_DEFAULT,
+  );
+  const scheduledDueAtMs = input.baseDueAtMs + jitterMs;
+  if (
+    typeof input.processStartMs === "number" &&
+    Number.isFinite(input.processStartMs) &&
+    input.baseDueAtMs <= input.processStartMs
+  ) {
+    const windowMs = input.postRestartWindowMs ?? FLEET_POST_RESTART_JITTER_WINDOW_MS;
+    if (windowMs <= 0 || input.processStartMs - input.baseDueAtMs <= windowMs) {
+      return Math.max(scheduledDueAtMs, input.processStartMs + jitterMs);
+    }
+  }
+  return scheduledDueAtMs;
+}
+
+/**
+ * GEM-1500: Deterministic initial delay (ms) before the first scheduler tick loop after
+ * server startup so a PM2 restart does not fire periodic tick queries at t=0 concurrently
+ * with startup orphan-reap and queue recovery.
+ */
+export function computeSchedulerInitialTickDelayMs(
+  intervalMs: number,
+  instanceSeed: string,
+  maxJitterSec: number = FLEET_HEARTBEAT_JITTER_MAX_SEC_DEFAULT,
+): number {
+  if (!Number.isFinite(intervalMs) || intervalMs <= 0 || maxJitterSec <= 0) return 0;
+  const jitterMs = computeAgentHeartbeatJitterMs(instanceSeed || "paperclip-scheduler", maxJitterSec);
+  const bounded = Math.max(1_000, jitterMs);
+  return Math.min(Math.floor(intervalMs), bounded);
 }
 
 export function isFleetClaimGateEnabled(config: FleetThrottleConfig) {

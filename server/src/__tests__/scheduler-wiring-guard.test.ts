@@ -29,4 +29,13 @@ describe("scheduler wiring guard (GEM-1443)", () => {
     expect(idx).toMatch(/schedulerAlerts\.recordTickTimeout\(\)/);
     expect(idx).toMatch(/"heartbeat timer tick slow"/);
   });
+
+  it("GEM-1500: tickTimers and startServer wire per-agent hash jitter (including first post-restart tick) and tick job stagger", () => {
+    const hb = src("services/heartbeat.ts");
+    expect(hb).toMatch(/computeJitteredDueAtMs\(\{/);
+    expect(hb).toMatch(/heartbeatJitterMs:\s*computeAgentHeartbeatJitterMs\(/);
+    const idx = src("index.ts");
+    expect(idx).toMatch(/computeSchedulerInitialTickDelayMs\(/);
+    expect(idx).toMatch(/SCHEDULER_TICK_JOB_STAGGER_MS/);
+  });
 });

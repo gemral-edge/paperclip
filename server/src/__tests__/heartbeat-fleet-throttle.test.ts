@@ -14,6 +14,11 @@ import {
 import { runningProcesses } from "../adapters/index.ts";
 import { heartbeatService } from "../services/heartbeat.ts";
 import {
+  SCHEDULER_TICK_JOB_STAGGER_MS,
+  computeAgentHeartbeatJitterMs,
+  computeAgentHeartbeatJitterSec,
+  computeJitteredDueAtMs,
+  computeSchedulerInitialTickDelayMs,
   evaluateFleetClaim,
   fleetWindowStart,
   orderQueuedRunsForClaim,
@@ -31,6 +36,7 @@ const FLEET_ENV_KEYS = [
   "PAPERCLIP_FLEET_TIMER_EXEMPT_AGENTS",
   "PAPERCLIP_FLEET_TIMER_PRIORITY",
   "PAPERCLIP_FLEET_TIMER_RESERVED_SLOTS",
+  "PAPERCLIP_HEARTBEAT_JITTER_MAX_SEC",
 ] as const;
 
 function setFleetEnv(values: Partial<Record<(typeof FLEET_ENV_KEYS)[number], string>>) {
@@ -39,12 +45,13 @@ function setFleetEnv(values: Partial<Record<(typeof FLEET_ENV_KEYS)[number], str
 }
 
 describe("fleet throttle pure helpers", () => {
-  it("defaults to 2 running / 2 starts per 10 min / 3 timer wakes per hour", () => {
+  it("defaults to 2 running / 2 starts per 10 min / 3 timer wakes per hour / 30s jitter", () => {
     const cfg = readFleetThrottleConfig({});
     expect(cfg.maxRunning).toBe(2);
     expect(cfg.startsPerWindow).toBe(2);
     expect(cfg.timerWakesPerHour).toBe(3);
     expect(cfg.timerExemptAgents.size).toBe(0);
+    expect(cfg.heartbeatJitterMaxSec).toBe(30);
   });
 
   it("aligns windows to Asia/Ho_Chi_Minh wall clock", () => {
@@ -121,6 +128,68 @@ describe("fleet throttle pure helpers", () => {
       (c) => c.at,
     );
     expect(ordered.map((c) => c.id)).toEqual(["never", "old", "recent"]);
+  });
+
+  it("GEM-1500: computes deterministic per-agent hash jitter in 0..29s across restarts and spreads fleet IDs", () => {
+    const idA = "99841cec-b00c-4305-a2b8-efb53562c780";
+    const sec1 = computeAgentHeartbeatJitterSec(idA, 30);
+    const sec2 = computeAgentHeartbeatJitterSec(`  ${idA.toUpperCase()}  `, 30);
+    expect(sec1).toBe(sec2);
+    expect(sec1).toBeGreaterThanOrEqual(0);
+    expect(sec1).toBeLessThan(30);
+    expect(computeAgentHeartbeatJitterMs(idA, 30)).toBe(sec1 * 1000);
+    expect(computeAgentHeartbeatJitterMs(idA, 0)).toBe(0);
+    expect(computeAgentHeartbeatJitterMs("", 30)).toBe(0);
+
+    // Check distribution across 24 distinct agent UUIDs: must occupy multiple distinct second buckets.
+    const sampleIds = Array.from({ length: 24 }, (_, idx) =>
+      `00000000-0000-4000-8000-${String(idx + 1).padStart(12, "0")}`,
+    );
+    const distinctBuckets = new Set(sampleIds.map((id) => computeAgentHeartbeatJitterSec(id, 30)));
+    expect(distinctBuckets.size).toBeGreaterThanOrEqual(10);
+  });
+
+  it("GEM-1500: offsets BOTH recurring slots AND the first post-restart catch-up slot by agent hash jitter", () => {
+    // Pick an agent ID that hashes to a non-zero offset in 0..29s.
+    const agentId = "99841cec-b00c-4305-a2b8-efb53562c780";
+    const jitterMs = computeAgentHeartbeatJitterMs(agentId, 30);
+    expect(jitterMs).toBeGreaterThan(0);
+
+    const processStartMs = Date.parse("2026-10-18T09:00:40.000Z");
+    // 1. Recurring slot AFTER process start (09:30:00Z): due at 09:30:00Z + jitterMs.
+    const recurringSlotMs = Date.parse("2026-10-18T09:30:00.000Z");
+    expect(
+      computeJitteredDueAtMs({
+        baseDueAtMs: recurringSlotMs,
+        agentId,
+        maxJitterSec: 30,
+        processStartMs,
+      }),
+    ).toBe(recurringSlotMs + jitterMs);
+
+    // 2. First slot AFTER restart where baseDueAtMs (09:00:00Z) fell while server was restarting:
+    // Without post-restart anchoring, 09:00:00Z + jitterMs (<= 09:00:29Z) would already be <= processStartMs (09:00:40Z),
+    // firing every agent on the very first tick at 09:00:40Z. With post-restart anchoring, it waits until processStartMs + jitterMs.
+    const preRestartSlotMs = Date.parse("2026-10-18T09:00:00.000Z");
+    expect(
+      computeJitteredDueAtMs({
+        baseDueAtMs: preRestartSlotMs,
+        agentId,
+        maxJitterSec: 30,
+        processStartMs,
+      }),
+    ).toBe(processStartMs + jitterMs);
+
+    // 3. Staggers initial scheduler tick delay and 4 periodic tick jobs.
+    const initialDelay = computeSchedulerInitialTickDelayMs(30_000, "paperclip-prod-1", 30);
+    expect(initialDelay).toBeGreaterThanOrEqual(1_000);
+    expect(initialDelay).toBeLessThanOrEqual(30_000);
+    expect(SCHEDULER_TICK_JOB_STAGGER_MS).toEqual({
+      timers: 0,
+      wakeups: 2_500,
+      routines: 5_000,
+      recovery: 7_500,
+    });
   });
 });
 
@@ -410,5 +479,38 @@ describeEmbeddedPostgres("heartbeat fleet throttle (company-wide)", () => {
     const result = await svc.tickTimers(new Date());
     expect(result.enqueued).toBe(2);
     expect(result.deferredByFleet).toBe(1);
+  }, 60_000);
+
+  it("GEM-1500: tickTimers delays the FIRST tick after restart by each agent's deterministic hash jitter", async () => {
+    const companyId = await seedCompany();
+    setFleetEnv({
+      PAPERCLIP_FLEET_MAX_RUNNING: "0",
+      PAPERCLIP_FLEET_STARTS_PER_10MIN: "0",
+      PAPERCLIP_FLEET_TIMER_WAKES_PER_HOUR: "0",
+      PAPERCLIP_HEARTBEAT_JITTER_MAX_SEC: "30",
+    });
+    // Create an agent whose deterministic hash jitter is > 0s (retry UUID until jitterSec >= 5).
+    let agentId = await seedAgent(companyId, "Jittered Agent", { cronExpression: "* * * * *", catchUpGraceSec: 3600 });
+    while (computeAgentHeartbeatJitterSec(agentId, 30) < 5) {
+      agentId = await seedAgent(companyId, "Jittered Agent", { cronExpression: "* * * * *", catchUpGraceSec: 3600 });
+    }
+    // Keep only the chosen agent in this company.
+    await db.execute(sql`delete from agents where company_id = ${companyId} and id <> ${agentId}`);
+    const jitterMs = computeAgentHeartbeatJitterMs(agentId, 30);
+
+    // Baseline at 08:59:00Z → next cron tick is 09:00:00Z; server restarts at 09:00:40Z.
+    await db
+      .update(agents)
+      .set({ lastHeartbeatAt: new Date("2026-10-18T08:59:00.000Z") })
+      .where(eq(agents.id, agentId));
+    const processStartMs = Date.parse("2026-10-18T09:00:40.000Z");
+
+    // Immediately at server boot + 1s (before processStartMs + jitterMs): MUST NOT fire yet.
+    const tooEarly = await svc.tickTimers(new Date(processStartMs + 1_000), { processStartMs });
+    expect(tooEarly.enqueued).toBe(0);
+
+    // At processStartMs + jitterMs: fires on the first eligible post-restart tick.
+    const onOffset = await svc.tickTimers(new Date(processStartMs + jitterMs), { processStartMs });
+    expect(onOffset.enqueued).toBe(1);
   }, 60_000);
 });

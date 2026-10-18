@@ -53,6 +53,11 @@ import { logger, redirectStdioToServerLog } from "./middleware/logger.js";
 import { setupLiveEventsWebSocketServer } from "./realtime/live-events-ws.js";
 import { trainingRouter, setupTrainingWebSocket } from "./training/training-routes.js";
 import { heartbeatService, reconcilePersistedRuntimeServicesOnStartup, routineService, scheduledIssueWakeupService } from "./services/index.js";
+import {
+  SCHEDULER_TICK_JOB_STAGGER_MS,
+  computeSchedulerInitialTickDelayMs,
+  readFleetThrottleConfig,
+} from "./services/fleet-throttle.js";
 import { markAlive } from "./services/liveness-tracker.js";
 import { configureBreakerPersistence } from "./channels/agy-timeout-fallback.js";
 import { resolvePaperclipInstanceRoot } from "./home-paths.js";
@@ -732,8 +737,26 @@ export async function startServer(): Promise<StartedServer> {
         });
     };
 
-    setInterval(() => {
-      runTickJob(
+    const scheduleStaggeredTickJob = (
+      key: keyof typeof SCHEDULER_TICK_JOB_STAGGER_MS,
+      label: string,
+      fn: () => Promise<void>,
+      onSettle?: () => void,
+      onError?: (err: unknown) => void,
+    ): void => {
+      const staggerMs = SCHEDULER_TICK_JOB_STAGGER_MS[key] ?? 0;
+      if (staggerMs <= 0) {
+        runTickJob(key, label, fn, onSettle, onError);
+        return;
+      }
+      const timer = setTimeout(() => {
+        runTickJob(key, label, fn, onSettle, onError);
+      }, staggerMs);
+      timer.unref?.();
+    };
+
+    const dispatchStaggeredSchedulerTick = () => {
+      scheduleStaggeredTickJob(
         "timers",
         "heartbeat timer",
         () =>
@@ -755,7 +778,7 @@ export async function startServer(): Promise<StartedServer> {
         },
       );
 
-      runTickJob("routines", "routine scheduler", () =>
+      scheduleStaggeredTickJob("routines", "routine scheduler", () =>
         routines.tickScheduledTriggers(new Date()).then((result) => {
           if (result.triggered > 0) {
             logger.info({ ...result }, "routine scheduler tick enqueued runs");
@@ -763,7 +786,7 @@ export async function startServer(): Promise<StartedServer> {
         }),
       );
 
-      runTickJob("wakeups", "scheduled issue wake", () =>
+      scheduleStaggeredTickJob("wakeups", "scheduled issue wake", () =>
         scheduledIssueWakeups.tickScheduledIssueWakeups(new Date()).then((result) => {
           if (result.due > 0) {
             logger.info({ ...result }, "scheduled issue wake tick fired");
@@ -773,12 +796,26 @@ export async function startServer(): Promise<StartedServer> {
 
       // Periodically reap orphaned runs (5-min staleness threshold) and make sure
       // persisted queued work is still being driven forward.
-      runTickJob("recovery", "periodic heartbeat recovery", () =>
+      scheduleStaggeredTickJob("recovery", "periodic heartbeat recovery", () =>
         heartbeat
           .reapOrphanedRuns({ staleThresholdMs: 5 * 60 * 1000 })
           .then(() => heartbeat.resumeQueuedRuns()),
       );
-    }, config.heartbeatSchedulerIntervalMs);
+    };
+
+    // GEM-1500: Apply deterministic initial jitter to the first post-restart tick cycle
+    // and stagger the 4 DB jobs inside each interval so PgBouncer never receives a 4-way
+    // burst on the same millisecond.
+    const initialTickDelayMs = computeSchedulerInitialTickDelayMs(
+      config.heartbeatSchedulerIntervalMs,
+      process.env.COMPUTERNAME ?? process.env.HOSTNAME ?? "paperclip-server",
+      readFleetThrottleConfig().heartbeatJitterMaxSec,
+    );
+    const initialTickTimer = setTimeout(() => {
+      dispatchStaggeredSchedulerTick();
+      setInterval(dispatchStaggeredSchedulerTick, config.heartbeatSchedulerIntervalMs);
+    }, initialTickDelayMs);
+    initialTickTimer.unref?.();
   }
   
   if (config.databaseBackupEnabled) {
