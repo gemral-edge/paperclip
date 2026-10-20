@@ -90,7 +90,8 @@ export function Sidebar() {
     enabled: !!selectedCompanyId,
     refetchInterval: 10_000,
   });
-  const liveRunCount = liveRuns?.length ?? 0;
+  // Chỉ đếm lượt đang chạy thật; `queued` (chờ chỗ chạy) không tính là live.
+  const liveRunCount = liveRuns?.filter((run) => run.status === "running").length ?? 0;
 
   function openSearch() {
     document.dispatchEvent(new KeyboardEvent("keydown", { key: "k", metaKey: true }));

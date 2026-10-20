@@ -14,8 +14,9 @@ import { useLiveRunTranscripts } from "./transcript/useLiveRunTranscripts";
 
 const MIN_DASHBOARD_RUNS = 4;
 
+// "Live" = đang chạy thật. `queued` = đang xếp hàng chờ chỗ (fleet-throttle) — KHÔNG phải live.
 function isRunActive(run: LiveRunForIssue): boolean {
-  return run.status === "queued" || run.status === "running";
+  return run.status === "running";
 }
 
 interface ActiveAgentsPanelProps {
@@ -119,13 +120,13 @@ function AgentRunCard({
               <Identity name={run.agentName} size="sm" className="[&>span:last-child]:!text-[11px]" />
             </div>
             <div className="mt-2 flex items-center gap-2 text-[11px] text-muted-foreground">
-              <span>{isActive ? "Live now" : run.finishedAt ? `Finished ${relativeTime(run.finishedAt)}` : `Started ${relativeTime(run.createdAt)}`}</span>
+              <span>{isActive ? "Live now" : run.status === "queued" ? `Queued ${relativeTime(run.createdAt)}` : run.finishedAt ? `Finished ${relativeTime(run.finishedAt)}` : `Started ${relativeTime(run.createdAt)}`}</span>
               {!isActive && run.status && (
                 <span className={cn(
                   "px-1.5 py-[1px] rounded text-[9px] font-medium uppercase tracking-wider",
                   run.status === "success" || run.status === "completed" ? "bg-green-500/10 text-green-600 dark:text-green-400" :
                   run.status === "failed" || run.status === "error" ? "bg-red-500/10 text-red-600 dark:text-red-400" :
-                  run.status === "cancelled" ? "bg-amber-500/10 text-amber-600 dark:text-amber-400" :
+                  run.status === "cancelled" || run.status === "queued" ? "bg-amber-500/10 text-amber-600 dark:text-amber-400" :
                   "bg-muted text-muted-foreground"
                 )}>
                   {run.status}
@@ -167,7 +168,7 @@ function AgentRunCard({
           streaming={isActive}
           collapseStdout
           thinkingClassName="!text-[10px] !leading-4"
-          emptyMessage={hasOutput ? "Waiting for transcript parsing..." : isActive ? "Waiting for output..." : "No transcript captured."}
+          emptyMessage={hasOutput ? "Waiting for transcript parsing..." : isActive ? "Waiting for output..." : run.status === "queued" ? "Queued — waiting for a free run slot." : "No transcript captured."}
         />
       </div>
     </div>
