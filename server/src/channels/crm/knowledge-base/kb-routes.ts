@@ -158,9 +158,10 @@ router.post('/sync/commerce', async (_req, res) => {
       const hash = createHash('md5').update(content).digest('hex');
       // Dedup theo ĐỊNH DANH SP (source_id = commerce_products.id): đổi giá/mô tả → cập nhật tại chỗ, không đẻ doc trùng
       const { data: existing } = await supabase.from('kb_documents')
-        .select('id, content_hash').eq('source_type', 'commerce').eq('source_id', p.id).maybeSingle();
+        .select('id, content_hash, status').eq('source_type', 'commerce').eq('source_id', p.id).maybeSingle();
       if (existing) {
-        if (existing.content_hash === hash) continue;
+        // SP bật bán lại (doc đang 'outdated') → xử lý lại để vào tìm kiếm dù nội dung không đổi
+        if (existing.content_hash === hash && existing.status !== 'outdated') continue;
         await supabase.from('kb_documents')
           .update({ title: p.title, raw_content: content, content_hash: hash, status: 'pending' }).eq('id', existing.id);
         processor.processDocument(existing.id).catch(() => {});
@@ -172,7 +173,17 @@ router.post('/sync/commerce', async (_req, res) => {
         .select('id').single();
       if (doc) { processor.processDocument(doc.id).catch(() => {}); count++; }
     }
-    res.json({ message: `Đang sync ${count} sản phẩm`, count, total: products.length });
+    // SP ngừng bán (draft/archived, vd crystal ẩn 22/10/2026) → 'outdated' để search_knowledge (lọc status='ready') bỏ qua.
+    // Không xoá: bật bán lại thì vòng trên đưa về pending → ready.
+    const liveIds = new Set(products.map((p) => p.id));
+    const { data: docs } = await supabase.from('kb_documents')
+      .select('id, source_id').eq('source_type', 'commerce').neq('status', 'outdated');
+    const staleIds = (docs ?? []).filter((d: { source_id: string }) => !liveIds.has(d.source_id)).map((d: { id: string }) => d.id);
+    if (staleIds.length) {
+      const { error } = await supabase.from('kb_documents').update({ status: 'outdated' }).in('id', staleIds);
+      if (error) throw new Error(`retire stale commerce docs: ${error.message}`);
+    }
+    res.json({ message: `Đang sync ${count} sản phẩm`, count, total: products.length, retired: staleIds.length });
   } catch (err: any) { res.status(500).json({ error: err.message }); }
 });
 
