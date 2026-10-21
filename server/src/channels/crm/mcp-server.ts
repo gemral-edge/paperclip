@@ -12,6 +12,7 @@ import { createClient } from '@supabase/supabase-js';
 import * as fs from 'fs';
 import { matchGemralUser, enrichWithGemralData } from './gemral-bridge.js';
 import { checkOutboundEmail } from '../outbound-gate.js';
+import { handleCommerceCreateOrder } from './commerce-order.js';
 
 // Initialize Supabase — same config as channels/zalo-personal/supabase.ts
 const supabaseUrl = process.env.GEMRAL_SUPABASE_URL || 'https://pgfkbcnzqozzkohwbgbk.supabase.co';
@@ -30,39 +31,39 @@ const shopifyToken = process.env.SHOPIFY_ACCESS_TOKEN || '';
 const TOOLS = [
   {
     name: 'create_order',
-    description: 'Tạo đơn hàng mới cho khách hàng trong CRM',
+    description:
+      'Tạo đơn THẬT cho khách chốt mua (cửa hàng Yinyang mới, thanh toán chuyển khoản VietQR). Giá do hệ thống tính — KHÔNG truyền giá. '
+      + 'Trả transfer_code + QR + link thanh toán: gửi khách NGUYÊN transfer_code, không tự ghép. Crystal bắt buộc tên, SĐT, địa chỉ, tỉnh/TP; '
+      + 'hàng số/khoá học bắt buộc email. Gọi lại cùng khách + cùng hàng trong ngày trả lại đơn cũ. Không có cách đánh dấu đã trả tiền.',
     inputSchema: {
       type: 'object' as const,
       properties: {
-        customer_id: { type: 'string', description: 'UUID khách hàng CRM' },
         items: {
           type: 'array',
           items: {
             type: 'object',
             properties: {
-              title: { type: 'string' },
-              variant_id: { type: 'string' },
+              ref: { type: 'string', description: 'slug sản phẩm (từ search_product) hoặc mã variant (UUID / mã Shopify cũ)' },
               quantity: { type: 'number' },
-              price: { type: 'number' },
             },
-            required: ['title', 'quantity', 'price'],
+            required: ['ref'],
           },
-          description: 'Danh sách sản phẩm',
         },
+        email: { type: 'string', description: 'Email khách (bắt buộc với hàng số/khoá học)' },
+        customer_id: { type: 'string', description: 'UUID khách CRM (nếu đã xác minh)' },
         shipping_name: { type: 'string' },
         shipping_phone: { type: 'string' },
-        shipping_address: { type: 'string' },
-        payment_method: { type: 'string', description: 'chuyen_khoan, cod, momo, vnpay' },
+        shipping_address: { type: 'string', description: 'Số nhà, đường, phường/xã' },
+        shipping_city: { type: 'string', description: 'Tỉnh/TP' },
         customer_note: { type: 'string' },
-        source_channel: { type: 'string' },
       },
-      required: ['customer_id', 'items'],
+      required: ['items'],
     },
   },
   {
     name: 'create_shopify_order',
     description:
-      'Tạo đơn Shopify THẬT cho khách chốt mua (draft order → complete). MẶC ĐỊNH đơn UNPAID; chỉ đặt mark_paid=true khi ĐÃ xác nhận khách chuyển khoản đủ (có bill) — KHÔNG bao giờ tự suy tiền. KHÁC create_order (chỉ ghi crm_orders, không phải đơn Shopify). variant_id + giá tra product-catalog-index.json.',
+      'NGỪNG DÙNG (Shopify đã đóng 21/10/2026) — gọi create_order. Tool này chỉ trả lỗi hướng dẫn; gỡ hẳn sau 20/11/2026.',
     inputSchema: {
       type: 'object' as const,
       properties: {
@@ -294,61 +295,9 @@ const TOOLS = [
 
 // ─── Tool handlers ───
 
-export async function handleCreateOrder(args: any): Promise<string> {
-  const items = args.items || [];
-  if (items.length === 0) {
-    return JSON.stringify({ success: false, error: 'Cần ít nhất 1 sản phẩm' });
-  }
-
-  const subtotal = items.reduce((sum: number, i: any) => sum + (i.price * i.quantity), 0);
-  const total = subtotal + (args.shipping_fee || 0) - (args.discount_amount || 0);
-
-  const { data, error } = await supabase
-    .from('crm_orders')
-    .insert({
-      customer_id: args.customer_id,
-      items,
-      subtotal,
-      total,
-      shipping_name: args.shipping_name,
-      shipping_phone: args.shipping_phone,
-      shipping_address: args.shipping_address,
-      payment_method: args.payment_method || 'chuyen_khoan',
-      source: 'chat',
-      source_channel: args.source_channel,
-      customer_note: args.customer_note,
-      created_by_agent: 'mcp',
-    })
-    .select('id, order_number, total')
-    .single();
-
-  if (error) {
-    return JSON.stringify({ success: false, error: `Lỗi tạo đơn: ${error.message}` });
-  }
-
-  // Update customer stats
-  await supabase.rpc('increment_customer_stats', {
-    p_id: args.customer_id,
-    p_orders: 1,
-    p_revenue: total,
-  });
-
-  // Create interaction record
-  await supabase.from('crm_interactions').insert({
-    customer_id: args.customer_id,
-    interaction_type: 'order_created',
-    title: `Đơn hàng ${data.order_number}`,
-    content: `${items.length} sản phẩm, tổng ${formatVND(total)}`,
-    revenue: total,
-    agent_slug: 'mcp',
-  });
-
-  return JSON.stringify({
-    success: true,
-    order_number: data.order_number,
-    total: formatVND(total),
-    item_count: items.length,
-  });
+// create_order → đơn thật trên lõi commerce (YSC-004). Bản cũ ghi crm_orders với giá agent tự điền đã gỡ.
+export async function handleCreateOrder(args: any, agentSlug?: string | null): Promise<string> {
+  return handleCommerceCreateOrder(args, agentSlug ?? CLI_AGENT_SLUG);
 }
 
 // ─── create_shopify_order: đơn Shopify THẬT (draft → complete) ───
@@ -412,6 +361,10 @@ const CLI_AGENT_SLUG: string | null = (() => {
 })();
 
 export async function handleCreateShopifyOrder(args: any, agentSlug?: string): Promise<string> {
+  // YSC-004: Shopify đã đóng — giữ tên tool tới 20/11/2026 chỉ để chỉ đường, KHÔNG tạo đơn Shopify nữa.
+  if (process.env.ALLOW_SHOPIFY_ORDER !== '1') {
+    return JSON.stringify({ success: false, error: 'create_shopify_order đã ngừng (cửa hàng chuyển sang hệ thống mới). Gọi create_order với items=[{ref: slug|mã variant, quantity}].' });
+  }
   try {
     const variantId = args.variant_id;
     if (!variantId) {
@@ -1010,10 +963,6 @@ async function handleAwaitDelegation(args: any): Promise<string> {
 }
 
 // ─── Helpers ───
-
-function formatVND(n: number): string {
-  return new Intl.NumberFormat('vi-VN').format(n || 0) + '₫';
-}
 
 async function getWarRoomChannelId(name: string): Promise<string | null> {
   const { data } = await supabase

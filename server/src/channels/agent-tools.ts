@@ -95,7 +95,8 @@ export function isGatedTool(name: ToolName): boolean {
 
 /** Tools whose result the customer reply does not need (write-only side effects). */
 const SIDE_EFFECT_ONLY_TOOLS: ReadonlySet<string> = new Set([
-  'create_ticket', 'create_order', 'create_shopify_order', 'crm_update', 'send_email',
+  // create_order KHÔNG ở đây: khách cần mã chuyển khoản + QR trong câu trả lời (YSC-004)
+  'create_ticket', 'create_shopify_order', 'crm_update', 'send_email',
 ]);
 
 export function isSideEffectOnlyTool(name: string): boolean {
@@ -350,7 +351,8 @@ export async function executeTool(call: ToolCall, ctx: ToolExecutionContext): Pr
         break;
       // ── 9 MCP handlers ──────────────────────────────────────────────────
       case 'create_order':
-        result = wrapMcpResult(await handleCreateOrder({ ...call.args, source_channel: ctx.channelName }));
+        // YSC-004: đơn thật trên lõi commerce; kết quả (mã CK + QR) PHẢI vào câu trả lời khách
+        result = wrapMcpResult(await handleCreateOrder({ ...call.args, source_channel: ctx.channelName }, ctx.agentSlug));
         break;
       case 'create_shopify_order':
         // KHÔNG auto-inject verifiedCustomerId (đó là CRM/verify id, KHÔNG phải Shopify customer_id).
