@@ -10,7 +10,8 @@ export const DEFAULT_ANTIGRAVITY_MODEL = "Gemini 3.1 Pro (High)";
 // dụng Gemini cạn ở MỌI model Gemini → 17 agent + 2 bot CSKH đứng 5,5h vì adapter retry cùng
 // model. Mặc định CHỈ áp cho model chính họ Gemini (Claude trong agy là hạn mức riêng — probe
 // 05/10 OK). Ghi đè per-agent bằng adapterConfig.fallbackModels (mảng; [] = tắt dự phòng).
-export const DEFAULT_ANTIGRAVITY_FALLBACK_MODELS: readonly string[] = ["Claude Sonnet 5.5 (High)"];
+// 21/10: 5.5 (High) bi agy go khoi danh sach (invalid model selection) -> 4.6 (Thinking), verify `agy -p OK`.
+export const DEFAULT_ANTIGRAVITY_FALLBACK_MODELS: readonly string[] = ["Claude Sonnet 4.6 (Thinking)"];
 
 // Full Antigravity model picker. Pass the string VERBATIM via `--model "<id>"`.
 // Default = DEFAULT_ANTIGRAVITY_MODEL above.

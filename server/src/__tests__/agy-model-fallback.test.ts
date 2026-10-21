@@ -23,18 +23,18 @@ function pickModel(chain: string[], stderrByModel: Record<string, string>): { us
 describe('agy model fallback (GEM-1241)', () => {
   const chain = resolveAntigravityModelChain('Gemini 3.8 Flash (High)', undefined, DEFAULT_ANTIGRAVITY_FALLBACK_MODELS);
 
-  it('model Gemini mặc định có dự phòng Claude Sonnet 5.5 (High)', () => {
-    expect(chain).toEqual(['Gemini 3.8 Flash (High)', 'Claude Sonnet 5.5 (High)']);
+  it('model Gemini mặc định có dự phòng Claude Sonnet 4.6 (Thinking)', () => {
+    expect(chain).toEqual(['Gemini 3.8 Flash (High)', 'Claude Sonnet 4.6 (Thinking)']);
   });
 
   it('stderr hết credits → dùng model dự phòng', () => {
     const r = pickModel(chain, { 'Gemini 3.8 Flash (High)': CREDITS_STDERR });
-    expect(r.used).toBe('Claude Sonnet 5.5 (High)');
+    expect(r.used).toBe('Claude Sonnet 4.6 (Thinking)');
     expect(r.tried).toEqual(chain);
   });
 
   it('stderr RESOURCE_EXHAUSTED → dùng model dự phòng', () => {
-    expect(pickModel(chain, { 'Gemini 3.8 Flash (High)': QUOTA_STDERR }).used).toBe('Claude Sonnet 5.5 (High)');
+    expect(pickModel(chain, { 'Gemini 3.8 Flash (High)': QUOTA_STDERR }).used).toBe('Claude Sonnet 4.6 (Thinking)');
   });
 
   it('stderr sạch → giữ model chính (tự quay về khi Gemini hồi)', () => {
@@ -52,9 +52,9 @@ describe('agy model fallback (GEM-1241)', () => {
 
   it('fallbackModels: [] tắt; chuỗi phẩy được tách; model chính Claude không tự thêm dự phòng', () => {
     expect(resolveAntigravityModelChain('Gemini 3.1 Pro (High)', [], DEFAULT_ANTIGRAVITY_FALLBACK_MODELS)).toEqual(['Gemini 3.1 Pro (High)']);
-    expect(resolveAntigravityModelChain('Gemini 3.1 Pro (High)', 'Gemini 3.8 Flash (High), Claude Sonnet 5.5 (High)', DEFAULT_ANTIGRAVITY_FALLBACK_MODELS))
-      .toEqual(['Gemini 3.1 Pro (High)', 'Gemini 3.8 Flash (High)', 'Claude Sonnet 5.5 (High)']);
-    expect(resolveAntigravityModelChain('Claude Sonnet 5.5 (High)', undefined, DEFAULT_ANTIGRAVITY_FALLBACK_MODELS)).toEqual(['Claude Sonnet 5.5 (High)']);
+    expect(resolveAntigravityModelChain('Gemini 3.1 Pro (High)', 'Gemini 3.8 Flash (High), Claude Sonnet 4.6 (Thinking)', DEFAULT_ANTIGRAVITY_FALLBACK_MODELS))
+      .toEqual(['Gemini 3.1 Pro (High)', 'Gemini 3.8 Flash (High)', 'Claude Sonnet 4.6 (Thinking)']);
+    expect(resolveAntigravityModelChain('Claude Sonnet 4.6 (Thinking)', undefined, DEFAULT_ANTIGRAVITY_FALLBACK_MODELS)).toEqual(['Claude Sonnet 4.6 (Thinking)']);
   });
 });
 

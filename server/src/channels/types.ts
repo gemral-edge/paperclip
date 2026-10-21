@@ -230,7 +230,7 @@ export interface AgentConfig {
   conversation_id?: string | null;
   /**
    * Antigravity only: model dự phòng khi model chính hết credits/quota (GEM-1241) —
-   * adapter_config.fallbackModels. undefined = mặc định (model Gemini → Claude Sonnet 5.5 High);
+   * adapter_config.fallbackModels. undefined = mặc định (model Gemini → Claude Sonnet 4.6 (Thinking));
    * [] = tắt.
    */
   fallback_models?: string[] | string | null;

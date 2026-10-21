@@ -10,7 +10,7 @@ const CREDITS_STDERR = "error: Your AI credits balance is too low to continue.";
 const credits = {
   errorCode: "antigravity_quota_exhausted",
   errorMessage: CREDITS_STDERR,
-  resultJson: { stderr: CREDITS_STDERR, modelsTried: ["Gemini 3.8 Flash (High)", "Claude Sonnet 5.5 (High)"] },
+  resultJson: { stderr: CREDITS_STDERR, modelsTried: ["Gemini 3.8 Flash (High)", "Claude Sonnet 4.6 (Thinking)"] },
 };
 const base = { adapterType: "antigravity_local", config: {}, env: {} as NodeJS.ProcessEnv };
 
@@ -56,7 +56,7 @@ describe("buildClaudeFallbackConfig", () => {
     timeoutSec: 900,
     model: "Gemini 3.8 Flash (High)",
     printTimeout: "24h",
-    fallbackModels: ["Claude Sonnet 5.5 (High)"],
+    fallbackModels: ["Claude Sonnet 4.6 (Thinking)"],
     conversationId: "abc",
     extraArgs: ["--x"],
     effort: "high",
