@@ -56,7 +56,7 @@ import {
  *
  * Identity-gated tools (require verify_customer_identity first):
  *   get_customer_info, check_course_access, link_gemral_account, crm_update,
- *   send_email, create_order, lookup_order_shopify, recall_memory
+ *   send_email, create_order, lookup_order (alias lookup_order_shopify), recall_memory
  *
  * Public tools (no gate):
  *   search_product, search_knowledge, kg_lookup_entity, kg_traverse, create_ticket,
@@ -73,6 +73,7 @@ export const ALLOWED_TOOLS = [
   'send_email',
   'create_order',
   'create_shopify_order',
+  'lookup_order',
   'lookup_order_shopify',
   'recall_memory',
   // Public
@@ -236,8 +237,8 @@ export function renderToolCatalogForPrompt(_agentSlug: string): string {
     '2. get_customer_info({"customer_id":"<uuid>"} | {"phone":"..."} | {"email":"..."})',
     '   → CRM customer chi tiết: tên, status, lead_score, total_orders, gemral_data.',
     '',
-    '3. lookup_order_shopify({"order_number":"4766"})',
-    '   → Trạng thái đơn hàng Shopify: fulfillment, tracking, items, shipping address.',
+    '3. lookup_order({"order_number":"6088"})',
+    '   → Trạng thái đơn hàng (web Yinyang mới + Shopify cũ): thanh toán, giao hàng, tracking, items, địa chỉ.',
     '',
     '4. check_course_access({"customer_id":"<uuid>","course_id":"<uuid_optional>"})',
     '   → Course enrollments + tier app Gemral của khách.',
@@ -337,7 +338,8 @@ export async function executeTool(call: ToolCall, ctx: ToolExecutionContext): Pr
         // verify mutates sharedCtx — propagate back to ctx for in-loop calls
         ctx.verifiedCustomerId = sharedCtx.verifiedCustomerId;
         break;
-      case 'lookup_order_shopify':
+      case 'lookup_order':          // YSC-008: tên chuẩn
+      case 'lookup_order_shopify':  // alias tên cũ
         result = adaptShared(await handleLookupOrderShopify(call.args, sharedCtx));
         break;
       case 'recall_memory':

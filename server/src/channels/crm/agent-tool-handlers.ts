@@ -94,6 +94,7 @@ export const GATED_TOOL_NAMES = new Set([
   'send_email',
   'create_order',
   'create_shopify_order',
+  'lookup_order',
   'lookup_order_shopify',
   'recall_memory',
 ]);

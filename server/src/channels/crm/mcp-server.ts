@@ -213,8 +213,19 @@ const TOOLS = [
     },
   },
   {
+    name: 'lookup_order',
+    description: 'Tra trạng thái đơn hàng (đơn web Yinyang mới yinyangmasters.com + đơn Shopify cũ): thanh toán, giao hàng, tracking, items. PRECONDITION: phải verify_customer_identity trước.',
+    inputSchema: {
+      type: 'object' as const,
+      properties: {
+        order_number: { type: 'string', description: 'Mã đơn hàng (không cần dấu #)' },
+      },
+      required: ['order_number'],
+    },
+  },
+  {
     name: 'lookup_order_shopify',
-    description: 'Tra trạng thái đơn hàng (đơn Shopify cũ + đơn web Yinyang mới yinyangmasters.com): thanh toán, giao hàng, tracking, items. PRECONDITION: phải verify_customer_identity trước.',
+    description: 'Tên cũ của lookup_order (giữ để agent cũ không gãy) — dùng lookup_order. PRECONDITION: phải verify_customer_identity trước.',
     inputSchema: {
       type: 'object' as const,
       properties: {
@@ -980,7 +991,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
     // env vars (PAPERCLIP_SESSION_KEY etc) so identity gate state is honored
     // even though Claude/Gemini CLI re-spawn this process per request.
     const SHARED_TOOL_NAMES = new Set([
-      'verify_customer_identity', 'lookup_order_shopify', 'recall_memory',
+      'verify_customer_identity', 'lookup_order', 'lookup_order_shopify', 'recall_memory',
       'kg_lookup_entity', 'kg_traverse',
     ]);
 
@@ -995,7 +1006,8 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
           case 'verify_customer_identity':
             shared = await handleVerifyCustomerIdentity(args || {}, ctx);
             break;
-          case 'lookup_order_shopify':
+          case 'lookup_order':          // YSC-008: tên chuẩn
+          case 'lookup_order_shopify':  // alias tên cũ
             shared = await handleLookupOrderShopify(args || {}, ctx);
             break;
           case 'recall_memory':
