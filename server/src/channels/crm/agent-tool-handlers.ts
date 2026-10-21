@@ -119,6 +119,27 @@ export function checkIdentityGate(toolName: string, ctx: ToolHandlerContext): Sh
  * On success: persists verified_customer_id into channel_sessions.metadata
  * AND mutates ctx in place so subsequent calls in same loop see new state.
  */
+async function commerceIdentityCandidates(
+  ctx: ToolHandlerContext, orderNumber: string | null, email: string | null, phone: string | null,
+): Promise<any[]> {
+  const cols = 'id, order_number, email, shipping_address, metadata, user_id';
+  let q = ctx.supabase.from('commerce_orders').select(cols).neq('email', 'pending@checkout.invalid');
+  if (orderNumber && /^\d{1,12}$/.test(orderNumber)) q = ctx.supabase.from('commerce_orders').select(cols).eq('order_number', Number(orderNumber));
+  else if (email) q = q.ilike('email', likeEscape(email));
+  else if (phone) {
+    const alt = phone.startsWith('0') ? '+84' + phone.slice(1) : phone;
+    q = ctx.supabase.from('commerce_orders').select(cols)
+      .or([phone, alt].flatMap((x) => [`shipping_address->>phone.eq.${x}`, `metadata->>customer_phone.eq.${x}`]).join(','));
+  } else return [];
+  const { data, error } = await q.order('created_at', { ascending: false }).limit(5);
+  if (error) { console.warn(`[verify] commerce lookup failed: ${error.message}`); return []; }
+  return (data || []).map((o: any) => ({
+    id: o.id, order_number: String(o.order_number), email: o.email, customer_email: null,
+    phone: o.shipping_address?.phone ?? o.metadata?.customer_phone ?? null,
+    shipping_address: o.shipping_address, user_id: o.user_id, source: 'commerce',
+  }));
+}
+
 export async function handleVerifyCustomerIdentity(
   args: Record<string, unknown>,
   ctx: ToolHandlerContext,
@@ -162,6 +183,10 @@ export async function handleVerifyCustomerIdentity(
       .limit(5);
     candidates = data || [];
   }
+
+  // YSC-006: đơn trên lõi commerce (cửa hàng Yinyang mới, số đơn ≥5844) cũng là bằng chứng sở hữu.
+  // Đổi về cùng dạng hàng Shopify để chấm điểm 1 chỗ. SĐT nằm ở địa chỉ giao hoặc metadata (đơn CSKH tạo hộ).
+  candidates = candidates.concat(await commerceIdentityCandidates(ctx, orderNumber, email, phone));
 
   // Score Shopify-order candidates (possession proof via order#/email/phone/address).
   let best: { score: number; row: any } | null = null;
