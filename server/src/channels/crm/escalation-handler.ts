@@ -53,6 +53,15 @@ export interface EscalationContext {
   noPause?: boolean;
   /** Ghi đè câu trạng thái cuối tin Telegram (mặc định suy từ kết quả pause). */
   statusLine?: string;
+  /**
+   * GEM-1572 / OPS-1021-S1-01-b8b076: Cờ xác định tin nhắn là ý định kết thúc cuộc trò chuyện (Ok, cảm ơn, tạm biệt).
+   * Khi true:
+   *   - Không pause bot (tương đương noPause = true)
+   *   - Ticket CRM được tạo ở trạng thái 'resolved' ngay lập tức (không để open kẹt P42)
+   *   - Nếu đã có ticket open của phiên, tự động resolve ticket đó
+   *   - Bỏ qua Telegram ping (tránh quấy rầy người vận hành)
+   */
+  closureIntent?: boolean;
 }
 
 export interface EscalationResult {
@@ -84,7 +93,7 @@ export async function handleEscalation(ctx: EscalationContext): Promise<Escalati
   // didPause / botCurrentlyPaused feed the ping message variant (Step 3).
   let didPause = false;
   let botCurrentlyPaused = false;
-  if (!isTraining && !ctx.noPause) {
+  if (!isTraining && !ctx.noPause && !ctx.closureIntent) {
     if (ctx.pausePatch) {
       // Gem-Master (hoặc caller tùy biến): containment HẸN GIỜ qua merge_meta (agy_disabled_until…).
       // KHÁC bot_paused — engine gem-master (gemini-proxy) đọc agy_disabled_until riêng. KHÔNG route
@@ -136,6 +145,8 @@ export async function handleEscalation(ctx: EscalationContext): Promise<Escalati
   // metadata.training_session_id so the Phòng Training UI can link to it.
   let ticketId: string | null = null;
   let ticketDisplayId: string | null = null;
+  const isClosure = !!ctx.closureIntent;
+  const nowIso = new Date().toISOString();
 
   // Per-session dedup at DB level — one ticket per sessionKey. ⚠️ KHÔNG return sớm
   // ở đây (bug cũ: nuốt luôn Step 3 ping — vòng 1 C3): chỉ NHỚ ticket cũ, đi tiếp
@@ -145,7 +156,7 @@ export async function handleEscalation(ctx: EscalationContext): Promise<Escalati
   try {
     const { data: existing } = await supabase
       .from('crm_tickets')
-      .select('id, ticket_number')
+      .select('id, ticket_number, metadata, timeline')
       .eq('source_session_key', ctx.sessionKey)
       .in('status', ['open', 'pending', 'in_progress'])
       .order('created_at', { ascending: false })
@@ -155,9 +166,34 @@ export async function handleEscalation(ctx: EscalationContext): Promise<Escalati
       hadExistingTicket = true;
       ticketId = existing.id;
       ticketDisplayId = (existing as { ticket_number?: string }).ticket_number ?? null;
-      console.warn(
-        `${logPrefix} ⊘ Dedup — ticket mở sẵn ${ticketDisplayId ?? ticketId} cho session ${ctx.sessionKey.substring(0, 30)} — bỏ qua insert (vẫn cân nhắc ping có phanh)`,
-      );
+      if (isClosure) {
+        const note = `Tự đóng: khách gửi tin nhắn kết thúc cuộc trò chuyện (${ctx.triggerMessage.slice(0, 50)})`;
+        const timeline = Array.isArray((existing as any).timeline) ? (existing as any).timeline : [];
+        const { error: resErr } = await supabase
+          .from('crm_tickets')
+          .update({
+            status: 'resolved',
+            resolved_at: nowIso,
+            updated_at: nowIso,
+            metadata: {
+              ...((existing as any).metadata || {}),
+              resolution_note: note,
+              resolved_by: 'auto:closure_intent',
+              closure_intent: true,
+            },
+            timeline: [...timeline, { at: nowIso, by: `auto:${ctx.agentSlug}`, action: 'resolved', note }],
+          })
+          .eq('id', existing.id);
+        if (resErr) {
+          console.warn(`${logPrefix} auto-resolve existing ticket on closure failed: ${resErr.message}`);
+        } else {
+          console.log(`${logPrefix} ✓ Auto-resolved existing open ticket ${ticketDisplayId ?? ticketId} on closure intent`);
+        }
+      } else {
+        console.warn(
+          `${logPrefix} ⊘ Dedup — ticket mở sẵn ${ticketDisplayId ?? ticketId} cho session ${ctx.sessionKey.substring(0, 30)} — bỏ qua insert (vẫn cân nhắc ping có phanh)`,
+        );
+      }
     }
   } catch (err: any) {
     // Soft-fail dedup check — fall through to insert path. Worst case = duplicate.
@@ -176,9 +212,12 @@ export async function handleEscalation(ctx: EscalationContext): Promise<Escalati
       .insert({
         category: mapReasonToCategory(ctx.reason),
         priority: ctx.priority,
-        status: 'open',
+        status: isClosure ? 'resolved' : 'open',
+        resolved_at: isClosure ? nowIso : null,
         title: isTraining
           ? `[TRAINING/${ctx.reason}] turn ${ctx.trainingTurnNo ?? '?'}`
+          : isClosure
+          ? `[CLOSURE/${ctx.reason}] ${ctx.customerName || ctx.chatId}`
           : `[ESCALATE/${ctx.reason}] ${ctx.customerName || ctx.chatId}`,
         description: [
           `**Reason**: ${ctx.reason}`,
@@ -188,6 +227,7 @@ export async function handleEscalation(ctx: EscalationContext): Promise<Escalati
           isTraining ? `**Training Session**: ${ctx.trainingSessionId ?? '(unknown)'}` : '',
           isTraining ? `**Training Turn**: ${ctx.trainingTurnNo ?? '?'}` : '',
           `**Customer**: ${ctx.customerName || '(unknown)'} (id: ${ctx.customerId || 'n/a'})`,
+          isClosure ? `**Closure Intent**: Detected ("${ctx.triggerMessage.slice(0, 60)}")` : '',
           '',
           '**Summary from agent:**',
           ctx.summary,
@@ -202,17 +242,36 @@ export async function handleEscalation(ctx: EscalationContext): Promise<Escalati
         created_by_agent: ctx.agentSlug,
         source_channel: isTraining ? 'training_room' : ctx.channelName,
         source_session_key: ctx.sessionKey,
-        tags: isTraining ? ['training', `escalation:${ctx.reason}`] : [`escalation:${ctx.reason}`],
+        tags: isTraining
+          ? ['training', `escalation:${ctx.reason}`]
+          : isClosure
+          ? [`escalation:${ctx.reason}`, 'closure_intent']
+          : [`escalation:${ctx.reason}`],
         metadata: {
           escalation_reason: ctx.reason,
           escalation_agent: ctx.agentSlug,
           chat_id: ctx.chatId,
+          ...(isClosure && {
+            closure_intent: true,
+            resolved_by: 'auto:closure_intent',
+            resolution_note: 'Tự đóng: khách gửi tin nhắn kết thúc cuộc trò chuyện (closure intent)',
+          }),
           ...(isTraining && {
             training_mode: true,
             training_session_id: ctx.trainingSessionId,
             training_turn_no: ctx.trainingTurnNo,
           }),
         },
+        timeline: isClosure
+          ? [
+              {
+                at: nowIso,
+                by: `auto:${ctx.agentSlug}`,
+                action: 'resolved',
+                note: 'Tự đóng: khách gửi tin nhắn kết thúc cuộc trò chuyện (closure intent)',
+              },
+            ]
+          : [],
       })
       .select('id, ticket_number')
       .single();
@@ -229,6 +288,10 @@ export async function handleEscalation(ctx: EscalationContext): Promise<Escalati
   }
 
   // ── Step 3: Telegram ping (có PHANH + câu trạng thái đúng sự thật) ─────────
+  if (ctx.closureIntent) {
+    console.log(`${logPrefix} ⊘ Bỏ qua Telegram ping (closure intent — khách chỉ chào/cảm ơn/kết thúc)`);
+    return { ticketId, ticketDisplayId };
+  }
   // Rate-limit thay vai trò suppression của dedup-return cũ (vòng 1 C3): tối đa 1 ping /
   // session / 30' — bỏ phanh khi priority='urgent'. Chống bão ping khi C2 giữ bot chạy
   // mà khách bức xúc nhắn liên tục. Training LUÔN ping (không phanh).

@@ -48,6 +48,15 @@ describe("reply-contract golden-set (P0 baseline)", () => {
     expect((config as any)._escalation.reason).toBe("agent_output_corrupted");
   });
 
+  // ── G1b: emoji with envelope tag → NO false collapse escalation (GEM-1572) ──
+  it("G1b emoji with envelope tag (💛[[/REPLY]]) → preserves emoji, NO false collapse escalation (GEM-1572)", async () => {
+    const config = cfg();
+    const input = "💛[[/REPLY]]";
+    const out = await postProcessReply(input, config, null);
+    expect(out).toBe("💛");
+    expect((config as any)._escalation).toBeFalsy();
+  });
+
   // ── G2: pure self-narration → SILENT skip (no escalation) ──
   it("G2 pure self-narration → empty string, NO escalation", async () => {
     const config = cfg();

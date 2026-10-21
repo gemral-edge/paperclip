@@ -10,6 +10,7 @@ import * as session from './session.js';
 import * as router from './router.js';
 import { buildBatchId, buildReplyDedupeKey } from './reply-contract.js';
 import { buildGreetingFallback, isShortGreeting } from './greeting-fallback.js';
+import { isClosureIntent } from './closure-intent.js';
 import { parseSessionKey } from './transcript.js';
 import { supabase } from './zalo-personal/supabase.js';
 import { CustomerResolver } from './crm/customer-resolver.js';
@@ -1068,6 +1069,7 @@ async function processResolved(
         // không gửi câu đệm "Dạ mình đợi em kiểm tra…" — chị Jennie: câu đệm gửi cả cho spam MISA).
         // Escalation router gắn vẫn phải chạy (dừng bot + phiếu + ping) — nhánh rỗng return sớm nên
         // xử lý TẠI ĐÂY, thay cho alert agent_silent noPause bên dưới.
+        const isClosure = isClosureIntent(merged.content);
         const routerEsc = (merged as any)._escalation as
           | { reason: string; priority: 'low' | 'normal' | 'high' | 'urgent'; summary: string }
           | undefined;
@@ -1080,10 +1082,14 @@ async function processResolved(
             customerId: customerId || null,
             customerName: ((merged as any)._customerContext?.name as string) || merged.senderName || null,
             reason: routerEsc.reason,
-            priority: routerEsc.priority,
-            summary: routerEsc.summary,
+            priority: isClosure ? 'low' : routerEsc.priority,
+            summary: isClosure
+              ? `Khách gửi tin nhắn kết thúc cuộc trò chuyện ("${merged.content.slice(0, 50)}") — tự động resolve ticket (GEM-1572)`
+              : routerEsc.summary,
             triggerMessage: merged.content,
             agentReply: '(reply bị chặn — KHÔNG gửi gì cho khách)',
+            noPause: isClosure ? true : undefined,
+            closureIntent: isClosure,
           }).catch((err) => {
             console.error(`${logPrefix} router escalation (silent) unexpected throw: ${err.message}`);
           });
@@ -1092,7 +1098,7 @@ async function processResolved(
           // thì gửi 1 câu chào cố định (không giá/cam kết) để khách không treo >20h; mọi tin khác vẫn im lặng.
           // Ticket/ping VẪN tạo (người còn phải vào trả lời phần thật). Fail-soft: lỗi publish → coi như chưa gửi.
           let greetingSent = false;
-          if (isShortGreeting(merged.content) && !hasMedia && !(await isSessionPaused(sessionKey))) {
+          if (!isClosure && isShortGreeting(merged.content) && !hasMedia && !(await isSessionPaused(sessionKey))) {
             try {
               bus.publishOutbound({
                 channel: merged.channel,
@@ -1124,16 +1130,21 @@ async function processResolved(
             customerId: customerId || null,
             customerName: ((merged as any)._customerContext?.name as string) || merged.senderName || null,
             reason: 'agent_silent',
-            priority: 'high',
-            summary: greetingSent
-              ? `Agent ${agentSlug} trả lời RỖNG (provider timeout/lỗi) với tin chào hỏi — bot đã gửi lời chào dự phòng. Vào Hộp thư xem khách có nhắn tiếp không.`
-              : `Agent ${agentSlug} trả lời RỖNG (provider timeout/lỗi) — khách chưa nhận được phản hồi nào. Vào Hộp thư trả lời tay.`,
+            priority: isClosure ? 'low' : 'high',
+            summary: isClosure
+              ? `Khách gửi tin nhắn kết thúc cuộc trò chuyện ("${merged.content.slice(0, 50)}") — tự động resolve ticket (GEM-1572)`
+              : (greetingSent
+                ? `Agent ${agentSlug} trả lời RỖNG (provider timeout/lỗi) với tin chào hỏi — bot đã gửi lời chào dự phòng. Vào Hộp thư xem khách có nhắn tiếp không.`
+                : `Agent ${agentSlug} trả lời RỖNG (provider timeout/lỗi) — khách chưa nhận được phản hồi nào. Vào Hộp thư trả lời tay.`),
             triggerMessage: merged.content,
             agentReply: greetingSent
               ? '(agent trả rỗng — bot đã gửi lời chào dự phòng cố định)'
               : '(agent trả rỗng — KHÔNG có gì được gửi cho khách)',
             noPause: true,
-            statusLine: 'Bot KHÔNG bị tắt (tin kế tiếp của khách sẽ được bot thử lại). Cần người trả lời tay tin này.',
+            statusLine: isClosure
+              ? 'Khách gửi tin nhắn kết thúc (Ok/cảm ơn) — phiếu đã được tự động resolve.'
+              : 'Bot KHÔNG bị tắt (tin kế tiếp của khách sẽ được bot thử lại). Cần người trả lời tay tin này.',
+            closureIntent: isClosure,
           }).catch((err) => {
             console.error(`${logPrefix} agent_silent alert unexpected throw: ${err.message}`);
           });

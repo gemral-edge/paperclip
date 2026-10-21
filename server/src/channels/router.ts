@@ -2559,7 +2559,10 @@ export async function postProcessReply(
     return '';
   }
 
-  if (hasLetters(reply) && !hasLetters(cleaned)) {
+  // GEM-1572: Bỏ envelope tokens ([[REPLY]], [[/REPLY]], [PAPERCLIP_REPLY_CHANNEL]) trước khi đo hasLetters
+  // Tránh trường hợp bot chỉ trả về emoji như "💛[[/REPLY]]" mà bị coi là collapse vì chữ cái chỉ nằm trong tag wrapper.
+  const replyWithoutEnvelope = reply.replace(/\[\[\s*\/?\s*REPLY\s*\]\]|\[PAPERCLIP_REPLY_CHANNEL\]/gi, '');
+  if (hasLetters(replyWithoutEnvelope) && !hasLetters(cleaned)) {
     console.error(
       `[Router/${config.provider}] ${config.slug}: scrub COLLAPSED reply to no-content `
         + `(${reply.length}→${cleaned.trim().length} chars). Suppressing + escalating. `

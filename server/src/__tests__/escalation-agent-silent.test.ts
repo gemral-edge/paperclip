@@ -104,6 +104,21 @@ describe("handleEscalation noPause (agent_silent alert)", () => {
     expect(bodies[1].text).toContain("a_b_c.jpg");
   });
 
+  it("closureIntent: tạo ticket status='resolved', không pause, và BỎ QUA Telegram ping (GEM-1572)", async () => {
+    const r = await handleEscalation({
+      ...baseCtx,
+      closureIntent: true,
+      triggerMessage: "Ok",
+    });
+    expect(rpcCalls).not.toContain("cskh_toggle_bot");
+    const ticketInsert = inserts.find((i) => i.table === "crm_tickets");
+    expect(ticketInsert).toBeDefined();
+    expect(ticketInsert?.row.status).toBe("resolved");
+    expect(ticketInsert?.row.metadata.closure_intent).toBe(true);
+    expect(ticketInsert?.row.resolved_at).toBeTruthy();
+    expect(sentText).toBe("");
+  });
+
   it("mặc định (không noPause): vẫn pause qua cskh_toggle_bot — hành vi cũ không đổi", async () => {
     await handleEscalation({ ...baseCtx, reason: "customer_hostile" });
     expect(rpcCalls).toContain("cskh_toggle_bot");
