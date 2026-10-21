@@ -12,7 +12,7 @@ import { createClient } from '@supabase/supabase-js';
 import * as fs from 'fs';
 import { matchGemralUser, enrichWithGemralData } from './gemral-bridge.js';
 import { checkOutboundEmail } from '../outbound-gate.js';
-import { handleCommerceCreateOrder } from './commerce-order.js';
+import { handleCommerceCreateOrder, searchCommerceProducts } from './commerce-order.js';
 
 // Initialize Supabase — same config as channels/zalo-personal/supabase.ts
 const supabaseUrl = process.env.GEMRAL_SUPABASE_URL || 'https://pgfkbcnzqozzkohwbgbk.supabase.co';
@@ -23,7 +23,6 @@ if (!supabaseKey) {
 const supabase = createClient(supabaseUrl, supabaseKey);
 
 // Shopify config
-const shopifyStore = process.env.SHOPIFY_STORE_URL || '';
 const shopifyToken = process.env.SHOPIFY_ACCESS_TOKEN || '';
 
 // ─── Tool definitions ───
@@ -106,7 +105,7 @@ const TOOLS = [
   },
   {
     name: 'search_product',
-    description: 'Tìm sản phẩm trên Shopify theo từ khóa',
+    description: 'Tìm sản phẩm đang bán trên cửa hàng Yinyang (tên tiếng Việt/Anh, có dấu hoặc không). Trả ref để tạo đơn bằng create_order, giá VND, các variant.',
     inputSchema: {
       type: 'object' as const,
       properties: {
@@ -514,37 +513,14 @@ export async function handleCreateTicket(args: any): Promise<string> {
   });
 }
 
+// YSC-005: đọc lõi commerce (cửa hàng Yinyang mới) — Shopify Admin API đã đóng.
 export async function handleSearchProduct(args: any): Promise<string> {
-  if (!shopifyStore || !shopifyToken) {
-    return JSON.stringify({ success: false, error: 'Shopify chưa cấu hình' });
-  }
-
-  const limit = args.limit || 5;
-  const url = `https://${shopifyStore}/admin/api/2024-01/products.json?title=${encodeURIComponent(args.query)}&limit=${limit}`;
-
   try {
-    const res = await fetch(url, {
-      headers: { 'X-Shopify-Access-Token': shopifyToken },
-    });
-
-    if (!res.ok) {
-      return JSON.stringify({ success: false, error: `Shopify API lỗi: ${res.status}` });
-    }
-
-    const json = await res.json() as { products: any[] };
-    const products = (json.products || []).map((p: any) => ({
-      id: p.id,
-      title: p.title,
-      price: p.variants?.[0]?.price,
-      variant_id: p.variants?.[0]?.id,
-      status: p.status,
-      image: p.image?.src,
-      inventory: p.variants?.[0]?.inventory_quantity,
-    }));
-
-    return JSON.stringify({ success: true, products, count: products.length });
+    const products = await searchCommerceProducts(supabase, String(args.query ?? ''), Number(args.limit) || 5);
+    return JSON.stringify({ success: true, source: 'commerce', products, count: products.length,
+      note: 'Tạo đơn: create_order items=[{ref: <ref>, quantity}]. SP có nhiều variant → hỏi khách chọn rồi truyền ref = variant_id.' });
   } catch (err: any) {
-    return JSON.stringify({ success: false, error: `Lỗi kết nối Shopify: ${err.message}` });
+    return JSON.stringify({ success: false, error: `Lỗi tìm sản phẩm: ${err.message}` });
   }
 }
 
@@ -840,22 +816,10 @@ export async function handleSearchKnowledge(args: any): Promise<string> {
       });
     }
 
-    // Fallback: search shopify_products (FRESH — daily pg_cron sync). Was
-    // shopify_product_variants (stale Jan-2026 order-webhook mirror, WRONG prices,
-    // and its columns are product_title/price_vnd so this select even errored).
-    const { data: products } = await supabase
-      .from('shopify_products')
-      .select('title, price')
-      .eq('status', 'active')
-      .ilike('title', `%${query}%`)
-      .limit(limit);
-
-    if ((products || []).length > 0) {
-      return JSON.stringify({
-        success: true,
-        source: 'shopify_products (fallback)',
-        results: products,
-      });
+    // Fallback: SP đang bán trên lõi commerce (YSC-005 — bảng mirror Shopify cũ ngừng cập nhật khi cửa hàng Shopify đóng)
+    const products = await searchCommerceProducts(supabase, query, limit);
+    if (products.length > 0) {
+      return JSON.stringify({ success: true, source: 'commerce (fallback)', results: products });
     }
 
     return JSON.stringify({
