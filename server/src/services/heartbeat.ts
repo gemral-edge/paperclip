@@ -51,13 +51,6 @@ import { resolveDefaultAgentWorkspaceDir, resolveManagedProjectWorkspaceDir } fr
 import { summarizeHeartbeatRunResultJson } from "./heartbeat-run-summary.js";
 import { planQuotaRetry, readQuotaRetryPlan, type QuotaRetryPlan } from "./quota-retry.js";
 import {
-  AGY_ADAPTER_TYPE,
-  CLAUDE_ADAPTER_TYPE,
-  buildClaudeFallbackConfig,
-  mergeClaudeFallbackResult,
-  shouldFallbackToClaude,
-} from "./agy-claude-fallback.js";
-import {
   buildWorkspaceReadyComment,
   cleanupExecutionWorkspaceArtifacts,
   ensureRuntimeServicesForRun,
@@ -3337,7 +3330,7 @@ export function heartbeatService(db: Db) {
         );
       }
       const inferenceStartMs = Date.now();
-      let adapterResult = await adapter.execute({
+      const adapterResult = await adapter.execute({
         runId: run.id,
         agent,
         runtime: runtimeForAdapter,
@@ -3350,55 +3343,9 @@ export function heartbeatService(db: Db) {
         },
         authToken: authToken ?? undefined,
       });
-      // GEM-1244: quỹ credits agy cạn ở MỌI model → chạy lại CÙNG lượt bằng claude CLI (quỹ độc lập)
-      // thay vì chỉ quota-retry 30/60/120'. Phiên agy giữ nguyên; claude fail ⇒ giữ kết quả quota cũ.
-      if (
-        shouldFallbackToClaude({
-          adapterType: agent.adapterType,
-          config: runtimeConfig,
-          result: adapterResult,
-          cancelled: (await getRun(run.id))?.status === "cancelled",
-        })
-      ) {
-        const claudeConfig = buildClaudeFallbackConfig(runtimeConfig);
-        const claudeModel = String(claudeConfig.model);
-        await onLog(
-          "stderr",
-          `[paperclip] agy hết credits ở mọi model (${adapterResult.errorMessage ?? "quota"}) → chạy lại lượt này bằng claude CLI (${claudeModel}).\n`,
-        );
-        try {
-          const claudeAdapter = getServerAdapter(CLAUDE_ADAPTER_TYPE);
-          const claudeAuthToken = claudeAdapter.supportsLocalAgentJwt
-            ? createLocalAgentJwt(agent.id, agent.companyId, CLAUDE_ADAPTER_TYPE, run.id)
-            : null;
-          const claudeResult = await claudeAdapter.execute({
-            runId: run.id,
-            agent,
-            // Không resume brain agy bằng claude: phiên mới, phiên agy được giữ lại trong merge.
-            runtime: { sessionId: null, sessionParams: null, sessionDisplayId: null, taskKey },
-            config: claudeConfig,
-            context,
-            onLog,
-            onMeta: onAdapterMeta,
-            onSpawn: async (meta) => {
-              await persistRunProcessMetadata(run.id, meta);
-            },
-            authToken: claudeAuthToken ?? authToken ?? undefined,
-          });
-          adapterResult = mergeClaudeFallbackResult(adapterResult, claudeResult, claudeModel);
-        } catch (err) {
-          const message = err instanceof Error ? err.message : String(err);
-          await onLog("stderr", `[paperclip] claude CLI dự phòng lỗi: ${message} — giữ quota-retry.\n`);
-          adapterResult = {
-            ...adapterResult,
-            resultJson: {
-              ...(adapterResult.resultJson ?? {}),
-              adapterUsed: AGY_ADAPTER_TYPE,
-              claudeFallback: { attempted: true, model: claudeModel, errorMessage: message },
-            },
-          };
-        }
-      }
+      // 22/10/2026 (chị Jennie): KHÔNG fallback heartbeat agent — hết quota/model lỗi thì để lỗi nguyên
+      // (quota-retry hẹn lại cùng model; chị xử hoặc Gem Kỹ Sư/BE sửa lỗi kỹ thuật). Đã gỡ chạy-lại-bằng-claude
+      // (GEM-1244). Rào chắn: __tests__/no-heartbeat-fallback.test.ts.
       const inferenceTimeMs = Date.now() - inferenceStartMs;
       const adapterManagedRuntimeServices = adapterResult.runtimeServices
         ? await persistAdapterManagedRuntimeServices({

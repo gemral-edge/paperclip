@@ -27,11 +27,10 @@ import {
   renderTemplate,
   runChildProcess,
 } from "@paperclipai/adapter-utils/server-utils";
-import { DEFAULT_ANTIGRAVITY_FALLBACK_MODELS, DEFAULT_ANTIGRAVITY_MODEL } from "../index.js";
+import { DEFAULT_ANTIGRAVITY_MODEL } from "../index.js";
 import {
   detectAntigravityAuthRequired,
   detectAntigravityQuotaExhausted,
-  resolveAntigravityModelChain,
   shouldAntigravityFallback,
   detectAntigravityTransientDisconnect,
   findAntigravityRunByTurnMarker,
@@ -498,11 +497,10 @@ export async function execute(ctx: AdapterExecutionContext): Promise<AdapterExec
   const model = asString(config.model, DEFAULT_ANTIGRAVITY_MODEL).trim();
   // GEM-1307: a run that only reads files = failed `antigravity_no_action` (default on).
   const requireToolAction = config.requireToolAction !== false;
-  const modelChain = resolveAntigravityModelChain(
-    model,
-    config.fallbackModels,
-    DEFAULT_ANTIGRAVITY_FALLBACK_MODELS,
-  );
+  // 22/10/2026 (chị Jennie): heartbeat agent KHÔNG fallback sang model khác — hết quota/model lỗi
+  // thì để lỗi nguyên, chị hoặc Gem Kỹ Sư/BE xử. `config.fallbackModels` bị bỏ qua có chủ đích
+  // (chuỗi dự phòng chỉ còn cho kênh CSKH ở channels/router.ts).
+  const modelChain = [model];
 
   const workspaceContext = parseObject(context.paperclipWorkspace);
   const workspaceCwd = asString(workspaceContext.cwd, "");
