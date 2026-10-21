@@ -56,13 +56,13 @@ describe('runWithTimeoutFallback', () => {
 
 describe('resolveAgyFallback', () => {
   it('mặc định bật: claude + model Sonnet', () => {
-    expect(resolveAgyFallback({} as NodeJS.ProcessEnv)).toEqual({ provider: 'claude', model: 'claude-sonnet-4-6' });
+    expect(resolveAgyFallback({} as NodeJS.ProcessEnv)).toBeNull(); // 22/10 chị Jennie: agy KHÔNG fallback
   });
   it('AGY_TIMEOUT_FALLBACK=off tắt hẳn', () => {
     expect(resolveAgyFallback({ AGY_TIMEOUT_FALLBACK: 'off' } as unknown as NodeJS.ProcessEnv)).toBeNull();
   });
   it('AGY_TIMEOUT_FALLBACK_MODEL đổi được model', () => {
-    expect(resolveAgyFallback({ AGY_TIMEOUT_FALLBACK_MODEL: ' claude-opus-4-8 ' } as unknown as NodeJS.ProcessEnv)?.model).toBe('claude-opus-4-8');
+    expect(resolveAgyFallback({ AGY_TIMEOUT_FALLBACK_MODEL: ' claude-opus-4-8 ' } as unknown as NodeJS.ProcessEnv)).toBeNull(); // env cũ không bật lại được
   });
   it('message timeout giữ nguyên định dạng cũ (log/probe grep được)', () => {
     expect(timeout().message).toBe('Antigravity CLI timed out for sales-closer');
@@ -75,7 +75,7 @@ describe('resolveTimeoutFallback (GEM-1067: claude/gemini cùng lớp lỗi vớ
   it('claude → gemini flash (CHỈ khi LLM_GEMINI_API_FALLBACK=on); gemini → claude sonnet; agy → claude sonnet', () => {
     expect(resolveTimeoutFallback('claude', env({ LLM_GEMINI_API_FALLBACK: 'on' }))).toEqual({ provider: 'gemini', model: 'gemini-2.5-flash' });
     expect(resolveTimeoutFallback('gemini', env({}))).toEqual({ provider: 'claude', model: 'claude-sonnet-4-6' });
-    expect(resolveTimeoutFallback('antigravity', env({}))).toEqual({ provider: 'claude', model: 'claude-sonnet-4-6' });
+    expect(resolveTimeoutFallback('antigravity', env({}))).toBeNull(); // 22/10: agy không fallback
   });
   it('mỗi provider tắt/đổi model ĐỘC LẬP bằng env riêng', () => {
     expect(resolveTimeoutFallback('claude', env({ CLAUDE_TIMEOUT_FALLBACK: 'off' }))).toBeNull();
@@ -279,8 +279,8 @@ describe('TimeoutCircuitBreaker (GEM-1068: agy chậm/429 → khỏi chờ 5 ph�
     const env = (o: Record<string, string>) => o as unknown as NodeJS.ProcessEnv;
     expect(getTimeoutBreaker('whatever', env({}))).toBeNull();
     expect(getTimeoutBreaker('openrouter', env({}))).not.toBeNull(); // GEM-1085: API provider có breaker riêng
-    const a = getTimeoutBreaker('antigravity', env({ AGY_BREAKER_THRESHOLD: '1', AGY_BREAKER_COOLDOWN_MS: '50' }))!;
-    expect(getTimeoutBreaker('antigravity', env({}))).toBe(a); // cache
+    const a = getTimeoutBreaker('nvidia_nim', env({ NVIDIA_NIM_BREAKER_THRESHOLD: '1', NVIDIA_NIM_BREAKER_COOLDOWN_MS: '50' }))!;
+    expect(getTimeoutBreaker('nvidia_nim', env({}))).toBe(a); // cache
     expect(getTimeoutBreaker('claude', env({}))).not.toBe(a);
     a.recordTimeout();
     expect(a.isOpen).toBe(true);
@@ -360,16 +360,16 @@ describe('Breaker quan sát được + sống qua restart (GEM-1094)', () => {
   it('snapshot: closed → open → half_open → closed, có mốc thời gian + đích fallback', () => {
     let t = 1_000_000;
     const b = new TimeoutCircuitBreaker(1, 1000, () => t);
-    expect(b.snapshot('antigravity', 'claude')).toMatchObject({ state: 'closed', openUntil: null, fallbackTo: 'claude' });
+    expect(b.snapshot('openrouter', 'claude')).toMatchObject({ state: 'closed', openUntil: null, fallbackTo: 'claude' });
     b.recordTimeout();
-    const open = b.snapshot('antigravity');
+    const open = b.snapshot('openrouter');
     expect(open.state).toBe('open');
     expect(open.openUntil).toBe(new Date(1_001_000).toISOString());
     expect(open.lastOpenedAt).toBe(new Date(1_000_000).toISOString());
     t += 1001;
-    expect(b.snapshot('antigravity').state).toBe('half_open');
+    expect(b.snapshot('openrouter').state).toBe('half_open');
     b.recordSuccess();
-    expect(b.snapshot('antigravity')).toMatchObject({ state: 'closed', consecutiveTimeouts: 0, lastClosedAt: new Date(t).toISOString() });
+    expect(b.snapshot('openrouter')).toMatchObject({ state: 'closed', consecutiveTimeouts: 0, lastClosedAt: new Date(t).toISOString() });
   });
 
   it('onTransition chỉ bắn khi đổi trạng thái, KHÔNG mỗi lượt', () => {
@@ -386,19 +386,19 @@ describe('Breaker quan sát được + sống qua restart (GEM-1094)', () => {
 
   it('mạch mở sống qua restart: map RAM bị xoá nhưng breaker mới đọc lại file vẫn MỞ', () =>
     withTmp((file) => {
-      const a = getTimeoutBreaker('antigravity', env({ AGY_BREAKER_THRESHOLD: '1' }))!;
+      const a = getTimeoutBreaker('openrouter', env({ OPENROUTER_BREAKER_THRESHOLD: '1' }))!;
       a.recordTimeout();
-      expect(JSON.parse(readFileSync(file, 'utf8')).antigravity.consecutive).toBe(1);
+      expect(JSON.parse(readFileSync(file, 'utf8')).openrouter.consecutive).toBe(1);
       resetTimeoutBreakers(); // = restart: RAM sạch
-      const after = getTimeoutBreaker('antigravity', env({ AGY_BREAKER_THRESHOLD: '1' }))!;
+      const after = getTimeoutBreaker('openrouter', env({ OPENROUTER_BREAKER_THRESHOLD: '1' }))!;
       expect(after).not.toBe(a);
       expect(after.allowPrimary()).toBe(false); // khách KHÔNG phải chờ 5' lại từ đầu
     }));
 
   it('cooldown đã hết lúc restart → bắt đầu đóng; file hỏng → đóng, không ném', () =>
     withTmp((file) => {
-      writeFileSync(file, JSON.stringify({ antigravity: { consecutive: 3, openUntil: Date.now() - 1, lastOpenedAt: 1 } }));
-      expect(getTimeoutBreaker('antigravity', env())!.isOpen).toBe(false);
+      writeFileSync(file, JSON.stringify({ openrouter: { consecutive: 3, openUntil: Date.now() - 1, lastOpenedAt: 1 } }));
+      expect(getTimeoutBreaker('openrouter', env())!.isOpen).toBe(false);
       resetTimeoutBreakers();
       writeFileSync(file, '{not json');
       expect(getTimeoutBreaker('claude', env())!.isOpen).toBe(false);
@@ -408,17 +408,18 @@ describe('Breaker quan sát được + sống qua restart (GEM-1094)', () => {
     withTmp((file) => {
       const until = Date.now() + 60_000;
       writeFileSync(file, JSON.stringify({ gemini: { consecutive: 2, openUntil: until, lastOpenedAt: 1 } }));
-      getTimeoutBreaker('antigravity', env({ AGY_BREAKER_THRESHOLD: '1' }))!.recordTimeout();
+      getTimeoutBreaker('openrouter', env({ OPENROUTER_BREAKER_THRESHOLD: '1' }))!.recordTimeout();
       const saved = JSON.parse(readFileSync(file, 'utf8'));
       expect(saved.gemini.openUntil).toBe(until);
-      expect(saved.antigravity.consecutive).toBe(1);
+      expect(saved.openrouter.consecutive).toBe(1);
     }));
 
   it('getTimeoutBreakerSnapshot liệt kê đủ provider có fallback, kèm đích', () => {
     resetTimeoutBreakers();
     const snap = getTimeoutBreakerSnapshot(env());
-    expect(snap.map((s) => s.provider).sort()).toEqual(['antigravity', 'claude', 'gemini', 'nvidia_nim', 'openrouter']);
-    expect(snap.find((s) => s.provider === 'antigravity')!.fallbackTo).toBe('claude');
+    expect(snap.map((s) => s.provider).sort()).toEqual(['claude', 'gemini', 'nvidia_nim', 'openrouter']);
+    expect(snap.find((s) => s.provider === 'openrouter')!.fallbackTo).toBe('claude');
+    expect(snap.some((s) => s.provider === 'antigravity')).toBe(false); // 22/10: agy không fallback
     resetTimeoutBreakers();
   });
 });

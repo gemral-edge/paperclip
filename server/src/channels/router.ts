@@ -12,9 +12,7 @@ import {
   findAntigravityReplyByTurnMarker,
   looksLikeSystemPromptLeak as agyLooksLikeLeak,
   defaultAgyCommand,
-  resolveAntigravityModelChain,
   shouldAntigravityFallback,
-  DEFAULT_ANTIGRAVITY_FALLBACK_MODELS,
   DEFAULT_ANTIGRAVITY_MODEL,
 } from '@paperclipai/adapter-antigravity-local/server';
 
@@ -1501,34 +1499,16 @@ async function runViaAntigravity(
           reply = ''; // 03/10: KHÔNG câu đệm — rỗng = consumer im lặng + báo người (gem-master: edge chuyển dự phòng)
         }
 
-        // Hết credits/quota ở model này (stderr) → trả lời lại NGAY bằng model kế trong chuỗi
-        // (GEM-1241: 05/10 Gemini cạn tín dụng, gem-master/sales-closer câm 5,5h). Lượt sau
-        // vẫn bắt đầu bằng model chính → Gemini hồi là tự quay về.
+        // 22/10/2026 chị Jennie: KHÔNG đổi model/provider khi agy hết credits/quota — chỉ đường agy local,
+        // để lỗi nguyên (reject → caller trả rỗng → edge chốt câu quá tải). Đã gỡ chuỗi model (GEM-1241).
         if (!reply && shouldAntigravityFallback({ stderr })) {
-          const chain = resolveAntigravityModelChain(model, config.fallback_models, DEFAULT_ANTIGRAVITY_FALLBACK_MODELS);
-          const next = chain[1];
-          if (next) {
-            console.warn(`[Router/antigravity] ${config.slug}: model "${model}" hết credits/quota → chạy lại bằng "${next}"`);
-            streamEvents.emit('agent:error', { agentSlug: config.slug, streamKey, error: `antigravity quota: ${model} → ${next}` });
-            try {
-              resolve(await runViaAntigravity(
-                { ...config, model: next, fallback_models: chain.slice(2) },
-                systemPrompt, history, message, sessionKey, signal,
-              ));
-            } catch (fbErr) {
-              reject(fbErr);
-            }
-            return;
-          }
-          // Hết chuỗi model mà vẫn cạn (tín dụng agy là quỹ chung mọi model) → đổi hẳn provider
-          // (claude CLI) qua withTimeoutFallback + breaker, thay vì trả '' cho khách im lặng.
-          console.warn(`[Router/antigravity] ${config.slug}: mọi model agy cạn credits/quota → đổi provider`);
-          streamEvents.emit('agent:error', { agentSlug: config.slug, streamKey, error: 'antigravity quota: hết chuỗi model' });
+          console.warn(`[Router/antigravity] ${config.slug}: agy hết credits/quota → KHÔNG fallback, để lỗi nguyên`);
+          streamEvents.emit('agent:error', { agentSlug: config.slug, streamKey, error: 'antigravity quota: hết credits/quota (không fallback)' });
           reject(new ProviderQuotaError('antigravity', 'Antigravity', config.slug));
           return;
         }
 
-        // agy thoát lỗi mà không có reply (14/10: ~3% lượt) → đổi provider 1 lần thay vì để khách im lặng.
+        // agy thoát lỗi mà không có reply (14/10: ~3% lượt) → báo lỗi nguyên (22/10: không đổi provider).
         if (isAgyCrashEmpty(reply, code, !!signal?.aborted)) {
           streamEvents.emit('agent:error', { agentSlug: config.slug, streamKey, error: `antigravity exit ${code}, no reply` });
           reject(new ProviderCrashError('antigravity', 'Antigravity', config.slug, code));

@@ -95,7 +95,8 @@ export async function withApiTimeout<T>(
 
 /** Provider chính → (provider đích mặc định, model đích mặc định, tiền tố biến môi trường). */
 const FALLBACK_MAP = {
-  antigravity: { provider: 'claude', model: 'claude-sonnet-4-6', envPrefix: 'AGY' },
+  // 22/10/2026 chị Jennie: agy (Gem Master/CSKH) KHÔNG fallback sang provider/model nào — chỉ đường agy local.
+  // Hết quota/timeout/crash ⇒ để lỗi nguyên (khách nhận câu quá tải ở edge). Cấm thêm lại mục 'antigravity'.
   claude: { provider: 'gemini', model: 'gemini-2.5-flash', envPrefix: 'CLAUDE' },
   gemini: { provider: 'claude', model: 'claude-sonnet-4-6', envPrefix: 'GEMINI' },
   // API provider (GEM-1085): timeout 5' → claude CLI (quota độc lập với OpenRouter/NIM).
