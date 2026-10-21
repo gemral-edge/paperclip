@@ -21,8 +21,10 @@ export interface GemralData {
   is_kol: boolean;
   kol_status?: string;
   kol_followers?: number;
-  shopify_orders_count: number;
-  shopify_total_spent: number;
+  shopify_orders_count: number;   // tên giữ nguyên: Shopify + lõi commerce (YSC-007)
+  shopify_total_spent: number;    // VND: Shopify + đơn commerce VND đã trả
+  commerce_orders_count?: number;
+  commerce_total_usd?: number;
   app_registered_at?: string;
   last_synced_at: string;
 }
@@ -148,6 +150,26 @@ export async function enrichWithGemralData(
     );
   }
 
+  // 5b. YSC-007: đơn cửa hàng Yinyang mới (lõi commerce, từ 21/10/2026) — chỉ đơn thật đã trả tiền.
+  // Cộng vào 2 trường cũ (đơn vị VND như Shopify) để mọi nơi đang đọc tổng chi không phải đổi; USD tách riêng.
+  let commerceCount = 0;
+  let commerceUsdMinor = 0;
+  if (customer?.email) {
+    const { data: co, error: coErr } = await supabase
+      .from('commerce_orders')
+      .select('total_minor, currency')
+      .eq('email', String(customer.email).trim().toLowerCase())
+      .eq('livemode', true)
+      .in('status', ['paid', 'fulfilled', 'partially_refunded']);
+    if (coErr) console.warn(`[GemralBridge] commerce orders lookup failed: ${coErr.message}`);
+    for (const o of co || []) {
+      commerceCount++;
+      if (o.currency === 'vnd') shopifySpent += Number(o.total_minor) || 0;
+      else commerceUsdMinor += Number(o.total_minor) || 0;
+    }
+    shopifyCount += commerceCount;
+  }
+
   // 6. Build GemralData
   const gemralData: GemralData = {
     is_app_user: !!profile,
@@ -176,6 +198,8 @@ export async function enrichWithGemralData(
     kol_followers: kolApp?.total_followers,
     shopify_orders_count: shopifyCount,
     shopify_total_spent: shopifySpent,
+    commerce_orders_count: commerceCount,
+    commerce_total_usd: commerceUsdMinor / 100,
     app_registered_at: profile?.created_at,
     last_synced_at: new Date().toISOString(),
   };
