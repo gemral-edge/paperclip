@@ -42,8 +42,11 @@ export function normalizeItems(raw: unknown, fallbackRef?: unknown, fallbackQty?
 }
 
 export interface CommerceProductHit {
+  id?: string;
   ref: string; // slug — truyền thẳng vào create_order items[].ref
   title: string;
+  title_en?: string | null;
+  subtitle?: string | null;
   kind: string;
   price_vnd: number | null;
   variants: { variant_id: string; sku: string | null; option: string | null; price_vnd: number | null; in_stock: boolean | null }[];
@@ -56,6 +59,31 @@ export function toSlugish(q: string): string {
     .replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
 }
 
+/** Mọi SP đang bán trên Yinyang (published + site yinyang) — 1 nơi map dữ liệu lõi → hit (YSC-005, YSC-034). */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export async function listCommerceProducts(supabase: any): Promise<CommerceProductHit[]> {
+  const { data, error } = await supabase.from('commerce_products')
+    .select('id, slug, kind, commerce_product_i18n(lang, title, subtitle), commerce_variants(id, sku, active, stock, option_values, position, commerce_prices(currency, amount_minor, active, recurring_interval))')
+    .eq('status', 'published').contains('sites', ['yinyang']).limit(2000);
+  if (error) throw new Error(`commerce products: ${error.message}`);
+  const web = (process.env.YINYANG_WEB_URL || 'https://yinyangmasters.com').replace(/\/+$/, '');
+  return (data ?? []).map((p: any) => {
+    const t = (lang: string) => (p.commerce_product_i18n ?? []).find((i: any) => i.lang === lang);
+    const variants = (p.commerce_variants ?? []).filter((v: any) => v.active)
+      .sort((a: any, b: any) => (a.position ?? 0) - (b.position ?? 0))
+      .map((v: any) => {
+        const pr = (v.commerce_prices ?? []).find((x: any) => x.currency === 'vnd' && x.active && !x.recurring_interval);
+        const ov = v.option_values?.title;
+        return { variant_id: v.id, sku: v.sku ?? null, option: typeof ov === 'string' ? ov : ov?.vi ?? ov?.en ?? null,
+          price_vnd: pr ? Number(pr.amount_minor) : null, in_stock: v.stock == null ? null : v.stock > 0 };
+      });
+    const prices = variants.map((v: { price_vnd: number | null }) => v.price_vnd).filter((x: number | null): x is number => x != null);
+    return { id: p.id, ref: p.slug, title: t('vi')?.title ?? t('en')?.title ?? p.slug, title_en: t('en')?.title ?? null,
+      subtitle: t('vi')?.subtitle ?? t('en')?.subtitle ?? null, kind: String(p.kind), variants,
+      price_vnd: prices.length ? Math.min(...prices) : null, url: `${web}/vi/products/${p.slug}` };
+  });
+}
+
 /**
  * Tìm SP đang bán trên Yinyang ở lõi commerce (YSC-005): mọi từ của từ khoá (bỏ dấu) có trong slug hoặc tiêu đề vi/en.
  * Chỉ `published` + `'yinyang' = any(sites)`; giá VND đang active, không tính gói tháng.
@@ -66,29 +94,10 @@ export async function searchCommerceProducts(supabase: any, query: string, limit
   if (!q) return [];
   const tokens = toSlugish(q).split('-').filter(Boolean);
   if (!tokens.length) return [];
-  // Kho đang bán nhỏ (~60 SP) → lấy hết rồi so khớp KHÔNG DẤU trong code: "thach anh tim" = "thạch anh tím"
-  const { data: all, error } = await supabase.from('commerce_products')
-    .select('id, slug, kind, commerce_product_i18n(lang, title), commerce_variants(id, sku, active, stock, option_values, position, commerce_prices(currency, amount_minor, active, recurring_interval))')
-    .eq('status', 'published').contains('sites', ['yinyang']).limit(2000);
-  if (error) throw new Error(`search_product: ${error.message}`);
-  const data = (all ?? []).filter((p: any) => {
-    const hay = `-${toSlugish([p.slug, ...(p.commerce_product_i18n ?? []).filter((i: any) => i.lang !== 'zh').map((i: any) => i.title)].join(' '))}-`;
+  const all = await listCommerceProducts(supabase);
+  const hits = all.filter((h) => {
+    const hay = `-${toSlugish([h.ref, h.title, h.title_en ?? ''].join(' '))}-`;
     return tokens.every((t) => hay.includes(t));
-  });
-  const web = (process.env.YINYANG_WEB_URL || 'https://yinyangmasters.com').replace(/\/+$/, '');
-  const hits: CommerceProductHit[] = (data ?? []).map((p: any) => {
-    const t = (lang: string) => (p.commerce_product_i18n ?? []).find((i: any) => i.lang === lang)?.title;
-    const variants = (p.commerce_variants ?? []).filter((v: any) => v.active)
-      .sort((a: any, b: any) => (a.position ?? 0) - (b.position ?? 0))
-      .map((v: any) => {
-        const pr = (v.commerce_prices ?? []).find((x: any) => x.currency === 'vnd' && x.active && !x.recurring_interval);
-        const ov = v.option_values?.title;
-        return { variant_id: v.id, sku: v.sku ?? null, option: typeof ov === 'string' ? ov : ov?.vi ?? ov?.en ?? null,
-          price_vnd: pr ? Number(pr.amount_minor) : null, in_stock: v.stock == null ? null : v.stock > 0 };
-      });
-    const prices = variants.map((v: { price_vnd: number | null }) => v.price_vnd).filter((x: number | null): x is number => x != null);
-    return { ref: p.slug, title: t('vi') ?? t('en') ?? p.slug, kind: String(p.kind), variants,
-      price_vnd: prices.length ? Math.min(...prices) : null, url: `${web}/vi/products/${p.slug}` };
   });
   const qs = toSlugish(q);
   const rank = (h: CommerceProductHit) => (toSlugish(h.title).includes(qs) ? 0 : 1) + (h.price_vnd == null ? 2 : 0);

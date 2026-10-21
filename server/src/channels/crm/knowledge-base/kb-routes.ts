@@ -3,6 +3,7 @@
 import { Router } from 'express';
 import { supabase } from '../../zalo-personal/supabase.js';
 import { DocumentProcessor } from './processor.js';
+import { listCommerceProducts } from '../commerce-order.js';
 
 const router = Router();
 const processor = new DocumentProcessor();
@@ -132,142 +133,55 @@ router.post('/search', async (req, res) => {
 
 // ═══ Sync ═══
 
-// POST /kb/sync/shopify — Sync Shopify products into KB
-router.post('/sync/shopify', async (_req, res) => {
+// POST /kb/sync/commerce — đồng bộ SP đang bán trên Yinyang (lõi commerce) vào KB (YSC-034, 21/10/2026)
+router.post('/sync/commerce', async (_req, res) => {
   try {
-    // Find or create product collection
     let { data: col } = await supabase.from('kb_collections').select('id').eq('collection_type', 'product').maybeSingle();
     if (!col) {
       const { data } = await supabase.from('kb_collections')
-        .insert({ name: 'Sản phẩm Shopify', description: 'Catalog từ YinYang Masters', collection_type: 'product' })
+        .insert({ name: 'Sản phẩm Yinyang', description: 'Catalog cửa hàng yinyangmasters.com (lõi commerce)', collection_type: 'product' })
         .select('id').single();
       col = data;
     }
     if (!col) return res.status(500).json({ error: 'Không tạo được bộ sưu tập' });
 
-    // Fetch products from shopify_products (FRESH daily sync; was stale shopify_product_variants
-    // whose columns are product_title/price_vnd so this select errored anyway).
-    const { data: products, error: prodErr } = await supabase
-      .from('shopify_products')
-      .select('title, price, product_type, vendor, shopify_product_id')
-      .eq('status', 'active');
-    if (prodErr) return res.status(500).json({ error: prodErr.message });
-
-    if (!products?.length) return res.json({ message: 'Không có sản phẩm nào', count: 0 });
+    const products = await listCommerceProducts(supabase);
+    if (!products.length) return res.json({ message: 'Không có sản phẩm nào', count: 0, total: 0 });
 
     const { createHash } = await import('crypto');
     let count = 0;
     for (const p of products) {
-      // SKU nằm ở cấp variant (variants jsonb), KHÔNG phải cột product-level → không đưa vào content.
-      const content = `Sản phẩm: ${p.title}\nGiá: ${p.price}₫\nLoại: ${p.product_type || 'N/A'}\nNhà cung cấp: ${p.vendor || 'N/A'}`;
+      const price = p.price_vnd != null ? `${p.variants.length > 1 ? 'từ ' : ''}${p.price_vnd.toLocaleString('vi-VN')}₫` : 'Liên hệ';
+      const content = [`Sản phẩm: ${p.title}`, p.title_en && p.title_en !== p.title ? `Tên tiếng Anh: ${p.title_en}` : '',
+        `Giá: ${price}`, `Loại: ${p.kind}`, p.subtitle ? `Mô tả: ${p.subtitle}` : '', `Mã đặt hàng (create_order ref): ${p.ref}`,
+        `Link: ${p.url}`].filter(Boolean).join('\n');
       const hash = createHash('md5').update(content).digest('hex');
-
-      // Dedup theo ĐỊNH DANH sản phẩm (source_id = shopify_product_id), KHÔNG theo content_hash:
-      // giá/vendor đổi → UPDATE in-place + reprocess, KHÔNG đẻ doc trùng cho cùng 1 sản phẩm.
+      // Dedup theo ĐỊNH DANH SP (source_id = commerce_products.id): đổi giá/mô tả → cập nhật tại chỗ, không đẻ doc trùng
       const { data: existing } = await supabase.from('kb_documents')
-        .select('id, content_hash')
-        .eq('source_type', 'shopify').eq('source_id', p.shopify_product_id)
-        .maybeSingle();
-
+        .select('id, content_hash').eq('source_type', 'commerce').eq('source_id', p.id).maybeSingle();
       if (existing) {
-        if (existing.content_hash === hash) continue; // không đổi → skip
+        if (existing.content_hash === hash) continue;
         await supabase.from('kb_documents')
-          .update({ title: p.title, raw_content: content, content_hash: hash, status: 'pending' })
-          .eq('id', existing.id);
-        processor.processDocument(existing.id).catch(() => {}); // processDocument tự xóa chunks cũ + regen
+          .update({ title: p.title, raw_content: content, content_hash: hash, status: 'pending' }).eq('id', existing.id);
+        processor.processDocument(existing.id).catch(() => {});
         count++;
         continue;
       }
-
       const { data: doc } = await supabase.from('kb_documents')
-        .insert({ collection_id: col.id, title: p.title, source_type: 'shopify', source_id: p.shopify_product_id, raw_content: content, content_hash: hash, status: 'pending' })
+        .insert({ collection_id: col.id, title: p.title, source_type: 'commerce', source_id: p.id, raw_content: content, content_hash: hash, status: 'pending' })
         .select('id').single();
-
-      if (doc) {
-        processor.processDocument(doc.id).catch(() => {});
-        count++;
-      }
+      if (doc) { processor.processDocument(doc.id).catch(() => {}); count++; }
     }
-
-    res.json({ message: `Đang sync ${count} sản phẩm`, count });
+    res.json({ message: `Đang sync ${count} sản phẩm`, count, total: products.length });
   } catch (err: any) { res.status(500).json({ error: err.message }); }
 });
 
-// POST /kb/sync/courses — Sync khóa học từ Shopify products
-router.post('/sync/courses', async (_req, res) => {
-  try {
-    let { data: col } = await supabase.from('kb_collections').select('id').eq('collection_type', 'course').maybeSingle();
-    if (!col) {
-      const { data } = await supabase.from('kb_collections')
-        .insert({ name: 'Khóa học & Sản phẩm Digital', description: 'Khóa học trading, tâm linh từ Shopify', collection_type: 'course' })
-        .select('id').single();
-      col = data;
-    }
-    if (!col) return res.status(500).json({ error: 'Không tạo được bộ sưu tập' });
-
-    // Lấy từ Shopify products — filter digital/course products
-    const shopifyStore = process.env.SHOPIFY_STORE_URL || '';
-    const shopifyToken = process.env.SHOPIFY_ACCESS_TOKEN || '';
-
-    let products: any[] = [];
-
-    if (shopifyStore && shopifyToken) {
-      // Fetch from Shopify API
-      const apiRes = await fetch(`https://${shopifyStore}/admin/api/2024-01/products.json?limit=250`, {
-        headers: { 'X-Shopify-Access-Token': shopifyToken },
-      });
-      if (apiRes.ok) {
-        const json = await apiRes.json() as { products: any[] };
-        // Filter digital products (courses, tiers, bundles)
-        products = (json.products || []).filter((p: any) =>
-          p.product_type?.toLowerCase().includes('digital') ||
-          p.product_type?.toLowerCase().includes('course') ||
-          p.tags?.toLowerCase().includes('course') ||
-          p.tags?.toLowerCase().includes('tier') ||
-          p.title?.toLowerCase().includes('khóa') ||
-          p.title?.toLowerCase().includes('tier')
-        );
-      }
-    }
-
-    // Fallback: also check shopify_products (FRESH; was stale shopify_product_variants)
-    if (products.length === 0) {
-      const { data: variants } = await supabase.from('shopify_products').select('title, price, product_type').eq('status', 'active');
-      products = (variants || []).map(v => ({
-        title: v.title,
-        body_html: '',
-        variants: [{ price: v.price, sku: null }],
-        product_type: v.product_type,
-      }));
-    }
-
-    if (!products.length) return res.json({ message: 'Không tìm thấy khóa học/sản phẩm digital', count: 0 });
-
-    let count = 0;
-    for (const p of products) {
-      const price = p.variants?.[0]?.price || p.price || 'Liên hệ';
-      const desc = (p.body_html || '').replace(/<[^>]*>/g, '').slice(0, 1000);
-      const content = `Khóa học/Sản phẩm: ${p.title}\nGiá: ${price}₫\nMô tả: ${desc || 'N/A'}\nLoại: ${p.product_type || 'digital'}`;
-
-      const { createHash } = await import('crypto');
-      const hash = createHash('md5').update(content).digest('hex');
-
-      const { data: existing } = await supabase.from('kb_documents')
-        .select('id').eq('content_hash', hash).maybeSingle();
-      if (existing) continue;
-
-      const { data: doc } = await supabase.from('kb_documents')
-        .insert({ collection_id: col.id, title: p.title, source_type: 'shopify', raw_content: content, content_hash: hash, status: 'pending' })
-        .select('id').single();
-
-      if (doc) {
-        processor.processDocument(doc.id).catch(() => {});
-        count++;
-      }
-    }
-
-    res.json({ message: `Đang sync ${count} khóa học/digital mới từ Shopify`, count });
-  } catch (err: any) { res.status(500).json({ error: err.message }); }
+// Shopify đã đóng (21/10/2026) — 2 route cũ chỉ chỉ đường
+router.post('/sync/shopify', (_req, res) => {
+  res.status(410).json({ error: 'Shopify đã đóng — dùng POST /kb/sync/commerce', use: '/kb/sync/commerce' });
+});
+router.post('/sync/courses', (_req, res) => {
+  res.status(410).json({ error: 'Shopify đã đóng — khoá học/Tier nằm trong POST /kb/sync/commerce', use: '/kb/sync/commerce' });
 });
 
 // ═══ Stats ═══
