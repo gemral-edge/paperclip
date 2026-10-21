@@ -325,8 +325,64 @@ function formatOrderLine(o: any): string {
   ].filter(Boolean).join(' — ');
 }
 
+// Đơn trên web Yinyang mới (commerce core, YC-P5-5 21/10: yinyangmasters.com rời Shopify). Số đơn lõi bắt đầu
+// sau đơn Shopify cuối (seq từ 5844, Shopify max 4844) nên tra theo order_number không trùng nhau.
+const COMMERCE_ORDER_COLS = 'id, order_number, status, fulfillment_state, total_minor, currency, created_at, paid_at, fulfilled_at, email, shipping_address, livemode';
+const ZERO_DECIMAL = new Set(['vnd', 'jpy', 'krw']);
+
+function commerceTotal(o: any): string {
+  const cur = String(o.currency || 'usd').toLowerCase();
+  const amount = ZERO_DECIMAL.has(cur) ? Number(o.total_minor || 0) : Number(o.total_minor || 0) / 100;
+  return `${amount.toLocaleString('en-US')} ${cur.toUpperCase()}`;
+}
+
+function formatCommerceLine(o: any): string {
+  return `#${o.order_number} (web Yinyang): ${o.status}${o.fulfillment_state ? ' / ' + o.fulfillment_state : ''} — ${commerceTotal(o)}`;
+}
+
+async function lookupCommerceOrder(orderNumber: string, ctx: ToolHandlerContext): Promise<SharedToolResult> {
+  const { data, error } = await ctx.supabase
+    .from('commerce_orders')
+    .select(COMMERCE_ORDER_COLS)
+    .eq('order_number', Number(orderNumber))
+    .eq('livemode', true)
+    .limit(1);
+  if (error) return { ok: false, summary: `Lỗi DB: ${error.message}`, error: error.message };
+  const order = data?.[0];
+  if (!order) return { ok: false, summary: `Không tìm thấy đơn hàng #${orderNumber}.`, error: 'not_found' };
+
+  // Cùng luật sở hữu như đơn Shopify: khách đã xác minh chỉ đọc đơn của chính mình.
+  const verifiedEmail = await resolveVerifiedEmail(ctx);
+  const orderEmail = normalizeEmail(order.email);
+  if (verifiedEmail && orderEmail && verifiedEmail !== orderEmail) {
+    return {
+      ok: false,
+      summary: `Đơn #${orderNumber} không thuộc tài khoản đã xác minh. Vui lòng kiểm tra lại mã đơn.`,
+      error: 'order_not_owned',
+    };
+  }
+
+  const { data: items } = await ctx.supabase
+    .from('commerce_order_items')
+    .select('title_snapshot, qty, kind_snapshot')
+    .eq('order_id', order.id);
+  const itemText = (items || []).map((it: any) => `${it.title_snapshot || 'sp'} x${it.qty || 1}`).join(', ');
+
+  return {
+    ok: true,
+    summary: [
+      `Đơn #${order.order_number} (web Yinyang): ${order.status}${order.fulfillment_state ? ' / ' + order.fulfillment_state : ''}.`,
+      itemText ? `Items: ${itemText}.` : '',
+      order.paid_at ? `Thanh toán lúc ${order.paid_at}.` : 'Chưa thanh toán.',
+      order.fulfilled_at ? `Đã giao lúc ${order.fulfilled_at}.` : '',
+      `Tổng: ${commerceTotal(order)}.`,
+    ].filter(Boolean).join(' '),
+    data: { ...order, items: items || [] },
+  };
+}
+
 /**
- * lookup_order_shopify — query shopify_orders. Identity gate enforced upstream.
+ * lookup_order_shopify — query shopify_orders + commerce_orders (web Yinyang mới). Identity gate enforced upstream.
  *
  * Mode A (order_number given): return that order, scoped to the verified owner.
  * Mode B (no order_number): list the verified customer's own orders by email —
@@ -356,13 +412,26 @@ export async function handleLookupOrderShopify(
       .order('created_at', { ascending: false })
       .limit(10);
     if (error) return { ok: false, summary: `Lỗi DB: ${error.message}`, error: error.message };
-    if (!data || data.length === 0) {
+    const { data: core, error: coreErr } = await ctx.supabase
+      .from('commerce_orders')
+      .select(COMMERCE_ORDER_COLS)
+      .eq('email', email)
+      .eq('livemode', true)
+      .not('status', 'in', '(pending,expired)') // giỏ bỏ dở / hết hạn không phải đơn của khách
+      .order('created_at', { ascending: false })
+      .limit(10);
+    if (coreErr) return { ok: false, summary: `Lỗi DB: ${coreErr.message}`, error: coreErr.message };
+    const lines = [
+      ...(core || []).map((o: any) => ({ at: o.created_at, line: formatCommerceLine(o) })),
+      ...(data || []).map((o: any) => ({ at: o.created_at, line: formatOrderLine(o) })),
+    ].sort((a, b) => String(b.at).localeCompare(String(a.at)));
+    if (lines.length === 0) {
       return { ok: true, summary: 'Không tìm thấy đơn hàng nào theo email đã xác minh.', data: { count: 0 } };
     }
     return {
       ok: true,
-      summary: `${data.length} đơn của khách:\n${data.map(formatOrderLine).join('\n')}`,
-      data,
+      summary: `${lines.length} đơn của khách:\n${lines.map((l) => l.line).join('\n')}`,
+      data: { shopify: data || [], commerce: core || [] },
     };
   }
 
@@ -375,6 +444,7 @@ export async function handleLookupOrderShopify(
 
   if (error) return { ok: false, summary: `Lỗi DB: ${error.message}`, error: error.message };
   if (!data || data.length === 0) {
+    if (/^\d{1,12}$/.test(orderNumber)) return lookupCommerceOrder(orderNumber, ctx);
     return { ok: false, summary: `Không tìm thấy đơn hàng #${orderNumber}.`, error: 'not_found' };
   }
 

@@ -214,7 +214,7 @@ const TOOLS = [
   },
   {
     name: 'lookup_order_shopify',
-    description: 'Tra trạng thái đơn hàng Shopify: fulfillment, tracking, items, shipping address. PRECONDITION: phải verify_customer_identity trước.',
+    description: 'Tra trạng thái đơn hàng (đơn Shopify cũ + đơn web Yinyang mới yinyangmasters.com): thanh toán, giao hàng, tracking, items. PRECONDITION: phải verify_customer_identity trước.',
     inputSchema: {
       type: 'object' as const,
       properties: {

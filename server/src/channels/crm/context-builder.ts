@@ -258,6 +258,32 @@ export class ContextBuilder {
       rows = data || [];
     }
 
+    // Đơn web Yinyang mới (commerce core — yinyangmasters.com rời Shopify 21/10): chỉ khớp theo email, đổi về cùng
+    // dạng hàng shopify_orders để khối dưới dùng chung. Bỏ giỏ bỏ dở/hết hạn (pending, expired).
+    if (email) {
+      const { data: core } = await supabase.from('commerce_orders')
+        .select('id, order_number, status, fulfillment_state, total_minor, currency, created_at, email')
+        .eq('email', email).eq('livemode', true).not('status', 'in', '(pending,expired)')
+        .order('created_at', { ascending: false }).limit(5);
+      if (core && core.length) {
+        const { data: items } = await supabase.from('commerce_order_items')
+          .select('order_id, title_snapshot').in('order_id', core.map((o: any) => o.id));
+        for (const o of core as any[]) {
+          const cur = String(o.currency || '').toLowerCase();
+          rows.push({
+            order_number: o.order_number,
+            financial_status: o.status === 'fulfilled' ? 'paid' : o.status === 'awaiting_transfer' ? 'pending' : o.status,
+            fulfillment_status: o.fulfillment_state || (o.status === 'fulfilled' ? 'đã giao' : null),
+            total_price: cur === 'vnd' ? o.total_minor : null,
+            total_label: cur === 'vnd' ? null : `${(Number(o.total_minor || 0) / 100).toLocaleString('en-US')} ${cur.toUpperCase()}`,
+            created_at: o.created_at,
+            line_items: (items || []).filter((it: any) => it.order_id === o.id).map((it: any) => ({ title: it.title_snapshot })),
+            email: o.email,
+          });
+        }
+      }
+    }
+
     // All matched orders must belong to the SAME customer email; mixed = suspicious → skip.
     const emailSet = new Set(rows.map((r) => String(r.customer_email || r.email || '').toLowerCase()).filter(Boolean));
     if (emailSet.size > 1) return SKIP;
@@ -280,7 +306,7 @@ export class ContextBuilder {
     let block = HEAD;
     for (const r of rows.slice(0, 5)) {
       const ship = r.fulfillment_status || 'chưa cập nhật';
-      block += `\n• #${r.order_number} — ${this.fmtDate(r.created_at)} — ${itemTitles(r.line_items) || 'sản phẩm'} — ${fmtVND(r.total_price)} — ${payLabel(r.financial_status)} — giao: ${ship}`;
+      block += `\n• #${r.order_number} — ${this.fmtDate(r.created_at)} — ${itemTitles(r.line_items) || 'sản phẩm'} — ${r.total_label || fmtVND(r.total_price)} — ${payLabel(r.financial_status)} — giao: ${ship}`;
     }
     return block;
   }
