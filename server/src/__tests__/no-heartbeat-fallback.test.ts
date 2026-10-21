@@ -18,4 +18,10 @@ describe("heartbeat agent: no fallback", () => {
     expect(src).toMatch(/const modelChain = \[model\];/);
     expect(src).not.toMatch(/resolveAntigravityModelChain\(|DEFAULT_ANTIGRAVITY_FALLBACK_MODELS/);
   });
+
+  it("DEFAULT_ANTIGRAVITY_FALLBACK_MODELS luôn rỗng và không còn hàm dựng chuỗi dự phòng", () => {
+    const idx = read("packages/adapters/antigravity-local/src/index.ts");
+    expect(idx).toMatch(/DEFAULT_ANTIGRAVITY_FALLBACK_MODELS: readonly string\[\] = \[\];/);
+    expect(read("packages/adapters/antigravity-local/src/server/parse.ts")).not.toMatch(/resolveAntigravityModelChain/);
+  });
 });

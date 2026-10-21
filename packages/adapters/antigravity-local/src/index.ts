@@ -7,12 +7,9 @@ export const label = "Antigravity CLI (Gemini 3.8 Flash)";
 // 2026-10-21: "Gemini 3.1 Pro (High)" bị agy gỡ (invalid model selection) → 3.8 Flash (High). GEM-1583.
 export const DEFAULT_ANTIGRAVITY_MODEL = "Gemini 3.8 Flash (High)";
 
-// Model dự phòng khi model chính (Gemini) đụng tường credits/quota (GEM-1241): 05/10 tín
-// dụng Gemini cạn ở MỌI model Gemini → 17 agent + 2 bot CSKH đứng 5,5h vì adapter retry cùng
-// model. Mặc định CHỈ áp cho model chính họ Gemini (Claude trong agy là hạn mức riêng — probe
-// 05/10 OK). Ghi đè per-agent bằng adapterConfig.fallbackModels (mảng; [] = tắt dự phòng).
-// 21/10: 5.5 (High) bi agy go khoi danh sach (invalid model selection) -> 4.6 (Thinking), verify `agy -p OK`.
-export const DEFAULT_ANTIGRAVITY_FALLBACK_MODELS: readonly string[] = ["Claude Sonnet 4.6 (Thinking)"];
+// 22/10/2026 chị Jennie: CẤM fallback model — hết quota/model lỗi thì để lỗi nguyên (GEM-1241 đã gỡ).
+// Hằng này PHẢI luôn rỗng; không code nào còn đọc nó. Máy gác paperclip_model_list_audit.py đỏ nếu ≠ rỗng.
+export const DEFAULT_ANTIGRAVITY_FALLBACK_MODELS: readonly string[] = [];
 
 // Full Antigravity model picker. Pass the string VERBATIM via `--model "<id>"`.
 // Default = DEFAULT_ANTIGRAVITY_MODEL above.

@@ -546,35 +546,6 @@ export function detectAntigravityTransientDisconnect(input: { stderr: string }):
   return { transient };
 }
 
-/**
- * Chuỗi model cho 1 lượt chạy agy: [model chính, ...dự phòng] (GEM-1241). Mỗi run LUÔN bắt đầu
- * bằng model chính → Gemini hồi là tự quay về, không cần ai đổi lại cấu hình.
- * `fallbackModels`: mảng hoặc chuỗi phân tách dấu phẩy; `undefined` = mặc định (chỉ khi model
- * chính họ Gemini); `[]`/`""` = tắt. Bỏ trùng + bỏ chính model chính.
- */
-export function resolveAntigravityModelChain(
-  primary: string,
-  fallbackModels: unknown,
-  defaults: readonly string[],
-): string[] {
-  const main = (primary || "").trim();
-  let extra: string[];
-  if (fallbackModels === undefined || fallbackModels === null) {
-    extra = /^gemini\b/i.test(main) ? [...defaults] : [];
-  } else if (Array.isArray(fallbackModels)) {
-    extra = fallbackModels.filter((m): m is string => typeof m === "string");
-  } else if (typeof fallbackModels === "string") {
-    extra = fallbackModels.split(",");
-  } else {
-    extra = [];
-  }
-  const chain: string[] = [];
-  for (const m of [main, ...extra.map((x) => x.trim())]) {
-    if (m && !chain.includes(m)) chain.push(m);
-  }
-  return chain;
-}
-
 /** Lượt chạy hỏng vì hết credits/quota (stderr) và KHÔNG phải lỗi đăng nhập → đáng thử model kế. */
 export function shouldAntigravityFallback(input: { stdout?: string; stderr: string }): boolean {
   if (!detectAntigravityQuotaExhausted({ stdout: "", stderr: input.stderr }).exhausted) return false;

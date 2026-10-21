@@ -12,7 +12,6 @@ export {
   detectAntigravityAuthRequired,
   detectAntigravityQuotaExhausted,
   detectAntigravityTransientDisconnect,
-  resolveAntigravityModelChain,
   shouldAntigravityFallback,
   countAntigravityActionCalls,
   ANTIGRAVITY_READ_ONLY_TOOLS,
