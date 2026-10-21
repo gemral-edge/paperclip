@@ -492,7 +492,7 @@ export async function execute(ctx: AdapterExecutionContext): Promise<AdapterExec
     "You are agent {{agent.id}} ({{agent.name}}). Continue your Paperclip work.",
   );
   const command = asString(config.command, defaultAgyCommand());
-  // Default "Gemini 3.1 Pro (High)" (verified string). Credits/quota wall on the primary
+  // Default = DEFAULT_ANTIGRAVITY_MODEL (21/10: 3.8 Flash High). Credits/quota wall on the primary
   // model → the SAME run re-runs on the next model in the chain (GEM-1241); every run
   // starts on the primary again, so a recovered Gemini is picked back up automatically.
   const model = asString(config.model, DEFAULT_ANTIGRAVITY_MODEL).trim();
@@ -1005,7 +1005,7 @@ export async function execute(ctx: AdapterExecutionContext): Promise<AdapterExec
   const buildArgs = (conversationId: string, model: string) => {
     const args: string[] = ["-p", pointerPrompt, "--dangerously-skip-permissions"];
     args.push("--print-timeout", agyPrintTimeout);
-    // model default is a real string ("Gemini 3.1 Pro (High)") → always pass it.
+    // model default is a real string (DEFAULT_ANTIGRAVITY_MODEL) → always pass it.
     if (model) args.push("--model", model);
     if (conversationId) args.push("--conversation", conversationId);
     for (const dir of addDirs) args.push("--add-dir", dir);

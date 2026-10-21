@@ -150,7 +150,7 @@ export async function testEnvironment(
           code: "antigravity_hello_probe_timed_out",
           level: "warn",
           message: "Antigravity hello probe timed out.",
-          hint: "Retry the probe. Gemini 3.1 Pro (High) + MCP cold-start can be slow on first run.",
+          hint: "Retry the probe. The agy model + MCP cold-start can be slow on first run.",
         });
       } else if ((probe.exitCode ?? 1) === 0) {
         const summary = parsed.summary.trim();

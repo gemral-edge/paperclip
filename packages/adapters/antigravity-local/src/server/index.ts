@@ -20,7 +20,7 @@ export {
   isAntigravityCleanExitProse,
 } from "./parse.js";
 export { defaultAgyCommand } from "./execute.js";
-export { DEFAULT_ANTIGRAVITY_FALLBACK_MODELS } from "../index.js";
+export { DEFAULT_ANTIGRAVITY_FALLBACK_MODELS, DEFAULT_ANTIGRAVITY_MODEL } from "../index.js";
 import type { AdapterSessionCodec } from "@paperclipai/adapter-utils";
 
 function readNonEmptyString(value: unknown): string | null {

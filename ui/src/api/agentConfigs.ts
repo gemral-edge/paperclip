@@ -97,19 +97,8 @@ export const PROVIDER_MODELS: Record<AgentProvider, string[]> = {
     "Gemini 3.8 Flash (High)",
     "Gemini 3.8 Flash (Medium)",
     "Gemini 3.8 Flash (Low)",
-    // 2026-10-14: +Gemini 4 Argon x3 (after 3.8 so element 0 default is unchanged).
-    "Gemini 4 Argon (High)",
-    "Gemini 4 Argon (Medium)",
-    "Gemini 4 Argon (Low)",
-    "Gemini 3.7 Flash (High)",
-    "Gemini 3.7 Flash (Medium)",
-    "Gemini 3.7 Flash (Low)",
-    "Gemini 3.6 Flash (High)",
-    "Gemini 3.6 Flash (Medium)",
-    "Gemini 3.6 Flash (Low)",
     // 2026-09-03: removed Gemini 3.5 Flash x3 — agy no longer lists them.
-    "Gemini 3.1 Pro (High)",
-    "Gemini 3.1 Pro (Low)",
+    // 2026-10-21: removed Gemini 4 Argon x3, 3.7 Flash x3, 3.6 Flash x3, 3.1 Pro x2 — `agy models` (agy 1.4.4) lists only 3.8 Flash x3 + Claude x2 + GPT-OSS; `agy --model` rejects them (invalid model selection). GEM-1583.
     "Claude Sonnet 4.6 (Thinking)",
     "Claude Opus 4.6 (Thinking)",
     "GPT-OSS 120B (Medium)",

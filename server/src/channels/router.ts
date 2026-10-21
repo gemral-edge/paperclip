@@ -15,6 +15,7 @@ import {
   resolveAntigravityModelChain,
   shouldAntigravityFallback,
   DEFAULT_ANTIGRAVITY_FALLBACK_MODELS,
+  DEFAULT_ANTIGRAVITY_MODEL,
 } from '@paperclipai/adapter-antigravity-local/server';
 
 const PROJECT_ROOT = process.env.PROJECT_ROOT || 'C:/Users/Jennie Chu/Desktop/Projects/crypto-pattern-scanner';
@@ -1264,7 +1265,7 @@ async function runViaGemini(
 }
 
 /**
- * Run via Antigravity CLI (`agy` → Gemini 3.1 Pro High, Google AI Ultra).
+ * Run via Antigravity CLI (`agy` → DEFAULT_ANTIGRAVITY_MODEL, Google AI Ultra).
  *
  * agy follows the Claude-Code model: it reads context from a FILE POINTER (no
  * stdin), so we write the full system prompt + history to a temp file and pass a
@@ -1327,7 +1328,7 @@ async function runViaAntigravity(
   signal?: AbortSignal,
 ): Promise<string> {
   if (signal?.aborted) throw new AgentAbortedError();
-  const model = config.model || 'Gemini 3.1 Pro (High)';
+  const model = config.model || DEFAULT_ANTIGRAVITY_MODEL; // 21/10: 3.1 Pro bị agy gỡ (GEM-1583)
 
   // Conversation id passed to agy. If a brain with this id exists, agy RESUMES it;
   // otherwise agy IGNORES it and auto-creates its OWN brain (we then locate the real

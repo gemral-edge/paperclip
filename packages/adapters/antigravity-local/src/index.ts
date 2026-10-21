@@ -1,10 +1,11 @@
 export const type = "antigravity_local";
-export const label = "Antigravity CLI (Gemini 3.1 Pro)";
+export const label = "Antigravity CLI (Gemini 3.8 Flash)";
 // Verified 15/06/2026: truyền thẳng chuỗi `--model "Gemini 3.1 Pro (High)"` (nguyên văn,
 // có ngoặc trong tên). KHÔNG dùng `agy models` (lệnh hay kẹt mở UI). User có thể nhập
 // chuỗi model khác trong config (freeform) — adapter không hardcode danh sách để tránh
 // đoán sai tên model Antigravity expose.
-export const DEFAULT_ANTIGRAVITY_MODEL = "Gemini 3.1 Pro (High)";
+// 2026-10-21: "Gemini 3.1 Pro (High)" bị agy gỡ (invalid model selection) → 3.8 Flash (High). GEM-1583.
+export const DEFAULT_ANTIGRAVITY_MODEL = "Gemini 3.8 Flash (High)";
 
 // Model dự phòng khi model chính (Gemini) đụng tường credits/quota (GEM-1241): 05/10 tín
 // dụng Gemini cạn ở MỌI model Gemini → 17 agent + 2 bot CSKH đứng 5,5h vì adapter retry cùng
@@ -32,24 +33,14 @@ export const DEFAULT_ANTIGRAVITY_FALLBACK_MODELS: readonly string[] = ["Claude S
 // 2026-09-03: +Gemini 3.8 Flash (High/Medium/Low) — agy shipped 3.8; verified verbatim
 // via `agy models` (col 2). gem-master + sales-closer bumped 3.7→3.8 (High).
 // 2026-10-14: +Gemini 4 Argon (High/Medium/Low) — verbatim via `agy models` (col 2).
+// 2026-10-21: removed Gemini 4 Argon x3, 3.7 Flash x3, 3.6 Flash x3, 3.1 Pro x2 — `agy models` (agy 1.4.4) lists only 3.8 Flash x3 + Claude x2 + GPT-OSS; `agy --model` rejects them (invalid model selection). GEM-1583.
 export const models = [
   { id: "Gemini 3.8 Flash (High)", label: "Gemini 3.8 Flash (High) — Fast" },
   { id: "Gemini 3.8 Flash (Medium)", label: "Gemini 3.8 Flash (Medium) — Fast" },
   { id: "Gemini 3.8 Flash (Low)", label: "Gemini 3.8 Flash (Low) — Fast" },
-  { id: "Gemini 4 Argon (High)", label: "Gemini 4 Argon (High)" },
-  { id: "Gemini 4 Argon (Medium)", label: "Gemini 4 Argon (Medium)" },
-  { id: "Gemini 4 Argon (Low)", label: "Gemini 4 Argon (Low)" },
-  { id: "Gemini 3.7 Flash (High)", label: "Gemini 3.7 Flash (High) — Fast" },
-  { id: "Gemini 3.7 Flash (Medium)", label: "Gemini 3.7 Flash (Medium) — Fast" },
-  { id: "Gemini 3.7 Flash (Low)", label: "Gemini 3.7 Flash (Low) — Fast" },
-  { id: "Gemini 3.6 Flash (High)", label: "Gemini 3.6 Flash (High) — Fast" },
-  { id: "Gemini 3.6 Flash (Medium)", label: "Gemini 3.6 Flash (Medium) — Fast" },
-  { id: "Gemini 3.6 Flash (Low)", label: "Gemini 3.6 Flash (Low) — Fast" },
   // 2026-09-03: removed Gemini 3.5 Flash (High/Medium/Low) — agy no longer lists
   // them (`agy models` dropped 3.5), so passing them would fail --model. No agent
   // used 3.5 (verified paperclip_agents). Kept the mirror in sync with agy.
-  { id: "Gemini 3.1 Pro (High)", label: "Gemini 3.1 Pro (High)" },
-  { id: "Gemini 3.1 Pro (Low)", label: "Gemini 3.1 Pro (Low)" },
   { id: "Claude Sonnet 4.6 (Thinking)", label: "Claude Sonnet 4.6 (Thinking)" },
   { id: "Claude Opus 4.6 (Thinking)", label: "Claude Opus 4.6 (Thinking)" },
   { id: "GPT-OSS 120B (Medium)", label: "GPT-OSS 120B (Medium)" },
@@ -61,7 +52,7 @@ Adapter: antigravity_local
 
 Use when:
 - You want Paperclip to run the Antigravity CLI (\`agy\`) locally on the host machine
-- You want the Gemini 3.1 Pro (High) engine via Google AI Ultra (OAuth shared with Gemini CLI)
+- You want the Antigravity engine (Gemini 3.8 Flash by default) via Google AI Ultra (OAuth shared with Gemini CLI)
 - You want chat sessions resumed across heartbeats via --conversation
 - You want Paperclip skills injected locally without polluting the global environment
 
@@ -74,7 +65,7 @@ Core fields:
 - cwd (string, optional): default absolute working directory fallback for the agent process (created if missing when possible)
 - instructionsFilePath (string, optional): absolute path to a markdown instructions file (AGENTS.md) — its folder is granted via --add-dir so the agent reads its own persona/sop/knowledge
 - promptTemplate (string, optional): run prompt template
-- model (string, optional): Antigravity model id. Defaults to "Gemini 3.1 Pro (High)".
+- model (string, optional): Antigravity model id. Defaults to "Gemini 3.8 Flash (High)".
 - command (string, optional): defaults to "agy"
 - extraArgs (string[], optional): additional CLI args (gemini/claude-only flags are filtered out)
 - env (object, optional): KEY=VALUE environment variables

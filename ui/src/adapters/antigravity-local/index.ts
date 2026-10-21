@@ -5,7 +5,7 @@ import { buildAntigravityLocalConfig } from "@paperclipai/adapter-antigravity-lo
 
 export const antigravityLocalUIAdapter: UIAdapterModule = {
   type: "antigravity_local",
-  label: "Antigravity CLI (Gemini 3.1 Pro)",
+  label: "Antigravity CLI (Gemini 3.8 Flash)",
   parseStdoutLine: parseAntigravityStdoutLine,
   ConfigFields: AntigravityLocalConfigFields,
   buildAdapterConfig: buildAntigravityLocalConfig,
