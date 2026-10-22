@@ -17,6 +17,9 @@ export {
   ANTIGRAVITY_READ_ONLY_TOOLS,
   ANTIGRAVITY_CLEAN_EXIT_PATTERNS,
   isAntigravityCleanExitProse,
+  countAntigravityMutationCalls,
+  ANTIGRAVITY_MUTATION_TOOL_RE,
+  isAntigravityUnfinishedPromise,
 } from "./parse.js";
 export { defaultAgyCommand } from "./execute.js";
 export { DEFAULT_ANTIGRAVITY_FALLBACK_MODELS, DEFAULT_ANTIGRAVITY_MODEL } from "../index.js";

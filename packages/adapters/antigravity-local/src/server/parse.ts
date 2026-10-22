@@ -230,6 +230,7 @@ function parseAntigravityRunEntries(
 // a new agy write tool must never make real work look like a no-op).
 export const ANTIGRAVITY_READ_ONLY_TOOLS: ReadonlySet<string> = new Set([
   "view_file",
+  "read_file", // agy ≥1.4 name for view_file (GEM-1307 tái phát 22/10, run 2f7855e4)
   "view_file_outline",
   "view_code_item",
   "view_content_chunk",
@@ -251,6 +252,47 @@ export function countAntigravityActionCalls(entries: AntigravityNormEntry[]): nu
     if (!ANTIGRAVITY_READ_ONLY_TOOLS.has(name)) n++;
   }
   return n;
+}
+
+// GEM-1307 (tái phát 22/10) — run 2f7855e4 (Kiểm Định UX): 23 run_command chỉ đo/đọc
+// (grep, Test-Path, eslint) nên countAntigravityActionCalls > 0, nhưng model in SPEC-LOCK
+// rồi kết thúc lượt bằng "Bây giờ em tiến hành tự sửa từng file…" — 0 file được ghi.
+// run_command không phân biệt đọc/ghi được, nên bắt theo CÂU HỨA ở đoạn cuối + 0 tool ghi.
+// File-mutation tools = allowlist ngược lại: chỉ tool ghi file / gọi MCP rõ ràng.
+export const ANTIGRAVITY_MUTATION_TOOL_RE =
+  /^(?:write_file|write_to_file|replace_file_content|multi_replace_file_content|edit_file|call_mcp_tool|mcp_.+)$/;
+
+export function countAntigravityMutationCalls(entries: AntigravityNormEntry[]): number {
+  let n = 0;
+  for (const e of entries ?? []) {
+    if (e.agyKind !== "tool_call") continue;
+    if (ANTIGRAVITY_MUTATION_TOOL_RE.test((e.name ?? "").trim().toLowerCase())) n++;
+  }
+  return n;
+}
+
+// Promise-to-continue phrasing, matched ONLY against the closing paragraph of the reply.
+export const ANTIGRAVITY_UNFINISHED_PROMISE_PATTERNS: ReadonlyArray<RegExp> = [
+  /(?:bây\s+giờ|tiếp\s+theo|sau\s+đây|giờ\s+đây|ngay\s+bây\s+giờ)\s*,?\s*em\s+(?:sẽ\s+|xin\s+phép\s+)?(?:tiến\s+hành|bắt\s+đầu|bắt\s+tay|thực\s+hiện|chuyển\s+sang|đi\s+vào|làm\s+tiếp|sửa)/i,
+  /\bem\s+(?:sẽ|xin\s+phép)\s+(?:tiến\s+hành|bắt\s+đầu|bắt\s+tay\s+vào|thực\s+hiện\s+ngay)/i,
+  /\b(?:now|next),?\s+I(?:'ll|\s+will|\s+am\s+going\s+to|'m\s+going\s+to)\s+(?:proceed|start|begin|implement|fix|apply|edit|write|make)/i,
+  /\blet\s+me\s+(?:now\s+)?(?:proceed|start|begin)\b/i,
+  /\bI(?:'ll|\s+will)\s+now\s+(?:proceed|start|begin|implement|fix|apply|edit|write)/i,
+];
+
+export function closingParagraph(reply: string | null | undefined): string {
+  const blocks = (reply ?? "")
+    .trim()
+    .split(/\n\s*\n/)
+    .map((b) => b.trim())
+    .filter(Boolean);
+  return blocks.length ? blocks[blocks.length - 1].slice(-400) : "";
+}
+
+export function isAntigravityUnfinishedPromise(reply: string | null | undefined): boolean {
+  const tail = closingParagraph(reply);
+  if (!tail) return false;
+  return ANTIGRAVITY_UNFINISHED_PROMISE_PATTERNS.some((p) => p.test(tail));
 }
 
 // GEM-1316 — Clean-exit prose patterns. When an agent wakes up via timer / heartbeat / retry

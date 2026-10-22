@@ -32,6 +32,8 @@ export const TRANSIENT_RETRY_ERROR_CODES: ReadonlySet<string> = new Set([
   // not an agent bug; a fresh turn usually completes. Short backoff keeps slot agents
   // (Yinyang 16:15) inside their window. Capped at 2 attempts like any transient.
   "antigravity_no_action",
+  // GEM-1307 tái phát 22/10: turn ended on a promise to continue, 0 file writes.
+  "antigravity_unfinished_turn",
 ]);
 export const TRANSIENT_RETRY_BACKOFF_MIN = [10, 20] as const;
 

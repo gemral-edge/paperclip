@@ -41,6 +41,8 @@ import {
   summarizeAntigravityWork,
   countAntigravityActionCalls,
   isAntigravityCleanExitProse,
+  countAntigravityMutationCalls,
+  isAntigravityUnfinishedPromise,
 } from "./parse.js";
 import { firstNonEmptyLine } from "./utils.js";
 
@@ -1180,6 +1182,20 @@ export async function execute(ctx: AdapterExecutionContext): Promise<AdapterExec
       errorCode = "antigravity_no_action";
       errorMessage =
         `agy kết thúc lượt mà không gọi lệnh hành động nào (chỉ đọc file) — model in kế hoạch rồi dừng, ` +
+        `việc chưa được làm (turnMarker ${turnMarker}).`;
+    } else if (
+      requireToolAction &&
+      detected.found &&
+      countAntigravityMutationCalls(detected.entries) === 0 &&
+      isAntigravityUnfinishedPromise(detected.reply || summary)
+    ) {
+      // GEM-1307 tái phát 22/10 (run 2f7855e4, Kiểm Định UX): read-only run_command
+      // (grep/Test-Path/eslint) passed the no_action gate, then the turn ended on
+      // "Bây giờ em tiến hành tự sửa từng file…" with 0 file writes / MCP calls.
+      // Backtest 1.032 agy runs / 20 days: 1 succeeded match = this run, 0 false positive.
+      errorCode = "antigravity_unfinished_turn";
+      errorMessage =
+        `agy kết thúc lượt bằng câu hứa làm tiếp nhưng không ghi file / gọi MCP nào — ` +
         `việc chưa được làm (turnMarker ${turnMarker}).`;
     }
 
