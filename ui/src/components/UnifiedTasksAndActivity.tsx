@@ -343,8 +343,8 @@ export function UnifiedTasksAndActivity({
   const [searchQuery, setSearchQuery] = useState("");
   const [pageSize, setPageSize] = useState<number | "all">(50);
 
-  // Sorting state
-  const [sortField, setSortField] = useState<SortField>("default");
+  // Sorting state (Mặc định: Cập nhật từ mới nhất đến cũ, ưu tiên Live now lên đầu)
+  const [sortField, setSortField] = useState<SortField>("updated");
   const [sortOrder, setSortOrder] = useState<SortOrder>("desc");
 
   // Filter state
@@ -515,12 +515,16 @@ export function UnifiedTasksAndActivity({
       setSortField(field);
       setSortOrder(field === "updated" || field === "status" || field === "activity" ? "desc" : "asc");
     } else {
-      if (sortOrder === "asc") {
-        setSortOrder("desc");
+      if (sortOrder === "desc") {
+        setSortOrder("asc");
       } else {
-        // Reset về mặc định
-        setSortField("default");
-        setSortOrder("desc");
+        // Đảo chiều hoặc reset về mặc định Cập nhật mới nhất
+        if (field === "updated") {
+          setSortOrder("desc");
+        } else {
+          setSortField("updated");
+          setSortOrder("desc");
+        }
       }
     }
   }
@@ -562,17 +566,30 @@ export function UnifiedTasksAndActivity({
 
     // 4. Sắp xếp (Sort)
     list.sort((a, b) => {
-      // QUY TẮC MẶC ĐỊNH:
-      // Live now (Score 3) -> Queued (Score 2) -> Khác (Score 1)
-      // Khi 1 task đổi trạng thái thành Live now, nó tự động nhảy lên trên đầu ngay lập tức!
-      if (sortField === "default") {
-        const scoreA = getRuntimeScore(a.id, liveRunByIssueId);
-        const scoreB = getRuntimeScore(b.id, liveRunByIssueId);
-        if (scoreB !== scoreA) {
-          return scoreB - scoreA; // 3 -> 2 -> 1
-        }
-        // Cùng score thì việc có cập nhật mới nhất ở hàng đầu
-        return new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime();
+      // 🌟 QUY TẮC BẮT BUỘC: HÀNG CÓ AGENT ĐANG LIVE NOW LUÔN NẰM TRÊN ĐẦU BẢNG!
+      // Bất kể đang sort theo cột nào, dù cột Cập nhật đang trễ hơn các hàng mới
+      // (vì agent đang chạy dở, chưa xong để ghi timestamp cập nhật mới),
+      // thì hàng Live now VẪN ĐƯỢC XẾP ĐẦU TIÊN!
+      const isLiveA = liveRunByIssueId.get(a.id)?.status === "running";
+      const isLiveB = liveRunByIssueId.get(b.id)?.status === "running";
+      if (isLiveA !== isLiveB) {
+        return isLiveA ? -1 : 1; // Live now luôn ở trên đầu bảng!
+      }
+
+      // Kế tiếp: Các task đang chờ slot (queued)
+      const isQueuedA = liveRunByIssueId.get(a.id)?.status === "queued";
+      const isQueuedB = liveRunByIssueId.get(b.id)?.status === "queued";
+      if (isQueuedA !== isQueuedB) {
+        return isQueuedA ? -1 : 1;
+      }
+
+      // Khi cùng nhóm (cùng Live now, cùng Queued, hoặc cùng bình thường):
+      // Sắp xếp theo tiêu chí cột đang chọn:
+      if (sortField === "updated" || sortField === "default") {
+        const timeA = new Date(a.updatedAt).getTime();
+        const timeB = new Date(b.updatedAt).getTime();
+        const diff = timeA - timeB;
+        return sortOrder === "asc" ? diff : -diff;
       }
 
       let diff = 0;
@@ -581,10 +598,7 @@ export function UnifiedTasksAndActivity({
         const idB = b.identifier ?? b.id;
         diff = idA.localeCompare(idB, undefined, { numeric: true, sensitivity: "base" });
       } else if (sortField === "status") {
-        // So sánh trạng thái kết hợp điểm runtime
-        const scoreA = getRuntimeScore(a.id, liveRunByIssueId) * 100 + (STATUS_WEIGHT[a.status] ?? 0);
-        const scoreB = getRuntimeScore(b.id, liveRunByIssueId) * 100 + (STATUS_WEIGHT[b.status] ?? 0);
-        diff = scoreA - scoreB;
+        diff = (STATUS_WEIGHT[a.status] ?? 0) - (STATUS_WEIGHT[b.status] ?? 0);
       } else if (sortField === "title") {
         diff = (a.title || "").localeCompare(b.title || "", "vi", { sensitivity: "base" });
       } else if (sortField === "agent") {
@@ -597,8 +611,6 @@ export function UnifiedTasksAndActivity({
         const timeA = actA ? new Date(actA.createdAt).getTime() : 0;
         const timeB = actB ? new Date(actB.createdAt).getTime() : 0;
         diff = timeA - timeB;
-      } else if (sortField === "updated") {
-        diff = new Date(a.updatedAt).getTime() - new Date(b.updatedAt).getTime();
       }
 
       return sortOrder === "asc" ? diff : -diff;
@@ -636,13 +648,13 @@ export function UnifiedTasksAndActivity({
 
   // Kiểm tra xem có đang áp dụng filter/sort nào khác mặc định không
   const isFilteredOrSorted =
-    statusFilter !== "all" || agentFilter !== "all" || sortField !== "default" || !!searchQuery.trim();
+    statusFilter !== "all" || agentFilter !== "all" || sortField !== "updated" || sortOrder !== "desc" || !!searchQuery.trim();
 
   function resetAllFiltersAndSort() {
     setSearchQuery("");
     setStatusFilter("all");
     setAgentFilter("all");
-    setSortField("default");
+    setSortField("updated");
     setSortOrder("desc");
   }
 
@@ -676,7 +688,7 @@ export function UnifiedTasksAndActivity({
                 <span className="inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium bg-muted text-muted-foreground border border-border">
                   {allIssues.length.toLocaleString("vi-VN")} công việc
                 </span>
-                {sortField === "default" && (
+                {(sortField === "updated" || sortField === "default") && (
                   <span className="hidden md:inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-medium bg-cyan-500/10 text-cyan-600 dark:text-cyan-400 border border-cyan-500/20">
                     <span className="h-1.5 w-1.5 rounded-full bg-cyan-500 animate-pulse" />
                     Ưu tiên Live & Mới nhất
