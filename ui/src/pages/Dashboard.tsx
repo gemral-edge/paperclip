@@ -22,6 +22,7 @@ import { timeAgo } from "../lib/timeAgo";
 import { cn, formatCents } from "../lib/utils";
 import { Bot, CircleDot, DollarSign, ShieldCheck, LayoutDashboard, PauseCircle, GripVertical } from "lucide-react";
 import { ActiveAgentsPanel } from "../components/ActiveAgentsPanel";
+import { UnifiedTasksAndActivity } from "../components/UnifiedTasksAndActivity";
 import { ChartCard, RunActivityChart, PriorityChart, IssueStatusChart, SuccessRateChart } from "../components/ActivityCharts";
 import { PageSkeleton } from "../components/PageSkeleton";
 import type { Agent, Issue } from "@paperclipai/shared";
@@ -195,8 +196,8 @@ export function Dashboard() {
   });
 
   const { data: issues } = useQuery({
-    queryKey: queryKeys.issues.list(selectedCompanyId!),
-    queryFn: () => issuesApi.list(selectedCompanyId!),
+    queryKey: [...queryKeys.issues.list(selectedCompanyId!), { includeHidden: true }],
+    queryFn: () => issuesApi.list(selectedCompanyId!, { includeHidden: true }),
     enabled: !!selectedCompanyId,
   });
 
@@ -413,122 +414,14 @@ export function Dashboard() {
 
       case "tasks-activity":
         return (
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div className="min-w-0">
-              <h3 className="text-sm font-semibold text-muted-foreground uppercase tracking-wide mb-3">
-                Recent Tasks
-              </h3>
-              {recentIssues.length === 0 ? (
-                <div className="border border-border p-4">
-                  <p className="text-sm text-muted-foreground">No tasks yet.</p>
-                </div>
-              ) : (
-                <div className="border border-border divide-y divide-border overflow-hidden">
-                  {recentIssues.slice(0, 10).map((issue) => (
-                    <Link
-                      key={issue.id}
-                      to={`/issues/${issue.identifier ?? issue.id}`}
-                      className="px-4 py-3 text-sm cursor-pointer hover:bg-accent/50 transition-colors no-underline text-inherit block"
-                    >
-                      <div className="flex items-start gap-2 sm:items-center sm:gap-3">
-                        <span className="shrink-0 sm:hidden">
-                          <StatusIcon status={issue.status} />
-                        </span>
-                        <span className="flex min-w-0 flex-1 flex-col gap-1 sm:contents">
-                          <span className="line-clamp-2 text-sm sm:order-2 sm:flex-1 sm:min-w-0 sm:line-clamp-none sm:truncate">
-                            {issue.title}
-                          </span>
-                          <span className="flex items-center gap-2 sm:order-1 sm:shrink-0">
-                            <span className="hidden sm:inline-flex">
-                              <StatusIcon status={issue.status} />
-                            </span>
-                            <span className="text-xs font-mono text-muted-foreground">
-                              {issue.identifier ?? issue.id.slice(0, 8)}
-                            </span>
-                            {issue.assigneeAgentId &&
-                              (() => {
-                                const name = agentName(issue.assigneeAgentId);
-                                return name ? (
-                                  <span className="hidden sm:inline-flex">
-                                    <Identity name={name} size="sm" />
-                                  </span>
-                                ) : null;
-                              })()}
-                            <span className="text-xs text-muted-foreground sm:hidden">&middot;</span>
-                            <span className="text-[11px] text-muted-foreground shrink-0 sm:order-last min-w-[110px]">
-                              {new Date(issue.updatedAt).toLocaleString("vi-VN", {
-                                day: "2-digit",
-                                month: "2-digit",
-                                year: "numeric",
-                                hour: "2-digit",
-                                minute: "2-digit",
-                              })}
-                            </span>
-                          </span>
-                        </span>
-                      </div>
-                    </Link>
-                  ))}
-                </div>
-              )}
-            </div>
-
-            <div className="min-w-0">
-              <h3 className="text-sm font-semibold text-muted-foreground uppercase tracking-wide mb-3">
-                Recent Activity
-              </h3>
-              {recentActivity.length === 0 ? (
-                <div className="border border-border p-4">
-                  <p className="text-sm text-muted-foreground">No activity yet.</p>
-                </div>
-              ) : (
-                <div className="border border-border divide-y divide-border overflow-hidden">
-                  {recentActivity.map((event) => {
-                    const entityLink =
-                      event.entityType === "issue"
-                        ? `/issues/${entityNameMap.get(`issue:${event.entityId}`) ?? event.entityId}`
-                        : event.entityType === "agent"
-                          ? `/agents/${event.entityId}`
-                          : event.entityType === "project"
-                            ? `/projects/${event.entityId}`
-                            : event.entityType === "heartbeat_run"
-                              ? `/agents/${event.agentId}`
-                              : null;
-                    const entityLabel =
-                      entityNameMap.get(`${event.entityType}:${event.entityId}`) ?? event.entityType;
-                    return (
-                      <Link
-                        key={event.id}
-                        to={entityLink ?? "/activity"}
-                        className={`px-4 py-3 text-sm cursor-pointer hover:bg-accent/50 transition-colors no-underline text-inherit block ${animatedActivityIds.has(event.id) ? "bg-accent/30" : ""}`}
-                      >
-                        <div className="flex items-center justify-between gap-3">
-                          <div className="flex items-center gap-2 min-w-0">
-                            <span className="text-xs font-mono text-muted-foreground shrink-0">
-                              {event.actorType === "agent" ? "AG" : "BO"}
-                            </span>
-                            <span className="truncate">
-                              {event.actorType === "agent" ? "Agent" : "Board"}{" "}
-                              {event.action?.replace(/_/g, ".")} <strong>{entityLabel}</strong>
-                            </span>
-                          </div>
-                          <span className="text-[11px] text-muted-foreground shrink-0 min-w-[110px] text-right">
-                            {new Date(event.createdAt).toLocaleString("vi-VN", {
-                              day: "2-digit",
-                              month: "2-digit",
-                              year: "numeric",
-                              hour: "2-digit",
-                              minute: "2-digit",
-                            })}
-                          </span>
-                        </div>
-                      </Link>
-                    );
-                  })}
-                </div>
-              )}
-            </div>
-          </div>
+          <UnifiedTasksAndActivity
+            companyId={selectedCompanyId!}
+            issues={issues}
+            activity={activity}
+            agents={agents}
+            projects={projects}
+            animatedActivityIds={animatedActivityIds}
+          />
         );
     }
   }

@@ -30,6 +30,7 @@ import {
   ChevronRight,
   ListTodo,
   HeartPulse,
+  AlarmClock,
   Eye,
   Lock,
   Paperclip,
@@ -121,15 +122,28 @@ interface ActionBadge {
 function getActionMeta(action: string): ActionBadge {
   const norm = action.replace(/_/g, ".");
 
-  // Nhóm Heartbeat & Wake
+  // 1. Nhóm Scheduled Wake (Đến giờ chạy theo lịch hẹn / Wake timer)
   if (
     norm.includes("scheduled.wake") ||
     norm.includes("schedule.wake") ||
-    norm.includes("wake.fired") ||
-    norm === "issue.scheduled.wake.fired" ||
-    norm === "heartbeat.invoked" ||
-    norm.startsWith("heartbeat.")
+    norm.includes("wake.fired")
   ) {
+    if (norm.includes("failed")) {
+      return {
+        label: "Đánh thức thất bại",
+        className: "bg-rose-500/10 text-rose-600 dark:text-rose-400 border-rose-500/20 font-medium",
+        icon: AlertCircle,
+      };
+    }
+    return {
+      label: "Đến giờ chạy (Wake)",
+      className: "bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/20 font-medium",
+      icon: AlarmClock,
+    };
+  }
+
+  // 2. Nhóm Heartbeat thực thụ (heartbeat.invoked, v.v.)
+  if (norm.startsWith("heartbeat.")) {
     if (norm.includes("cancel")) {
       return {
         label: "Hủy Heartbeat",
