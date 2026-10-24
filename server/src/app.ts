@@ -549,12 +549,28 @@ export async function createApp(
     ];
     const uiDist = candidates.find((p) => fs.existsSync(path.join(p, "index.html")));
     if (uiDist) {
-      const indexHtml = applyUiBranding(fs.readFileSync(path.join(uiDist, "index.html"), "utf-8"));
+      // index.html đọc lại khi mtime đổi — rebuild UI không cần restart server (restart giết mọi
+      // run agent đang chạy: 24/10 rebuild UI 12 lần → 26 run "Process lost").
+      const indexPath = path.join(uiDist, "index.html");
+      let indexCache = { mtimeMs: -1, html: "" };
+      const getIndexHtml = () => {
+        try {
+          const { mtimeMs } = fs.statSync(indexPath);
+          if (mtimeMs !== indexCache.mtimeMs) {
+            indexCache = { mtimeMs, html: applyUiBranding(fs.readFileSync(indexPath, "utf-8")) };
+          }
+        } catch (err) {
+          // Đang sync dist (file tạm vắng) → phục vụ bản cache cũ thay vì 500.
+          if (indexCache.mtimeMs < 0) throw err;
+        }
+        return indexCache.html;
+      };
+      getIndexHtml();
       app.use(express.static(uiDist, { maxAge: '1h', setHeaders: (res, filePath) => {
         if (filePath.endsWith('.html')) res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
       }}));
       app.get(/.*/, (_req, res) => {
-        res.status(200).set("Content-Type", "text/html").set("Cache-Control", "no-cache, no-store, must-revalidate").end(indexHtml);
+        res.status(200).set("Content-Type", "text/html").set("Cache-Control", "no-cache, no-store, must-revalidate").end(getIndexHtml());
       });
     } else {
       console.warn("[paperclip] UI dist not found; running in API-only mode");
