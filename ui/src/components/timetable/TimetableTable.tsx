@@ -4,8 +4,8 @@
 // reorder, smart search) only need to change one spot.
 
 import { useEffect, useMemo, useState } from "react";
-import { ChevronRight, Copy } from "lucide-react";
-import { useNavigate } from "@/lib/router";
+import { ChevronRight, Copy, ExternalLink } from "lucide-react";
+import { Link, useNavigate } from "@/lib/router";
 import { useUpsertTimetableNote } from "@/hooks/useTimetable";
 import type {
   TimetableRow,
@@ -117,40 +117,80 @@ function agentColor(agentId: string | undefined): string {
 
 // ─── Cell subcomponents ────────────────────────────────────────────────────
 
+export function getRowTargetUrl(row: TimetableRow): string | null {
+  const issueIdentifier =
+    (row.payload as any)?.identifier ||
+    (typeof row.title === "string" ? row.title.match(/^([A-Z0-9]+-\d+)/)?.[1] : null);
+
+  const issueRef = issueIdentifier || row.issueId || (row.sourceTable === "issues" ? row.sourceId : null);
+
+  if (issueRef) {
+    return `/issues/${issueRef}`;
+  }
+  if (
+    (row.sourceTable === "heartbeat_runs" ||
+      row.sourceTable === "routine_runs" ||
+      row.sourceTable === "agent_task_sessions") &&
+    row.agent
+  ) {
+    return `/agents/${row.agent.id}/runs/${row.sourceId}`;
+  }
+  if (row.sourceTable === "routine_triggers") {
+    const routineId = (row.payload as any)?.routineId || row.sourceId;
+    return `/routines/${routineId}`;
+  }
+  if (row.sourceTable === "cc_scripts") {
+    return `/cc/scripts/${row.sourceId}`;
+  }
+  if (row.sourceTable === "cc_email_campaigns") {
+    return `/cc/email/${row.sourceId}`;
+  }
+  if (row.sourceTable === "cc_social_posts") {
+    return `/cc/calendar`;
+  }
+  if (row.sourceTable === "timetable_manual_rows") {
+    return null;
+  }
+  if (row.agent) {
+    return `/agents/${row.agent.id}`;
+  }
+  return null;
+}
+
 export function AgentCell({ row }: { row: TimetableRow }) {
-  const navigate = useNavigate();
   if (!row.agent) {
     return <span className="text-xs text-muted-foreground italic">— hệ thống —</span>;
   }
+
+  const agentUrl = `/agents/${row.agent.id}`;
+
   return (
-    <span className="flex items-center gap-2 min-w-0">
+    <Link
+      to={agentUrl}
+      onClick={(e) => e.stopPropagation()}
+      className="group inline-flex items-center gap-2 min-w-0 max-w-full rounded-md p-1 -m-1 hover:bg-accent/80 transition-colors"
+      title={`Mở Agent Dashboard: ${row.agent.name} (Click chuột trái hoặc phải để mở)`}
+    >
       <span
-        className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-[10px] font-semibold text-white"
+        className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-[10px] font-semibold text-white shadow-xs group-hover:ring-2 group-hover:ring-primary/40 transition-all"
         style={{ background: agentColor(row.agent.id) }}
         aria-hidden
       >
         {agentInitials(row.agent.name)}
       </span>
       <span className="flex min-w-0 flex-col leading-tight">
-        <span 
-          className="truncate text-xs font-medium hover:underline cursor-pointer"
-          onClick={(e) => {
-            e.stopPropagation();
-            navigate(`/agents/${row.agent!.id}`);
-          }}
-          title="Mở Agent Dashboard"
-        >
+        <span className="truncate text-xs font-medium group-hover:text-primary group-hover:underline">
           {row.agent.name}
         </span>
         <span
-          className="truncate rounded border border-border bg-muted/40 px-1 py-px text-[10px] text-muted-foreground font-mono"
+          className="truncate rounded border border-border bg-muted/40 px-1 py-px text-[10px] text-muted-foreground font-mono group-hover:border-primary/30"
           style={{ maxWidth: "120px" }}
           title={row.agent.model ?? ""}
         >
           {row.agent.model ?? "—"}
         </span>
       </span>
-    </span>
+    </Link>
   );
 }
 
@@ -347,6 +387,30 @@ export function TimetableTableRow({
   // (actions column which is always present).
   const visibleColSpan = vis.size + 1;
 
+  const targetUrl = getRowTargetUrl(row);
+
+  const handleRowClick = (e: React.MouseEvent) => {
+    const target = e.target as HTMLElement;
+    if (
+      target.closest("button") ||
+      target.closest("a") ||
+      target.closest("input") ||
+      target.closest("textarea")
+    ) {
+      return;
+    }
+
+    if (targetUrl) {
+      if (e.ctrlKey || e.metaKey) {
+        window.open(targetUrl, "_blank");
+      } else {
+        navigate(targetUrl);
+      }
+    } else {
+      onToggle();
+    }
+  };
+
   const handleCopy = (e: React.MouseEvent) => {
     e.stopPropagation();
     if (typeof navigator !== "undefined" && navigator.clipboard) {
@@ -357,14 +421,15 @@ export function TimetableTableRow({
   return (
     <>
       <tr
-        className={`border-b border-border hover:bg-accent/40 ${
+        onClick={handleRowClick}
+        className={`border-b border-border transition-colors cursor-pointer hover:bg-accent/50 ${
           isNearest
-            ? "bg-amber-50 dark:bg-amber-950/30 border-l-2 border-l-amber-500"
+            ? "bg-amber-50/80 dark:bg-amber-950/30 border-l-2 border-l-amber-500"
             : ""
         }`}
         aria-expanded={expanded}
         aria-current={isNearest ? "time" : undefined}
-        title={isNearest ? "Gần thời gian hiện tại nhất" : undefined}
+        title={targetUrl ? `Xem chi tiết: ${row.title}` : isNearest ? "Gần thời gian hiện tại nhất" : undefined}
       >
         {vis.has("time") && (
           <td className="px-3 py-2 font-mono text-muted-foreground w-16">{time}</td>
@@ -408,13 +473,8 @@ export function TimetableTableRow({
               onClick={(e) => {
                 if (row.sourceTable === "timetable_manual_rows") return;
                 e.stopPropagation();
-                if (row.issueId) {
-                  navigate(`/issues/${row.issueId}`);
-                } else if (row.sourceTable === "issues") {
-                  navigate(`/issues/${row.sourceId}`);
-                } else if ((row.sourceTable === "heartbeat_runs" || row.sourceTable === "routine_runs" || row.sourceTable === "agent_task_sessions") && row.agent) {
-                  navigate(`/agents/${row.agent.id}/runs/${row.sourceId}`);
-                }
+                const target = getRowTargetUrl(row);
+                if (target) navigate(target);
               }}
               title={row.sourceTable !== "timetable_manual_rows" ? "Xem chi tiết" : undefined}
             >
@@ -452,8 +512,26 @@ export function TimetableTableRow({
             )}
           </td>
         )}
-        <td className="px-3 py-2 w-14 text-right">
+        <td className="px-3 py-2 w-16 text-right">
           <span className="inline-flex items-center gap-1">
+            {targetUrl && (
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  if (e.ctrlKey || e.metaKey) {
+                    window.open(targetUrl, "_blank");
+                  } else {
+                    navigate(targetUrl);
+                  }
+                }}
+                className="rounded p-1 text-muted-foreground hover:bg-accent hover:text-primary transition-colors"
+                title="Mở trang chi tiết"
+                aria-label="Mở trang chi tiết"
+              >
+                <ExternalLink size={12} />
+              </button>
+            )}
             <button
               type="button"
               onClick={handleCopy}
@@ -656,13 +734,8 @@ function TimetableCardRow({
             onClick={(e) => {
               if (row.sourceTable === "timetable_manual_rows") return;
               e.stopPropagation();
-              if (row.issueId) {
-                navigate(`/issues/${row.issueId}`);
-              } else if (row.sourceTable === "issues") {
-                navigate(`/issues/${row.sourceId}`);
-              } else if ((row.sourceTable === "heartbeat_runs" || row.sourceTable === "routine_runs" || row.sourceTable === "agent_task_sessions") && row.agent) {
-                navigate(`/agents/${row.agent.id}/runs/${row.sourceId}`);
-              }
+              const target = getRowTargetUrl(row);
+              if (target) navigate(target);
             }}
           >
             <StatusPill status={row.status} extra={row.statusExtra} />

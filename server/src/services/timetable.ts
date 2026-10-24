@@ -485,6 +485,7 @@ async function fetchIssueRows(
       payload: {
         priority: r.priority,
         originKind: r.originKind ?? null,
+        identifier: r.identifier ?? null,
       },
       issueId: r.id,
     };

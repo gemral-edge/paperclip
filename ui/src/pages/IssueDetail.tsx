@@ -234,8 +234,39 @@ export function IssueDetail() {
 
   const { data: issue, isLoading, error } = useQuery({
     queryKey: queryKeys.issues.detail(issueId!),
-    queryFn: () => issuesApi.get(issueId!),
+    queryFn: async () => {
+      const res = await issuesApi.get(issueId!);
+      if (res) {
+        if (res.identifier && res.identifier !== issueId) {
+          queryClient.setQueryData(queryKeys.issues.detail(res.identifier), res);
+        }
+        if (res.id && res.id !== issueId) {
+          queryClient.setQueryData(queryKeys.issues.detail(res.id), res);
+        }
+      }
+      return res;
+    },
     enabled: !!issueId,
+    initialData: () => {
+      if (!issueId) return undefined;
+      const direct = queryClient.getQueryData<Issue>(queryKeys.issues.detail(issueId));
+      if (direct) return direct;
+      const details = queryClient.getQueriesData<Issue>({ queryKey: ["issues", "detail"] });
+      for (const [, item] of details) {
+        if (item && (item.id === issueId || item.identifier === issueId)) {
+          return item;
+        }
+      }
+      const lists = queryClient.getQueriesData<Issue[]>({ queryKey: ["issues", "list"] });
+      for (const [, list] of lists) {
+        if (Array.isArray(list)) {
+          const found = list.find((item) => item.id === issueId || item.identifier === issueId);
+          if (found) return found;
+        }
+      }
+      return undefined;
+    },
+    staleTime: 10_000,
   });
   const resolvedCompanyId = issue?.companyId ?? selectedCompanyId;
 
@@ -527,6 +558,12 @@ export function IssueDetail() {
 
   const invalidateIssue = () => {
     queryClient.invalidateQueries({ queryKey: queryKeys.issues.detail(issueId!) });
+    if (issue?.identifier && issue.identifier !== issueId) {
+      queryClient.invalidateQueries({ queryKey: queryKeys.issues.detail(issue.identifier) });
+    }
+    if (issue?.id && issue.id !== issueId) {
+      queryClient.invalidateQueries({ queryKey: queryKeys.issues.detail(issue.id) });
+    }
     queryClient.invalidateQueries({ queryKey: queryKeys.issues.activity(issueId!) });
     queryClient.invalidateQueries({ queryKey: queryKeys.issues.runs(issueId!) });
     queryClient.invalidateQueries({ queryKey: queryKeys.issues.approvals(issueId!) });
@@ -788,8 +825,8 @@ export function IssueDetail() {
   });
 
   useEffect(() => {
-    const titleLabel = issue?.title ?? issueId ?? "Issue";
-    const identifierLabel = issue?.identifier ?? issueId ?? null;
+    const titleLabel = issue?.title ?? (issue ? "Untitled" : "");
+    const identifierLabel = issue?.identifier ?? (issueId && /^[A-Z0-9]+-\d+$/i.test(issueId) ? issueId : null);
     const crumbs: Array<{ label: string; href?: string; badge?: boolean }> = [sourceBreadcrumb];
     if (identifierLabel) {
       crumbs.push({ label: identifierLabel, badge: true });
@@ -802,10 +839,12 @@ export function IssueDetail() {
         crumbs.push({ label: issue.assigneeAgentId.slice(0, 8), href: `/${companyPrefix}/agents/${issue.assigneeAgentId}` });
       }
     }
-    crumbs.push({ label: hasLiveRuns ? `🔵 ${titleLabel}` : titleLabel });
+    if (titleLabel && titleLabel !== identifierLabel) {
+      crumbs.push({ label: hasLiveRuns ? `🔵 ${titleLabel}` : titleLabel });
+    }
 
     setBreadcrumbs(crumbs);
-  }, [setBreadcrumbs, sourceBreadcrumb, issue, issueId, hasLiveRuns, agents]);
+  }, [setBreadcrumbs, sourceBreadcrumb, issue, issueId, hasLiveRuns, agents, companyPrefix]);
 
   // Redirect to identifier-based URL if navigated via UUID
   useEffect(() => {
@@ -858,8 +897,8 @@ export function IssueDetail() {
     setTimeout(() => setCopied(false), 2000);
   };
 
-  if (isLoading) return <p className="text-sm text-muted-foreground">Loading...</p>;
-  if (error) return <p className="text-sm text-destructive">{error.message}</p>;
+  if (isLoading && !issue) return <p className="text-sm text-muted-foreground">Loading...</p>;
+  if (error && !issue) return <p className="text-sm text-destructive">{error.message}</p>;
   if (!issue) return null;
 
   // Ancestors are returned oldest-first from the server (root at end, immediate parent at start)
