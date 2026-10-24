@@ -851,21 +851,19 @@ export function UnifiedTasksAndActivity({
             <table className="w-full text-left text-sm border-collapse table-fixed">
               <thead className="sticky top-0 z-20 bg-muted/95 backdrop-blur-xs border-b border-border shadow-xs">
                 <tr className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider">
-                  {/* Cột 1: Mã & Trạng thái */}
-                  <th className="py-2.5 px-4 w-[160px]">
-                    <div className="flex items-center gap-1">
-                      <SortHeaderButton
-                        label="Mã & Trạng thái"
-                        field="status"
-                        currentField={sortField}
-                        currentOrder={sortOrder}
-                        onSort={toggleSort}
-                      />
-                    </div>
+                  {/* Cột 1: Agent phụ trách & Trạng thái */}
+                  <th className="py-2.5 px-4 w-[230px]">
+                    <SortHeaderButton
+                      label="Agent & Trạng thái"
+                      field="agent"
+                      currentField={sortField}
+                      currentOrder={sortOrder}
+                      onSort={toggleSort}
+                    />
                   </th>
 
-                  {/* Cột 2: Nội dung công việc */}
-                  <th className="py-2.5 px-4 w-[35%] min-w-[260px]">
+                  {/* Cột 2: Nội dung công việc (gộp mã GEM-###) */}
+                  <th className="py-2.5 px-4 min-w-[280px]">
                     <SortHeaderButton
                       label="Nội dung công việc"
                       field="title"
@@ -875,18 +873,7 @@ export function UnifiedTasksAndActivity({
                     />
                   </th>
 
-                  {/* Cột 3: Agent phụ trách */}
-                  <th className="py-2.5 px-4 w-[200px]">
-                    <SortHeaderButton
-                      label="Agent phụ trách"
-                      field="agent"
-                      currentField={sortField}
-                      currentOrder={sortOrder}
-                      onSort={toggleSort}
-                    />
-                  </th>
-
-                  {/* Cột 4: Hoạt động mới nhất */}
+                  {/* Cột 3: Hoạt động mới nhất */}
                   <th className="py-2.5 px-4 w-[210px]">
                     <SortHeaderButton
                       label="Hoạt động mới nhất"
@@ -897,8 +884,8 @@ export function UnifiedTasksAndActivity({
                     />
                   </th>
 
-                  {/* Cột 5: Cập nhật */}
-                  <th className="py-2.5 px-4 w-[140px] text-right">
+                  {/* Cột 4: Cập nhật */}
+                  <th className="py-2.5 px-4 w-[130px] text-right">
                     <SortHeaderButton
                       label="Cập nhật"
                       field="updated"
@@ -909,7 +896,7 @@ export function UnifiedTasksAndActivity({
                     />
                   </th>
 
-                  {/* Cột 6: Xem */}
+                  {/* Cột 5: Xem */}
                   <th className="py-2.5 px-3 w-[45px] text-center">Xem</th>
                 </tr>
               </thead>
@@ -933,52 +920,110 @@ export function UnifiedTasksAndActivity({
                         isLiveRunning && "bg-cyan-500/[0.04] hover:bg-cyan-500/[0.08]"
                       )}
                     >
-                      {/* Cột 1: Mã & Trạng thái */}
-                      <td className="py-2 px-4 align-middle">
-                        <div className="flex items-center gap-2">
-                          <StatusIcon status={issue.status} />
-                          {issue.priority && <PriorityIcon priority={issue.priority} />}
-                          <Link
-                            to={`/issues/${issue.identifier ?? issue.id}`}
-                            className="font-mono text-xs font-semibold text-primary hover:underline inline-flex items-center gap-1"
-                          >
-                            {issue.identifier ?? issue.id.slice(0, 8)}
-                          </Link>
-                        </div>
-                        <div className="text-[11px] text-muted-foreground mt-0.5 font-medium flex items-center gap-1.5 flex-wrap">
-                          <span>{STATUS_VI_TEXT[issue.status] ?? issue.status}</span>
-                          {isLiveRunning && (
-                            <span className="inline-flex items-center gap-1 px-1.5 py-0.2 rounded text-[10px] font-semibold bg-cyan-500/15 text-cyan-600 dark:text-cyan-400 border border-cyan-500/30 whitespace-nowrap animate-pulse">
-                              <span className="relative flex h-1.5 w-1.5 shrink-0">
-                                <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-cyan-400 opacity-75" />
-                                <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-cyan-500" />
-                              </span>
-                              Live now
-                            </span>
-                          )}
-                          {isLiveQueued && (
-                            <span className="inline-flex items-center gap-1 px-1.5 py-0.2 rounded text-[10px] font-medium bg-amber-500/15 text-amber-600 dark:text-amber-400 border border-amber-500/30 whitespace-nowrap">
-                              <Clock className="h-2.5 w-2.5 shrink-0" />
-                              Chờ slot
-                            </span>
-                          )}
-                        </div>
+                      {/* Cột 1: Agent phụ trách & Trạng thái */}
+                      <td className="py-2.5 px-4 align-middle">
+                        {agent ? (
+                          (() => {
+                            const rawModel =
+                              (agent.adapterConfig?.model as string) ||
+                              (agent.adapterConfig?.defaultModel as string) ||
+                              agent.adapterType;
+                            const shortModel = formatModelShort(rawModel);
+
+                            return (
+                              <div className="space-y-1">
+                                {/* Hàng 1: Avatar + Tên Agent + Badge Model */}
+                                <div className="flex items-center justify-between gap-1.5 max-w-[210px]">
+                                  <Link
+                                    to={`/agents/${agent.id}`}
+                                    className="inline-flex items-center gap-1.5 no-underline hover:text-primary min-w-0 flex-1 group/agent"
+                                    title={`Xem bảng điều khiển agent ${agent.name}`}
+                                  >
+                                    <Identity name={agent.name} size="sm" className="truncate font-semibold text-xs text-foreground group-hover/agent:text-primary transition-colors" />
+                                  </Link>
+                                  {shortModel && (
+                                    <TooltipProvider delayDuration={200}>
+                                      <Tooltip>
+                                        <TooltipTrigger asChild>
+                                          <span className="shrink-0 text-[10px] font-mono px-1.5 py-0.5 rounded bg-muted/80 text-muted-foreground border border-border/60 leading-none whitespace-nowrap cursor-default">
+                                            {shortModel}
+                                          </span>
+                                        </TooltipTrigger>
+                                        <TooltipContent side="top" className="text-[11px] font-mono">
+                                          Model: {String(rawModel)}
+                                        </TooltipContent>
+                                      </Tooltip>
+                                    </TooltipProvider>
+                                  )}
+                                </div>
+
+                                {/* Hàng 2: Trạng thái & Badge Live now / Chờ slot */}
+                                <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground font-medium flex-wrap">
+                                  <StatusIcon status={issue.status} />
+                                  {issue.priority && <PriorityIcon priority={issue.priority} />}
+                                  <span>{STATUS_VI_TEXT[issue.status] ?? issue.status}</span>
+
+                                  {isLiveRunning && (
+                                    <span className="inline-flex items-center gap-1 px-1.5 py-0.2 rounded text-[10px] font-semibold bg-cyan-500/15 text-cyan-600 dark:text-cyan-400 border border-cyan-500/30 whitespace-nowrap animate-pulse">
+                                      <span className="relative flex h-1.5 w-1.5 shrink-0">
+                                        <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-cyan-400 opacity-75" />
+                                        <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-cyan-500" />
+                                      </span>
+                                      Live now
+                                    </span>
+                                  )}
+                                  {isLiveQueued && (
+                                    <span className="inline-flex items-center gap-1 px-1.5 py-0.2 rounded text-[10px] font-medium bg-amber-500/15 text-amber-600 dark:text-amber-400 border border-amber-500/30 whitespace-nowrap">
+                                      <Clock className="h-2.5 w-2.5 shrink-0" />
+                                      Chờ slot
+                                    </span>
+                                  )}
+                                </div>
+                              </div>
+                            );
+                          })()
+                        ) : (
+                          <div className="space-y-1">
+                            <div className="text-xs text-muted-foreground/70 italic flex items-center gap-1.5">
+                              <Bot className="h-3.5 w-3.5 opacity-50" />
+                              <span>Chưa gán agent</span>
+                            </div>
+                            <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground font-medium">
+                              <StatusIcon status={issue.status} />
+                              {issue.priority && <PriorityIcon priority={issue.priority} />}
+                              <span>{STATUS_VI_TEXT[issue.status] ?? issue.status}</span>
+                            </div>
+                          </div>
+                        )}
                       </td>
 
-                      {/* Cột 2: Tiêu đề công việc — Tooltip full nội dung khi để chuột vào */}
-                      <td className="py-2 px-4 align-middle">
+                      {/* Cột 2: Nội dung công việc — Gộp mã GEM-### + Tiêu đề công việc + Tooltip */}
+                      <td className="py-2.5 px-4 align-middle">
                         <TooltipProvider delayDuration={150}>
                           <Tooltip>
                             <TooltipTrigger asChild>
                               <div className="cursor-default group/title">
-                                <Link
-                                  to={`/issues/${issue.identifier ?? issue.id}`}
-                                  className="font-medium text-foreground hover:text-primary transition-colors line-clamp-2 no-underline text-xs sm:text-sm leading-snug"
-                                >
-                                  {issue.title}
-                                </Link>
+                                <div className="flex items-baseline gap-2 flex-wrap sm:flex-nowrap">
+                                  {/* Mã GEM-### gộp vào cột nội dung */}
+                                  <Link
+                                    to={`/issues/${issue.identifier ?? issue.id}`}
+                                    className="inline-flex items-center font-mono text-xs font-bold text-primary hover:underline px-1.5 py-0.5 rounded bg-primary/10 border border-primary/20 shrink-0 leading-none"
+                                    title={`Xem chi tiết ${issue.identifier ?? issue.id}`}
+                                  >
+                                    {issue.identifier ?? issue.id.slice(0, 8)}
+                                  </Link>
+
+                                  {/* Tiêu đề công việc */}
+                                  <Link
+                                    to={`/issues/${issue.identifier ?? issue.id}`}
+                                    className="font-medium text-foreground hover:text-primary transition-colors line-clamp-2 no-underline text-xs sm:text-sm leading-snug flex-1"
+                                  >
+                                    {issue.title}
+                                  </Link>
+                                </div>
+
                                 {project && (
-                                  <div className="flex items-center gap-1.5 mt-0.5">
+                                  <div className="flex items-center gap-1.5 mt-1">
                                     <span className="inline-flex items-center rounded px-1.5 py-0.2 text-[10px] font-medium bg-secondary text-secondary-foreground border border-border">
                                       {project.name}
                                     </span>
@@ -1003,49 +1048,6 @@ export function UnifiedTasksAndActivity({
                             </TooltipContent>
                           </Tooltip>
                         </TooltipProvider>
-                      </td>
-
-                      {/* Cột 3: Agent phụ trách — Badge model nhỏ gọn, đều hàng, không bị rớt dòng */}
-                      <td className="py-2 px-4 align-middle">
-                        {agent ? (
-                          (() => {
-                            const rawModel =
-                              (agent.adapterConfig?.model as string) ||
-                              (agent.adapterConfig?.defaultModel as string) ||
-                              agent.adapterType;
-                            const shortModel = formatModelShort(rawModel);
-
-                            return (
-                              <div className="flex items-center justify-between gap-1.5 max-w-[190px]">
-                                <Link
-                                  to={`/agents/${agent.id}`}
-                                  className="inline-flex items-center gap-1.5 no-underline hover:text-primary min-w-0 flex-1"
-                                  title={`Xem bảng điều khiển agent ${agent.name}`}
-                                >
-                                  <Identity name={agent.name} size="sm" className="truncate font-medium text-xs" />
-                                </Link>
-                                {shortModel && (
-                                  <TooltipProvider delayDuration={200}>
-                                    <Tooltip>
-                                      <TooltipTrigger asChild>
-                                        <span className="shrink-0 text-[10px] font-mono px-1.5 py-0.5 rounded bg-muted/80 text-muted-foreground border border-border/60 leading-none whitespace-nowrap cursor-default">
-                                          {shortModel}
-                                        </span>
-                                      </TooltipTrigger>
-                                      <TooltipContent side="top" className="text-[11px] font-mono">
-                                        Model: {String(rawModel)}
-                                      </TooltipContent>
-                                    </Tooltip>
-                                  </TooltipProvider>
-                                )}
-                              </div>
-                            );
-                          })()
-                        ) : (
-                          <span className="text-xs text-muted-foreground/70 italic">
-                            Chưa gán agent
-                          </span>
-                        )}
                       </td>
 
                       {/* Cột 4: Hoạt động mới nhất — Chuẩn hóa Heartbeat & Action có dấu đẹp */}
