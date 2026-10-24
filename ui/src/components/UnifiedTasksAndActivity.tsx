@@ -3,6 +3,7 @@ import { Link } from "@/lib/router";
 import { cn } from "@/lib/utils";
 import { useQuery } from "@tanstack/react-query";
 import { heartbeatsApi, type LiveRunForIssue } from "@/api/heartbeats";
+import { issuesApi } from "@/api/issues";
 import { queryKeys } from "@/lib/queryKeys";
 import type { Issue, ActivityEvent, Agent, Project } from "@paperclipai/shared";
 import { StatusIcon } from "./StatusIcon";
@@ -352,6 +353,108 @@ export function UnifiedTasksAndActivity({
     return map;
   }, [liveRuns]);
 
+  // Phát hiện các issue đang có run thực thi (running hoặc queued) nhưng không có trong danh sách issues
+  // (ví dụ: các Heartbeat Thread bị ẩn trong hệ thống hoặc các task chạy nền)
+  const missingActiveIssueIds = useMemo(() => {
+    const issueIdSet = new Set((issues ?? []).map((i) => i.id));
+    const missing = new Set<string>();
+    for (const r of liveRuns ?? []) {
+      if (r.issueId && (r.status === "running" || r.status === "queued") && !issueIdSet.has(r.issueId)) {
+        missing.add(r.issueId);
+      }
+    }
+    return Array.from(missing);
+  }, [issues, liveRuns]);
+
+  // Tự động fetch thông tin đầy đủ của các active/queued issue bị ẩn để bảng hiển thị đúng 100%
+  const { data: fetchedMissingIssues } = useQuery({
+    queryKey: ["activeHiddenIssues", companyId, missingActiveIssueIds.sort().join(",")],
+    queryFn: async () => {
+      if (missingActiveIssueIds.length === 0) return [];
+      const results = await Promise.allSettled(
+        missingActiveIssueIds.map((id) => issuesApi.get(id))
+      );
+      return results
+        .filter((r): r is PromiseFulfilledResult<Issue> => r.status === "fulfilled" && !!r.value)
+        .map((r) => r.value);
+    },
+    enabled: !!companyId && missingActiveIssueIds.length > 0,
+    staleTime: 30_000,
+  });
+
+  // Hợp nhất danh sách issues (issues thường + các active/queued issue đang chạy Live now hoặc Chờ slot)
+  const allIssues = useMemo(() => {
+    const list = [...(issues ?? [])];
+    const existingIds = new Set(list.map((i) => i.id));
+
+    // 1. Thêm các issue đã fetch được từ API
+    for (const missing of fetchedMissingIssues ?? []) {
+      if (!existingIds.has(missing.id)) {
+        list.push(missing);
+        existingIds.add(missing.id);
+      }
+    }
+
+    // 2. Dựng placeholder tức thời nếu API đang fetch dở để bảng hiển thị ngay lập tức
+    for (const r of liveRuns ?? []) {
+      if (r.issueId && (r.status === "running" || r.status === "queued") && !existingIds.has(r.issueId)) {
+        list.push({
+          id: r.issueId,
+          companyId,
+          projectId: null,
+          projectWorkspaceId: null,
+          goalId: null,
+          parentId: null,
+          title: `Heartbeat Thread — ${r.agentName}`,
+          description: null,
+          metadata: {},
+          status: "in_progress",
+          priority: "low",
+          assigneeAgentId: r.agentId,
+          assigneeUserId: null,
+          checkoutRunId: null,
+          executionRunId: r.id,
+          executionAgentNameKey: r.agentName.toLowerCase(),
+          executionLockedAt: null,
+          createdByAgentId: null,
+          createdByUserId: null,
+          issueNumber: 0,
+          identifier: r.issueId.slice(0, 8),
+          originKind: "system",
+          originId: null,
+          originRunId: null,
+          requestDepth: 0,
+          billingCode: null,
+          assigneeAdapterOverrides: null,
+          executionWorkspaceId: null,
+          executionWorkspacePreference: null,
+          executionWorkspaceSettings: null,
+          scheduledWakeAt: null,
+          startedAt: r.startedAt,
+          completedAt: null,
+          cancelledAt: null,
+          hiddenAt: null,
+          createdAt: r.createdAt,
+          updatedAt: r.startedAt || r.createdAt,
+          labels: [],
+          labelIds: [],
+          ancestors: [],
+          planDocument: null,
+          documentSummaries: [],
+          legacyPlanDocument: null,
+          project: null,
+          goal: null,
+          mentionedProjects: [],
+          currentExecutionWorkspace: null,
+          workProducts: [],
+        } as unknown as Issue);
+        existingIds.add(r.issueId);
+      }
+    }
+
+    return list;
+  }, [issues, fetchedMissingIssues, liveRuns, companyId]);
+
   // Map tra cứu nhanh
   const agentMap = useMemo(() => {
     const map = new Map<string, Agent>();
@@ -367,17 +470,17 @@ export function UnifiedTasksAndActivity({
 
   const entityNameMap = useMemo(() => {
     const map = new Map<string, string>();
-    for (const i of issues) map.set(`issue:${i.id}`, i.identifier ?? i.id.slice(0, 8));
+    for (const i of allIssues) map.set(`issue:${i.id}`, i.identifier ?? i.id.slice(0, 8));
     for (const a of agents) map.set(`agent:${a.id}`, a.name);
     for (const p of projects) map.set(`project:${p.id}`, p.name);
     return map;
-  }, [issues, agents, projects]);
+  }, [allIssues, agents, projects]);
 
   const entityTitleMap = useMemo(() => {
     const map = new Map<string, string>();
-    for (const i of issues) map.set(`issue:${i.id}`, i.title);
+    for (const i of allIssues) map.set(`issue:${i.id}`, i.title);
     return map;
-  }, [issues]);
+  }, [allIssues]);
 
   // Gom activity theo issue (lấy event mới nhất của mỗi issue)
   const latestActivityByIssue = useMemo(() => {
@@ -410,7 +513,7 @@ export function UnifiedTasksAndActivity({
 
   // Lọc và Sắp xếp Reactive (Tự động nhảy Live now lên đầu ngay khi liveRuns đổi!)
   const filteredAndSortedIssues = useMemo(() => {
-    let list = [...issues];
+    let list = [...allIssues];
 
     // 1. Lọc theo search
     if (searchQuery.trim()) {
@@ -490,7 +593,7 @@ export function UnifiedTasksAndActivity({
     if (pageSize === "all") return list;
     return list.slice(0, pageSize);
   }, [
-    issues,
+    allIssues,
     liveRunByIssueId, // Quan trọng: theo dõi liveRuns để re-sort tự động khi có Live now
     sortField,
     sortOrder,
@@ -532,14 +635,14 @@ export function UnifiedTasksAndActivity({
   // Danh sách các agent có việc để hiển thị trong filter
   const assignedAgentsList = useMemo(() => {
     const map = new Map<string, string>();
-    for (const i of issues) {
+    for (const i of allIssues) {
       if (i.assigneeAgentId) {
         const a = agentMap.get(i.assigneeAgentId);
         if (a) map.set(a.id, a.name);
       }
     }
     return Array.from(map.entries()).sort((a, b) => a[1].localeCompare(b[1], "vi"));
-  }, [issues, agentMap]);
+  }, [allIssues, agentMap]);
 
   return (
     <div className="rounded-xl border border-border bg-card text-card-foreground shadow-sm overflow-hidden">
@@ -557,7 +660,7 @@ export function UnifiedTasksAndActivity({
                   Công việc & Hoạt động gần đây
                 </h3>
                 <span className="inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium bg-muted text-muted-foreground border border-border">
-                  {issues.length.toLocaleString("vi-VN")} công việc
+                  {allIssues.length.toLocaleString("vi-VN")} công việc
                 </span>
                 {sortField === "default" && (
                   <span className="hidden md:inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-medium bg-cyan-500/10 text-cyan-600 dark:text-cyan-400 border border-cyan-500/20">
@@ -698,7 +801,7 @@ export function UnifiedTasksAndActivity({
               <strong className="text-foreground font-semibold">
                 {activeTab === "tasks" ? filteredAndSortedIssues.length : filteredActivity.length}
               </strong>
-              /{activeTab === "tasks" ? issues.length : activity.length}
+              /{activeTab === "tasks" ? allIssues.length : activity.length}
             </span>
 
             <div className="flex items-center gap-1 text-xs text-muted-foreground bg-muted/60 p-0.5 rounded-md border border-border/50">
