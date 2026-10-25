@@ -49,7 +49,7 @@ function setFleetEnv(values: Partial<Record<(typeof FLEET_ENV_KEYS)[number], str
 describe("fleet throttle pure helpers", () => {
   it("defaults to 2 running / 2 starts per 10 min / 3 timer wakes per hour / 30s jitter", () => {
     const cfg = readFleetThrottleConfig({});
-    expect(cfg.maxRunning).toBe(2);
+    expect(cfg.maxRunning).toBe(3);
     expect(cfg.startsPerWindow).toBe(2);
     expect(cfg.timerWakesPerHour).toBe(3);
     expect(cfg.timerExemptAgents.size).toBe(0);
@@ -64,7 +64,7 @@ describe("fleet throttle pure helpers", () => {
   });
 
   it("blocks on running cap before start-window cap", () => {
-    const cfg = readFleetThrottleConfig({});
+    const cfg = readFleetThrottleConfig({ PAPERCLIP_FLEET_MAX_RUNNING: "2" });
     expect(evaluateFleetClaim(cfg, { running: 1, startsInWindow: 1 }).ok).toBe(true);
     expect(evaluateFleetClaim(cfg, { running: 2, startsInWindow: 0 })).toMatchObject({ ok: false, reason: "max_running" });
     expect(evaluateFleetClaim(cfg, { running: 0, startsInWindow: 2 })).toMatchObject({ ok: false, reason: "start_window" });
@@ -73,7 +73,7 @@ describe("fleet throttle pure helpers", () => {
   });
 
   it("rule 4: non-timer claim yields the last free slot to a waiting timer run, timer claim never does", () => {
-    const cfg = readFleetThrottleConfig({});
+    const cfg = readFleetThrottleConfig({ PAPERCLIP_FLEET_MAX_RUNNING: "2" });
     expect(cfg.timerPriority).toBe(true);
     const counts = { running: 1, startsInWindow: 0 };
     expect(evaluateFleetClaim(cfg, counts, { invocationSource: "automation", pendingTimerRuns: 1 })).toMatchObject({
@@ -89,7 +89,7 @@ describe("fleet throttle pure helpers", () => {
   });
 
   it("rule 4: reserved slot keeps non-timer runs to maxRunning - 1, timers may use it", () => {
-    const cfg = readFleetThrottleConfig({});
+    const cfg = readFleetThrottleConfig({ PAPERCLIP_FLEET_MAX_RUNNING: "2" });
     expect(cfg.timerReservedSlots).toBe(1);
     const oneLongEngineerRun = { running: 1, startsInWindow: 0, runningNonTimer: 1 };
     expect(evaluateFleetClaim(cfg, oneLongEngineerRun, { invocationSource: "automation", pendingTimerRuns: 0 })).toMatchObject({

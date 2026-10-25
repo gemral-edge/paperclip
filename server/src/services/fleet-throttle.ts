@@ -23,7 +23,7 @@
  *     runs sat behind a long non-timer run that started before them).
  *
  * Config (single place, read at call time so ops can change env + restart):
- *   PAPERCLIP_FLEET_MAX_RUNNING            default 2   (<=0 disables rule 1)
+ *   PAPERCLIP_FLEET_MAX_RUNNING            default 3   (<=0 disables rule 1)
  *   PAPERCLIP_FLEET_STARTS_PER_10MIN       default 2   (<=0 disables rule 2)
  *   PAPERCLIP_FLEET_TIMER_WAKES_PER_HOUR   default 3   (<=0 disables rule 3)
  *   PAPERCLIP_FLEET_TIMER_EXEMPT_AGENTS    default ""  (comma list of agent id or name;
@@ -34,7 +34,7 @@
  *   PAPERCLIP_HEARTBEAT_JITTER_MAX_SEC     default 30  (<=0 disables per-agent hash jitter, GEM-1500)
  */
 
-export const FLEET_MAX_RUNNING_DEFAULT = 2;
+export const FLEET_MAX_RUNNING_DEFAULT = 3;
 export const FLEET_STARTS_PER_WINDOW_DEFAULT = 2;
 export const FLEET_START_WINDOW_MS = 10 * 60 * 1000;
 export const FLEET_TIMER_WAKES_PER_HOUR_DEFAULT = 3;
