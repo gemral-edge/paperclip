@@ -82,8 +82,8 @@ export function Sidebar() {
   const { selectedCompanyId, selectedCompany } = useCompany();
   const inboxBadge = useInboxBadge(selectedCompanyId);
   const { totalUnread } = useUnreadCount();
-  // Activate notification sound globally
-  useNotificationSound();
+  // Activate notification sound globally on unread increase
+  useNotificationSound(totalUnread);
   const { data: liveRuns } = useQuery({
     queryKey: queryKeys.liveRuns(selectedCompanyId!),
     queryFn: () => heartbeatsApi.liveRunsForCompany(selectedCompanyId!),
@@ -155,7 +155,7 @@ export function Sidebar() {
 
     // Cấu hình
     "/ops/sop-registry": <SidebarNavItem to="/ops/sop-engine" label="Registry Marketplace" icon={Database} />,
-    "/agents/all": <SidebarNavItem to="/agents/all" label="Tất cả Agents" icon={Boxes} />,
+    "/agents/all": <SidebarNavItem to="/agents" label="Tất cả Agents" icon={Boxes} />,
     "/agents-config": <SidebarNavItem to="/agents-config" label="Agent LLM (→ Registry)" icon={Database} textBadge="Deprecated" textBadgeTone="amber" />,
     "/config": <SidebarNavItem to="/config" label="Trung tâm Cấu hình (→ Registry)" icon={Settings} textBadge="Deprecated" textBadgeTone="amber" />,
 
