@@ -1333,7 +1333,9 @@ export function issueRoutes(db: Db, storage: StorageService) {
         });
       }
 
-      if (!assigneeChanged && statusChangedFromBacklog && issue.assigneeAgentId) {
+      // GEMRAL 26/10: backlog → cancelled/done is a close, not a release — waking here queued a
+      // run per closed issue (10 junk runs when the board cleaned up old battery issues).
+      if (!assigneeChanged && statusChangedFromBacklog && !isIssueClosed && issue.assigneeAgentId) {
         wakeups.set(issue.assigneeAgentId, {
           source: "automation",
           triggerDetail: "system",
