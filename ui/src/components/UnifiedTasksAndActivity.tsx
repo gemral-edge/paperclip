@@ -275,6 +275,22 @@ const STATUS_WEIGHT: Record<string, number> = {
   cancelled: 0,
 };
 
+/** Evergreen per-agent thread (origin_id heartbeat-thread:*) — always "in progress" by design. */
+function isHeartbeatThread(issue: Issue): boolean {
+  return (issue.originId ?? "").startsWith("heartbeat-thread:");
+}
+
+/** Agent run state when it is NOT running/queued on this row's issue. */
+function AgentIdleState({ agent, otherRun }: { agent: Agent; otherRun?: LiveRunForIssue }) {
+  if (agent.status === "paused") {
+    return <span className="text-amber-600 dark:text-amber-400">Agent đang dừng</span>;
+  }
+  if (otherRun?.status === "running") return <span>Agent đang chạy việc khác</span>;
+  if (otherRun?.status === "queued") return <span>Agent chờ slot cho việc khác</span>;
+  if (agent.status === "error") return <span className="text-red-600 dark:text-red-400">Agent lỗi</span>;
+  return <span className="text-muted-foreground/70">Agent rảnh</span>;
+}
+
 function getRuntimeScore(issueId: string, liveRunByIssueId: Map<string, LiveRunForIssue>): number {
   const run = liveRunByIssueId.get(issueId);
   if (run?.status === "running") return 3; // Live now: Điểm cao nhất
@@ -359,10 +375,22 @@ export function UnifiedTasksAndActivity({
     refetchInterval: 1500,
   });
 
+  // A running run outranks a queued one for the same issue/agent (rows arrive newest-first,
+  // so plain overwrite used to keep the OLDEST run, whatever its status).
   const liveRunByIssueId = useMemo(() => {
     const map = new Map<string, LiveRunForIssue>();
     for (const r of liveRuns ?? []) {
-      if (r.issueId) map.set(r.issueId, r);
+      if (!r.issueId || (r.status !== "running" && r.status !== "queued")) continue;
+      if (map.get(r.issueId)?.status !== "running") map.set(r.issueId, r);
+    }
+    return map;
+  }, [liveRuns]);
+
+  const liveRunByAgentId = useMemo(() => {
+    const map = new Map<string, LiveRunForIssue>();
+    for (const r of liveRuns ?? []) {
+      if (r.status !== "running" && r.status !== "queued") continue;
+      if (map.get(r.agentId)?.status !== "running") map.set(r.agentId, r);
     }
     return map;
   }, [liveRuns]);
@@ -780,10 +808,10 @@ export function UnifiedTasksAndActivity({
                 <option value="all">Tất cả trạng thái</option>
                 <option value="live">🔵 Đang chạy Live now</option>
                 <option value="queued">🟡 Chờ slot (Queued)</option>
-                <option value="in_progress">Đang làm (In Progress)</option>
-                <option value="todo">Cần làm (Todo)</option>
+                <option value="in_progress">Việc: Đang làm</option>
+                <option value="todo">Việc: Cần làm</option>
                 <option value="in_review">Đang duyệt (In Review)</option>
-                <option value="done">Đã xong (Done)</option>
+                <option value="done">Việc: Đã xong</option>
                 <option value="blocked">Bị nghẽn (Blocked)</option>
                 <option value="backlog">Tồn đọng (Backlog)</option>
               </select>
@@ -880,7 +908,7 @@ export function UnifiedTasksAndActivity({
                   {/* Cột 1: Agent phụ trách & Trạng thái */}
                   <th className="py-2.5 px-4 w-[230px]">
                     <SortHeaderButton
-                      label="Agent & Trạng thái"
+                      label="Agent & tình trạng chạy"
                       field="agent"
                       currentField={sortField}
                       currentOrder={sortOrder}
@@ -983,11 +1011,11 @@ export function UnifiedTasksAndActivity({
                                   )}
                                 </div>
 
-                                {/* Hàng 2: Trạng thái & Badge Live now / Chờ slot */}
+                                {/* Hàng 2: tình trạng CHẠY của agent (không phải trạng thái issue — issue ở cột Nội dung) */}
                                 <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground font-medium flex-wrap">
-                                  <StatusIcon status={issue.status} />
-                                  {issue.priority && <PriorityIcon priority={issue.priority} />}
-                                  <span>{STATUS_VI_TEXT[issue.status] ?? issue.status}</span>
+                                  {!isLiveRunning && !isLiveQueued && (
+                                    <AgentIdleState agent={agent} otherRun={liveRunByAgentId.get(agent.id)} />
+                                  )}
 
                                   {isLiveRunning && (
                                     <span className="inline-flex items-center gap-1 px-1.5 py-0.2 rounded text-[10px] font-semibold bg-cyan-500/15 text-cyan-600 dark:text-cyan-400 border border-cyan-500/30 whitespace-nowrap animate-pulse">
@@ -1013,11 +1041,6 @@ export function UnifiedTasksAndActivity({
                             <div className="text-xs text-muted-foreground/70 italic flex items-center gap-1.5">
                               <Bot className="h-3.5 w-3.5 opacity-50" />
                               <span>Chưa gán agent</span>
-                            </div>
-                            <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground font-medium">
-                              <StatusIcon status={issue.status} />
-                              {issue.priority && <PriorityIcon priority={issue.priority} />}
-                              <span>{STATUS_VI_TEXT[issue.status] ?? issue.status}</span>
                             </div>
                           </div>
                         )}
@@ -1048,13 +1071,20 @@ export function UnifiedTasksAndActivity({
                                   </Link>
                                 </div>
 
-                                {project && (
-                                  <div className="flex items-center gap-1.5 mt-1">
+                                <div className="flex items-center gap-1.5 mt-1 text-[11px] text-muted-foreground">
+                                  <StatusIcon status={issue.status} />
+                                  {issue.priority && <PriorityIcon priority={issue.priority} />}
+                                  <span>
+                                    {isHeartbeatThread(issue)
+                                      ? "Luồng heartbeat (luôn mở)"
+                                      : `Việc: ${STATUS_VI_TEXT[issue.status] ?? issue.status}`}
+                                  </span>
+                                  {project && (
                                     <span className="inline-flex items-center rounded px-1.5 py-0.2 text-[10px] font-medium bg-secondary text-secondary-foreground border border-border">
                                       {project.name}
                                     </span>
-                                  </div>
-                                )}
+                                  )}
+                                </div>
                               </div>
                             </TooltipTrigger>
                             <TooltipContent
@@ -1103,12 +1133,7 @@ export function UnifiedTasksAndActivity({
                             </div>
                           </div>
                         ) : (
-                          <div className="text-[11px] text-muted-foreground/70 flex items-center gap-1">
-                            <Clock className="h-3 w-3 shrink-0" />
-                            <span className="truncate">
-                              {STATUS_VI_TEXT[issue.status] ?? issue.status}
-                            </span>
-                          </div>
+                          <div className="text-[11px] text-muted-foreground/70">Chưa có hoạt động</div>
                         )}
                       </td>
 
