@@ -62,7 +62,13 @@ export function ActiveAgentsPanel({ companyId }: ActiveAgentsPanelProps) {
     return map;
   }, [allRuns]);
   const activeFilter = RUN_FILTERS.find((f) => f.id === filter) ?? RUN_FILTERS[0];
-  const runs = allRuns.filter((r) => activeFilter.match(r.status));
+  // Live now first, then queued, then finished; server order (newest first) kept inside each group.
+  const statusRank = (s: string) => (s === "running" ? 0 : s === "queued" ? 1 : 2);
+  const runs = allRuns
+    .filter((r) => activeFilter.match(r.status))
+    .map((r, i) => ({ r, i }))
+    .sort((a, b) => statusRank(a.r.status) - statusRank(b.r.status) || a.i - b.i)
+    .map(({ r }) => r);
 
   const groups = useMemo(() => {
     if (!groupByRole) return [{ label: null as string | null, runs }];
