@@ -50,7 +50,7 @@ const __moduleDir = path.dirname(fileURLToPath(import.meta.url));
 
 // How often the live transcript poller tails the brain while agy runs (ms). agy is
 // TTY-blind so this is the only way to stream the run before it exits.
-const LIVE_POLL_INTERVAL_MS = 1200;
+const LIVE_POLL_INTERVAL_MS = 2500; // was 1200; UI refetches ~2s anyway (GEMRAL 26/10)
 
 function hasNonEmptyEnvValue(env: Record<string, string>, key: string): boolean {
   const raw = env[key];
@@ -1269,12 +1269,25 @@ export async function execute(ctx: AdapterExecutionContext): Promise<AdapterExec
   // read error is swallowed; toResult performs the authoritative final read.
   const liveTurnMarker = path.basename(tempPromptFile);
   let liveBrainId = "";
+  // Byte offset of this run's turn inside the (resumed, multi-MB) brain transcript: each
+  // tick re-reads only this run's turn, not the whole history (GEMRAL 26/10 DB-pool wedge).
+  let liveTurnOffset = 0;
+  const liveStartedAtMs = Date.now();
   let livePolling = true;
   const pumpLiveTranscript = async () => {
     try {
-      const r = liveBrainId
-        ? await readAntigravityRunEntries(liveBrainId, liveTurnMarker)
-        : await findAntigravityRunByTurnMarker(liveTurnMarker, { attempts: 1, scanLimit: 30 });
+      let r: { brainId: string; entries: unknown[]; found: boolean };
+      if (liveBrainId) {
+        const read = await readAntigravityRunEntries(liveBrainId, liveTurnMarker, liveTurnOffset);
+        if (read.found) liveTurnOffset = read.turnOffset;
+        r = read;
+      } else {
+        r = await findAntigravityRunByTurnMarker(liveTurnMarker, {
+          attempts: 1,
+          scanLimit: 30,
+          modifiedSinceMs: liveStartedAtMs - 5_000,
+        });
+      }
       if (!liveBrainId && r.found && r.brainId) liveBrainId = r.brainId;
       if (r.found && r.entries.length > streamedEntryCount) {
         for (let i = streamedEntryCount; i < r.entries.length; i++) {

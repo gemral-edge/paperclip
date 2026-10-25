@@ -7,6 +7,8 @@ export {
   readAntigravityReplyFromTranscript,
   findAntigravityReplyByTurnMarker,
   findAntigravityRunByTurnMarker,
+  readAntigravityRunEntries,
+  turnLineOffset,
   readAntigravityTranscriptUsage,
   antigravityTranscriptPath,
   detectAntigravityAuthRequired,

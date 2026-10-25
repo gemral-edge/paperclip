@@ -354,9 +354,14 @@ export function summarizeAntigravityWork(entries: AntigravityNormEntry[]): strin
 
 // Scan brains (newest first) for the one holding THIS run's turnMarker and return
 // its full normalized run entries + reply + the real brain id.
+// GEMRAL 26/10 (Paperclip DB-pool wedge): brains are resumed across heartbeats, so
+// transcripts grow to several MB; the live poller called this every 1.2s and JSON-parsed
+// up to 30 whole transcripts per tick, starving the event loop until postgres.js timed
+// out. `modifiedSinceMs` keeps only brains written since the run started, and a plain
+// `includes(turnMarker)` check skips files that cannot hold this run before any parsing.
 export async function findAntigravityRunByTurnMarker(
   turnMarker: string,
-  opts: { attempts?: number; delayMs?: number; scanLimit?: number } = {},
+  opts: { attempts?: number; delayMs?: number; scanLimit?: number; modifiedSinceMs?: number } = {},
 ): Promise<{ brainId: string; entries: AntigravityNormEntry[]; reply: string; found: boolean }> {
   if (!turnMarker) return { brainId: "", entries: [], reply: "", found: false };
   const attempts = opts.attempts ?? 8;
@@ -379,6 +384,7 @@ export async function findAntigravityRunByTurnMarker(
       for (const name of dirs) {
         try {
           const st = await fs.stat(path.join(root, name, ".system_generated", "logs", "transcript.jsonl"));
+          if (opts.modifiedSinceMs && st.mtimeMs < opts.modifiedSinceMs) continue;
           withMtime.push({ name, mtime: st.mtimeMs });
         } catch { /* no transcript */ }
       }
@@ -389,6 +395,7 @@ export async function findAntigravityRunByTurnMarker(
             path.join(root, name, ".system_generated", "logs", "transcript.jsonl"),
             "utf8",
           );
+          if (!raw.includes(turnMarker)) continue;
           const r = parseAntigravityRunEntries(raw, turnMarker);
           if (r.found && r.reply) return { brainId: name, entries: r.entries, reply: r.reply, found: true };
           // turnMarker matched but no prose yet — remember the freshest entries in case
@@ -410,21 +417,54 @@ export async function findAntigravityRunByTurnMarker(
 
 // Read + normalize ONE known brain's run entries (used by the live transcript poller
 // once the run's brain id is resolved, so it doesn't rescan every brain each tick).
+//
+// `fromOffset` (GEMRAL 26/10): byte offset of the line that starts THIS run's turn, as
+// returned in `turnOffset` by a previous call. When given, only the bytes from there to
+// EOF are read and parsed (this run's turn), instead of the whole multi-MB transcript of
+// a resumed brain. Falls back to a full read if the slice no longer holds the turn.
 export async function readAntigravityRunEntries(
   brainId: string,
   turnMarker: string,
-): Promise<{ brainId: string; entries: AntigravityNormEntry[]; reply: string; found: boolean }> {
-  if (!brainId) return { brainId: "", entries: [], reply: "", found: false };
+  fromOffset = 0,
+): Promise<{ brainId: string; entries: AntigravityNormEntry[]; reply: string; found: boolean; turnOffset: number }> {
+  if (!brainId) return { brainId: "", entries: [], reply: "", found: false, turnOffset: 0 };
+  const file = path.join(antigravityBrainRoot(), brainId, ".system_generated", "logs", "transcript.jsonl");
   try {
-    const raw = await fs.readFile(
-      path.join(antigravityBrainRoot(), brainId, ".system_generated", "logs", "transcript.jsonl"),
-      "utf8",
-    );
-    const r = parseAntigravityRunEntries(raw, turnMarker);
-    return { brainId, entries: r.entries, reply: r.reply, found: r.found };
+    if (fromOffset > 0) {
+      const slice = await readFrom(file, fromOffset);
+      if (slice !== null) {
+        const r = parseAntigravityRunEntries(slice, turnMarker);
+        if (r.found) return { brainId, entries: r.entries, reply: r.reply, found: true, turnOffset: fromOffset };
+      }
+    }
+    const buf = await fs.readFile(file);
+    const r = parseAntigravityRunEntries(buf.toString("utf8"), turnMarker);
+    return { brainId, entries: r.entries, reply: r.reply, found: r.found, turnOffset: r.found ? turnLineOffset(buf, turnMarker) : 0 };
   } catch {
-    return { brainId: "", entries: [], reply: "", found: false };
+    return { brainId: "", entries: [], reply: "", found: false, turnOffset: 0 };
   }
+}
+
+/** Bytes from `offset` to EOF as utf8, or null when the file is not longer than `offset`. */
+async function readFrom(file: string, offset: number): Promise<string | null> {
+  const fh = await fs.open(file, "r");
+  try {
+    const { size } = await fh.stat();
+    if (size <= offset) return null;
+    const buf = Buffer.alloc(size - offset);
+    await fh.read(buf, 0, buf.length, offset);
+    return buf.toString("utf8");
+  } finally {
+    await fh.close();
+  }
+}
+
+/** Start of the line holding the first occurrence of `turnMarker` (unique per run). */
+export function turnLineOffset(buf: Buffer, turnMarker: string): number {
+  const idx = buf.indexOf(turnMarker);
+  if (idx < 0) return 0;
+  const nl = buf.lastIndexOf(0x0a, idx);
+  return nl < 0 ? 0 : nl + 1;
 }
 
 function antigravityBrainRoot(): string {
@@ -470,6 +510,7 @@ export async function findAntigravityReplyByTurnMarker(
             path.join(root, name, ".system_generated", "logs", "transcript.jsonl"),
             "utf8",
           );
+          if (!raw.includes(turnMarker)) continue;
           const result = parseReplyOnce(raw, turnMarker);
           if (result.found) return { brainId: name, reply: result.reply, found: true };
         } catch {

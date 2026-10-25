@@ -59,6 +59,7 @@ import {
   readFleetThrottleConfig,
 } from "./services/fleet-throttle.js";
 import { markAlive } from "./services/liveness-tracker.js";
+import { startEventLoopMonitor } from "./services/event-loop-monitor.js";
 import { configureBreakerPersistence } from "./channels/agy-timeout-fallback.js";
 import { resolvePaperclipInstanceRoot } from "./home-paths.js";
 import { createStorageServiceFromConfig } from "./storage/index.js";
@@ -876,6 +877,7 @@ export async function startServer(): Promise<StartedServer> {
     server.listen(listenPort, config.host, () => {
       server.off("error", onError);
       logger.info(`Server listening on ${config.host}:${listenPort}`);
+      startEventLoopMonitor();
       if (process.env.PAPERCLIP_OPEN_ON_LISTEN === "true") {
         const openHost = config.host === "0.0.0.0" || config.host === "::" ? "127.0.0.1" : config.host;
         const url = `http://${openHost}:${listenPort}`;
