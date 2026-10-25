@@ -31,15 +31,20 @@ export const DEFAULT_ANTIGRAVITY_FALLBACK_MODELS: readonly string[] = [];
 // via `agy models` (col 2). gem-master + sales-closer bumped 3.7→3.8 (High).
 // 2026-10-14: +Gemini 4 Argon (High/Medium/Low) — verbatim via `agy models` (col 2).
 // 2026-10-21: removed Gemini 4 Argon x3, 3.7 Flash x3, 3.6 Flash x3, 3.1 Pro x2 — `agy models` (agy 1.4.4) lists only 3.8 Flash x3 + Claude x2 + GPT-OSS; `agy --model` rejects them (invalid model selection). GEM-1583.
+// 2026-10-25: re-synced with live `agy models` (13 models). The 21/10 trim (GEM-1583) matched agy 1.4.4; agy now lists Gemini 4 Argon + Claude Opus/Sonnet 5.5 again — keep lists = `agy models` col 2.
 export const models = [
   { id: "Gemini 3.8 Flash (High)", label: "Gemini 3.8 Flash (High) — Fast" },
   { id: "Gemini 3.8 Flash (Medium)", label: "Gemini 3.8 Flash (Medium) — Fast" },
   { id: "Gemini 3.8 Flash (Low)", label: "Gemini 3.8 Flash (Low) — Fast" },
-  // 2026-09-03: removed Gemini 3.5 Flash (High/Medium/Low) — agy no longer lists
-  // them (`agy models` dropped 3.5), so passing them would fail --model. No agent
-  // used 3.5 (verified paperclip_agents). Kept the mirror in sync with agy.
-  { id: "Claude Sonnet 4.6 (Thinking)", label: "Claude Sonnet 4.6 (Thinking)" },
-  { id: "Claude Opus 4.6 (Thinking)", label: "Claude Opus 4.6 (Thinking)" },
+  { id: "Gemini 4 Argon (High)", label: "Gemini 4 Argon (High)" },
+  { id: "Gemini 4 Argon (Medium)", label: "Gemini 4 Argon (Medium)" },
+  { id: "Gemini 4 Argon (Low)", label: "Gemini 4 Argon (Low)" },
+  { id: "Claude Opus 5.5 (High)", label: "Claude Opus 5.5 (High)" },
+  { id: "Claude Opus 5.5 (Medium)", label: "Claude Opus 5.5 (Medium)" },
+  { id: "Claude Opus 5.5 (Low)", label: "Claude Opus 5.5 (Low)" },
+  { id: "Claude Sonnet 5.5 (High)", label: "Claude Sonnet 5.5 (High)" },
+  { id: "Claude Sonnet 5.5 (Medium)", label: "Claude Sonnet 5.5 (Medium)" },
+  { id: "Claude Sonnet 5.5 (Low)", label: "Claude Sonnet 5.5 (Low)" },
   { id: "GPT-OSS 120B (Medium)", label: "GPT-OSS 120B (Medium)" },
 ];
 

@@ -88,19 +88,20 @@ export const PROVIDER_MODELS: Record<AgentProvider, string[]> = {
     "gemini-2.0-flash",
   ],
   antigravity: [
-    // ⚠️ ORDER IS BEHAVIOUR HERE (unlike the other two copies): AgentEditPage's
-    // handleProviderChange assigns PROVIDER_MODELS[provider][0] when the user
-    // switches provider, so element 0 is the default model for reply agents.
-    // 2026-08-15: +3.7 Flash x3, +3.6 Flash x3 — newest fast model placed first so
-    // switching to Antigravity defaults to it.
-    // 2026-09-03: +3.8 Flash x3, 3.8 (High) now first (newest fast model = default).
+    // ⚠️ ORDER IS BEHAVIOUR: element 0 = default model when switching provider (AgentEditPage handleProviderChange).
+    // 2026-10-25: re-synced with live `agy models` (13 models). The 21/10 trim (GEM-1583) matched agy 1.4.4; agy now lists Gemini 4 Argon + Claude Opus/Sonnet 5.5 again — keep lists = `agy models` col 2.
     "Gemini 3.8 Flash (High)",
     "Gemini 3.8 Flash (Medium)",
     "Gemini 3.8 Flash (Low)",
-    // 2026-09-03: removed Gemini 3.5 Flash x3 — agy no longer lists them.
-    // 2026-10-21: removed Gemini 4 Argon x3, 3.7 Flash x3, 3.6 Flash x3, 3.1 Pro x2 — `agy models` (agy 1.4.4) lists only 3.8 Flash x3 + Claude x2 + GPT-OSS; `agy --model` rejects them (invalid model selection). GEM-1583.
-    "Claude Sonnet 4.6 (Thinking)",
-    "Claude Opus 4.6 (Thinking)",
+    "Gemini 4 Argon (High)",
+    "Gemini 4 Argon (Medium)",
+    "Gemini 4 Argon (Low)",
+    "Claude Opus 5.5 (High)",
+    "Claude Opus 5.5 (Medium)",
+    "Claude Opus 5.5 (Low)",
+    "Claude Sonnet 5.5 (High)",
+    "Claude Sonnet 5.5 (Medium)",
+    "Claude Sonnet 5.5 (Low)",
     "GPT-OSS 120B (Medium)",
   ],
   openrouter: [

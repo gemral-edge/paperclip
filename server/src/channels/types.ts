@@ -262,20 +262,20 @@ export const PROVIDER_MODELS: Record<AgentProvider, string[]> = {
     'gemini-2.0-flash',
   ],
   antigravity: [
-    // Display strings accepted verbatim by `agy --model` (see `agy models`, col 2).
-    // Keep in sync with packages/adapters/antigravity-local/src/index.ts `models`
-    // and ui/src/api/agentConfigs.ts PROVIDER_MODELS.antigravity — the audit probe
-    // `paperclip_model_list_audit.py --provider antigravity --against-agy` diffs
-    // agy's live list against all three copies.
-    // 2026-08-15: +3.7 Flash x3, +3.6 Flash x3 (agy had them, all lists stopped at 3.5).
-    // 2026-09-03: +3.8 Flash x3 (agy shipped 3.8, verbatim via `agy models`).
+    // 2026-10-25: re-synced with live `agy models` (13 models). The 21/10 trim (GEM-1583) matched agy 1.4.4; agy now lists Gemini 4 Argon + Claude Opus/Sonnet 5.5 again — keep lists = `agy models` col 2.
+    // Display strings accepted verbatim by `agy --model`. Keep in sync with adapter index.ts + ui agentConfigs.ts (probe paperclip_model_list_audit.py --against-agy).
     'Gemini 3.8 Flash (High)',
     'Gemini 3.8 Flash (Medium)',
     'Gemini 3.8 Flash (Low)',
-    // 2026-09-03: removed Gemini 3.5 Flash x3 — agy no longer lists them.
-    // 2026-10-21: removed Gemini 4 Argon x3, 3.7 Flash x3, 3.6 Flash x3, 3.1 Pro x2 — `agy models` (agy 1.4.4) lists only 3.8 Flash x3 + Claude x2 + GPT-OSS; `agy --model` rejects them (invalid model selection). GEM-1583.
-    'Claude Sonnet 4.6 (Thinking)',
-    'Claude Opus 4.6 (Thinking)',
+    'Gemini 4 Argon (High)',
+    'Gemini 4 Argon (Medium)',
+    'Gemini 4 Argon (Low)',
+    'Claude Opus 5.5 (High)',
+    'Claude Opus 5.5 (Medium)',
+    'Claude Opus 5.5 (Low)',
+    'Claude Sonnet 5.5 (High)',
+    'Claude Sonnet 5.5 (Medium)',
+    'Claude Sonnet 5.5 (Low)',
     'GPT-OSS 120B (Medium)',
   ],
   openrouter: [
