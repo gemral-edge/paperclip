@@ -1966,7 +1966,10 @@ export function heartbeatService(db: Db) {
    * "1 running" and push the fleet to 3. Returns null (run stays queued) when the
    * fleet is full; the periodic recovery tick (resumeQueuedRuns) retries it.
    */
-  async function claimQueuedRunWithinFleetLimits(run: typeof heartbeatRuns.$inferSelect) {
+  async function claimQueuedRunWithinFleetLimits(
+    run: typeof heartbeatRuns.$inferSelect,
+    opts: { bypassFleet?: boolean } = {},
+  ) {
     const fleet = readFleetThrottleConfig();
     const doClaim = async (executor: Pick<Db, "update">) => {
       const claimedAt = new Date();
@@ -1981,7 +1984,8 @@ export function heartbeatService(db: Db) {
         .returning()
         .then((rows) => rows[0] ?? null);
     };
-    if (!isFleetClaimGateEnabled(fleet)) return doClaim(db);
+    // bypassFleet: board pressed "run now" on a queued run (Dashboard) — skip rules 1-4 only.
+    if (opts.bypassFleet || !isFleetClaimGateEnabled(fleet)) return doClaim(db);
 
     return withKeyedLock(`fleet-claim:${run.companyId}`, () =>
       boundedPoll(db, async (tx) => {
@@ -2049,7 +2053,10 @@ export function heartbeatService(db: Db) {
     );
   }
 
-  async function claimQueuedRun(run: typeof heartbeatRuns.$inferSelect) {
+  async function claimQueuedRun(
+    run: typeof heartbeatRuns.$inferSelect,
+    opts: { bypassFleet?: boolean } = {},
+  ) {
     if (run.status !== "queued") return run;
     const agent = await getAgentConfirmed(run.agentId, run.id);
     if (!agent) {
@@ -2071,7 +2078,7 @@ export function heartbeatService(db: Db) {
       return null;
     }
 
-    const claimed = await claimQueuedRunWithinFleetLimits(run);
+    const claimed = await claimQueuedRunWithinFleetLimits(run, opts);
     if (!claimed) return null;
     const claimedAt = claimed.updatedAt ?? new Date();
 
@@ -2651,6 +2658,30 @@ export function heartbeatService(db: Db) {
         run_id: params.runId,
         metadata: { cost_usd: params.costUsd, adapter_type: params.adapterType, inference_time_ms: params.inferenceTimeMs },
       }),
+    });
+  }
+
+  /**
+   * GEMRAL 2026-10-26: Dashboard "run now" on a queued run. Starts it immediately,
+   * ignoring the company-wide fleet throttle, but still honours the agent's own
+   * maxConcurrentRuns, pause status and budget (claimQueuedRun checks the last two).
+   */
+  async function startQueuedRunNow(runId: string) {
+    const run = await getRun(runId);
+    if (!run || run.status !== "queued") return { ok: false as const, reason: "not_queued" as const };
+    return withAgentStartLock(run.agentId, async () => {
+      const agent = await getAgent(run.agentId);
+      if (!agent) return { ok: false as const, reason: "agent_missing" as const };
+      const policy = parseHeartbeatPolicy(agent);
+      if ((await countRunningRunsForAgent(run.agentId)) >= policy.maxConcurrentRuns) {
+        return { ok: false as const, reason: "agent_busy" as const };
+      }
+      const claimed = await claimQueuedRun(run, { bypassFleet: true });
+      if (!claimed) return { ok: false as const, reason: "not_claimable" as const };
+      void executeRun(claimed.id).catch((err) => {
+        logger.error({ err, runId: claimed.id }, "run-now heartbeat execution failed");
+      });
+      return { ok: true as const, run: claimed };
     });
   }
 
@@ -5105,6 +5136,7 @@ export function heartbeatService(db: Db) {
     },
 
     cancelRun: (runId: string) => cancelRunInternal(runId),
+    startQueuedRunNow,
 
     cancelActiveForAgent: (agentId: string) => cancelActiveForAgentInternal(agentId),
 

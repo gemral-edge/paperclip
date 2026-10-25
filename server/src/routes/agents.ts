@@ -2344,6 +2344,39 @@ export function agentRoutes(db: Db) {
     res.json(run);
   });
 
+  // GEMRAL 2026-10-26: Dashboard ▶ on a queued run — start it now, past the fleet throttle.
+  router.post("/heartbeat-runs/:runId/start-now", async (req, res) => {
+    assertBoard(req);
+    const runId = req.params.runId as string;
+    const existing = await heartbeat.getRun(runId);
+    if (!existing) {
+      res.status(404).json({ error: "Heartbeat run not found" });
+      return;
+    }
+    assertCompanyAccess(req, existing.companyId);
+    const result = await heartbeat.startQueuedRunNow(runId);
+    if (!result.ok) {
+      const messages: Record<typeof result.reason, string> = {
+        not_queued: "Lượt này không còn ở hàng chờ",
+        agent_missing: "Không tìm thấy agent",
+        agent_busy: "Agent đang chạy lượt khác, chờ lượt đó xong",
+        not_claimable: "Agent đang dừng hoặc chạm trần ngân sách nên không chạy được",
+      };
+      res.status(409).json({ error: messages[result.reason], reason: result.reason });
+      return;
+    }
+    await logActivity(db, {
+      companyId: existing.companyId,
+      actorType: "user",
+      actorId: req.actor.userId ?? "board",
+      action: "heartbeat.started_now",
+      entityType: "heartbeat_run",
+      entityId: runId,
+      details: { agentId: existing.agentId },
+    });
+    res.json(result.run);
+  });
+
   router.get("/heartbeat-runs/:runId/events", async (req, res) => {
     const runId = req.params.runId as string;
     const run = await heartbeat.getRun(runId);

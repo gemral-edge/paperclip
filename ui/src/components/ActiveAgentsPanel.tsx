@@ -172,7 +172,7 @@ function AgentPauseToggle({ agent, companyId }: { agent: Agent; companyId: strin
     onSuccess: () => invalidateAgentRuntimeQueries(queryClient),
   });
   if (agent.status === "terminated" || agent.status === "pending_approval") return null;
-  const label = paused ? `Chạy lại ${agent.name}` : `Tạm dừng ${agent.name}`;
+  const label = paused ? `${agent.name} đang dừng, bấm để bật lại` : `Tạm dừng ${agent.name}`;
   return (
     <button
       type="button"
@@ -184,7 +184,7 @@ function AgentPauseToggle({ agent, companyId }: { agent: Agent; companyId: strin
         mutation.mutate();
       }}
       className={cn(
-        "inline-flex items-center rounded-full border px-2 py-1 text-[10px] transition-colors disabled:opacity-50",
+        "inline-flex items-center gap-1 rounded-full border px-2 py-1 text-[10px] transition-colors disabled:opacity-50",
         mutation.isError
           ? "border-red-500/40 text-red-600 dark:text-red-400"
           : paused
@@ -192,7 +192,66 @@ function AgentPauseToggle({ agent, companyId }: { agent: Agent; companyId: strin
             : "border-border/70 bg-background/70 text-muted-foreground hover:text-foreground",
       )}
     >
-      {paused ? <Play className="h-2.5 w-2.5" /> : <Pause className="h-2.5 w-2.5" />}
+      {/* Paused shows a labelled pill, not ▶, so it never looks like the run-now button. */}
+      <Pause className="h-2.5 w-2.5" />
+      {paused && "Đã dừng"}
+    </button>
+  );
+}
+
+/**
+ * ▶ on a run card. Queued → start now (past the fleet throttle). Finished → run the same
+ * issue again, or a fresh heartbeat when the run had no issue. Hidden while running.
+ */
+function RunNowButton({ run, agent, companyId }: { run: LiveRunForIssue; agent: Agent; companyId: string }) {
+  const queryClient = useQueryClient();
+  const mutation = useMutation({
+    mutationFn: async (): Promise<unknown> => {
+      if (run.status === "queued") return heartbeatsApi.startNow(run.id);
+      if (run.issueId) {
+        const result = await agentsApi.wakeup(
+          agent.id,
+          { source: "on_demand", triggerDetail: "manual", reason: "rerun_from_dashboard", payload: { issueId: run.issueId } },
+          companyId,
+        );
+        if (!("id" in result)) throw new Error("Agent chưa nhận lượt mới (đang bận hoặc không gọi được)");
+        return result;
+      }
+      return agentsApi.invoke(agent.id, companyId);
+    },
+    onSuccess: () => invalidateAgentRuntimeQueries(queryClient),
+  });
+
+  if (run.status === "running") return null;
+  const paused = agent.status === "paused";
+  const label = paused
+    ? "Agent đang dừng, bật lại agent trước"
+    : run.status === "queued"
+      ? "Chạy ngay lượt đang chờ (vượt giới hạn chạy cùng lúc)"
+      : run.issueId
+        ? "Chạy lại việc này"
+        : "Chạy heartbeat ngay";
+  const errorText = mutation.error instanceof Error ? mutation.error.message : "Không chạy được, bấm thử lại";
+  return (
+    <button
+      type="button"
+      title={mutation.isError ? errorText : label}
+      aria-label={label}
+      disabled={paused || mutation.isPending || mutation.isSuccess}
+      onClick={(e) => {
+        e.stopPropagation();
+        mutation.mutate();
+      }}
+      className={cn(
+        "inline-flex items-center rounded-full border px-2 py-1 text-[10px] transition-colors disabled:opacity-40",
+        mutation.isError
+          ? "border-red-500/40 text-red-600 dark:text-red-400"
+          : mutation.isSuccess
+            ? "border-green-500/40 text-green-600 dark:text-green-400"
+            : "border-cyan-500/40 text-cyan-700 hover:bg-cyan-500/10 dark:text-cyan-300",
+      )}
+    >
+      <Play className="h-2.5 w-2.5" />
     </button>
   );
 }
@@ -260,6 +319,7 @@ function AgentRunCard({
           </div>
 
           <div className="flex shrink-0 items-center gap-1">
+            {agent && <RunNowButton run={run} agent={agent} companyId={companyId} />}
             {agent && <AgentPauseToggle agent={agent} companyId={companyId} />}
             <Link
               to={`/agents/${run.agentId}`}

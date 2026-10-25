@@ -63,6 +63,8 @@ export const heartbeatsApi = {
       `/workspace-operations/${operationId}/log?offset=${encodeURIComponent(String(offset))}&limitBytes=${encodeURIComponent(String(limitBytes))}`,
     ),
   cancel: (runId: string) => api.post<void>(`/heartbeat-runs/${runId}/cancel`, {}),
+  /** Start a queued run now, past the company-wide fleet throttle (Dashboard ▶). */
+  startNow: (runId: string) => api.post<HeartbeatRun>(`/heartbeat-runs/${runId}/start-now`, {}),
   liveRunsForIssue: (issueId: string) =>
     api.get<LiveRunForIssue[]>(`/issues/${issueId}/live-runs`),
   activeRunForIssue: (issueId: string) =>
