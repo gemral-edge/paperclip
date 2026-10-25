@@ -22,6 +22,8 @@ import { timeAgo } from "../lib/timeAgo";
 import { cn, formatCents } from "../lib/utils";
 import { Bot, CircleDot, DollarSign, ShieldCheck, LayoutDashboard, PauseCircle, GripVertical } from "lucide-react";
 import { ActiveAgentsPanel } from "../components/ActiveAgentsPanel";
+import { FleetControlBar } from "../components/FleetControlBar";
+import { AttentionStrip } from "../components/AttentionStrip";
 import { UnifiedTasksAndActivity } from "../components/UnifiedTasksAndActivity";
 import { ChartCard, RunActivityChart, PriorityChart, IssueStatusChart, SuccessRateChart } from "../components/ActivityCharts";
 import { PageSkeleton } from "../components/PageSkeleton";
@@ -492,6 +494,10 @@ export function Dashboard() {
           </Link>
         </div>
       ) : null}
+
+      {/* Fleet controls + "Cần chú ý" — always at top, not draggable */}
+      <FleetControlBar companyId={selectedCompanyId} />
+      <AttentionStrip companyId={selectedCompanyId} agents={agents} runs={runs} />
 
       {/* Draggable cards */}
       <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>

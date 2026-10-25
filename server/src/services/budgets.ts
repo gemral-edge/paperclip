@@ -28,7 +28,7 @@ type ScopeRecord = {
   companyId: string;
   name: string;
   paused: boolean;
-  pauseReason: "manual" | "budget" | "system" | null;
+  pauseReason: "manual" | "budget" | "system" | "fleet" | null;
 };
 
 type PolicyRow = typeof budgetPolicies.$inferSelect;

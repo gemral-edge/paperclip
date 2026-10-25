@@ -50,6 +50,7 @@ import { redactEventPayload } from "../redaction.js";
 import { redactCurrentUserValue } from "../log-redaction.js";
 import { renderOrgChartSvg, renderOrgChartPng, type OrgNode, type OrgChartStyle, ORG_CHART_STYLES } from "./org-chart-svg.js";
 import { instanceSettingsService } from "../services/instance-settings.js";
+import { fleetPauseService } from "../services/fleet-pause.js";
 import { runClaudeLogin } from "@paperclipai/adapter-claude-local/server";
 import {
   DEFAULT_CODEX_LOCAL_BYPASS_APPROVALS_AND_SANDBOX,
@@ -91,6 +92,7 @@ export function agentRoutes(db: Db) {
   const approvalsSvc = approvalService(db);
   const budgets = budgetService(db);
   const heartbeat = heartbeatService(db);
+  const fleetPause = fleetPauseService(db);
   const issueApprovalsSvc = issueApprovalService(db);
   const secretsSvc = secretService(db);
   const instructions = agentInstructionsService();
@@ -1955,6 +1957,54 @@ export function agentRoutes(db: Db) {
     });
 
     res.json(agent);
+  });
+
+  // GEMRAL 2026-10-26: Dashboard "pause / resume whole fleet". Pause tags pauseReason
+  // "fleet"; resume only flips those, so quota/budget/manual pauses stay put.
+  router.get("/companies/:companyId/fleet/status", async (req, res) => {
+    const companyId = req.params.companyId as string;
+    assertCompanyAccess(req, companyId);
+    res.json(await fleetPause.status(companyId));
+  });
+
+  router.post("/companies/:companyId/fleet/pause", async (req, res) => {
+    assertBoard(req);
+    const companyId = req.params.companyId as string;
+    assertCompanyAccess(req, companyId);
+    const ids = await fleetPause.pausableAgentIds(companyId);
+    let cancelledRuns = 0;
+    for (const id of ids) {
+      await svc.pause(id, "fleet");
+      cancelledRuns += await heartbeat.cancelActiveForAgent(id);
+    }
+    await logActivity(db, {
+      companyId,
+      actorType: "user",
+      actorId: req.actor.userId ?? "board",
+      action: "fleet.paused",
+      entityType: "company",
+      entityId: companyId,
+      details: { agentCount: ids.length, cancelledRuns },
+    });
+    res.json({ paused: ids.length, cancelledRuns, status: await fleetPause.status(companyId) });
+  });
+
+  router.post("/companies/:companyId/fleet/resume", async (req, res) => {
+    assertBoard(req);
+    const companyId = req.params.companyId as string;
+    assertCompanyAccess(req, companyId);
+    const ids = await fleetPause.fleetPausedAgentIds(companyId);
+    for (const id of ids) await svc.resume(id);
+    await logActivity(db, {
+      companyId,
+      actorType: "user",
+      actorId: req.actor.userId ?? "board",
+      action: "fleet.resumed",
+      entityType: "company",
+      entityId: companyId,
+      details: { agentCount: ids.length },
+    });
+    res.json({ resumed: ids.length, status: await fleetPause.status(companyId) });
   });
 
   router.post("/agents/:id/terminate", async (req, res) => {
