@@ -361,9 +361,16 @@ export function summarizeAntigravityWork(entries: AntigravityNormEntry[]): strin
 // `includes(turnMarker)` check skips files that cannot hold this run before any parsing.
 export async function findAntigravityRunByTurnMarker(
   turnMarker: string,
-  opts: { attempts?: number; delayMs?: number; scanLimit?: number; modifiedSinceMs?: number } = {},
-): Promise<{ brainId: string; entries: AntigravityNormEntry[]; reply: string; found: boolean }> {
-  if (!turnMarker) return { brainId: "", entries: [], reply: "", found: false };
+  opts: {
+    attempts?: number;
+    delayMs?: number;
+    scanLimit?: number;
+    modifiedSinceMs?: number;
+    knownBrainId?: string;
+    fromOffset?: number;
+  } = {},
+): Promise<{ brainId: string; entries: AntigravityNormEntry[]; reply: string; found: boolean; turnOffset: number }> {
+  if (!turnMarker) return { brainId: "", entries: [], reply: "", found: false, turnOffset: 0 };
   const attempts = opts.attempts ?? 8;
   const delayMs = opts.delayMs ?? 700;
   const scanLimit = opts.scanLimit ?? 25;
@@ -374,8 +381,27 @@ export async function findAntigravityRunByTurnMarker(
   // never appears we must still return the brain we DID match by turnMarker (with its
   // entries) instead of "not found" — otherwise the caller misreports a successful
   // work run as an empty-reply failure. Lesson: evolution-log/01-paperclip.md.
-  let matchedNoReply: { brainId: string; entries: AntigravityNormEntry[] } | null = null;
+  let matchedNoReply: { brainId: string; entries: AntigravityNormEntry[]; turnOffset: number } | null = null;
   for (let attempt = 0; attempt < attempts; attempt++) {
+    const pinnedBrainId = matchedNoReply?.brainId || opts.knownBrainId || "";
+    const pinnedOffset = matchedNoReply ? matchedNoReply.turnOffset : (opts.fromOffset ?? 0);
+    if (pinnedBrainId) {
+      const direct = await readAntigravityRunEntries(pinnedBrainId, turnMarker, pinnedOffset);
+      if (direct.found && direct.reply) {
+        return {
+          brainId: pinnedBrainId,
+          entries: direct.entries,
+          reply: direct.reply,
+          found: true,
+          turnOffset: direct.turnOffset,
+        };
+      }
+      if (direct.found) {
+        matchedNoReply = { brainId: pinnedBrainId, entries: direct.entries, turnOffset: direct.turnOffset };
+        if (attempt < attempts - 1) await sleep(delayMs);
+        continue;
+      }
+    }
     try {
       const dirs = (await fs.readdir(root, { withFileTypes: true }))
         .filter((e) => e.isDirectory())
@@ -391,16 +417,19 @@ export async function findAntigravityRunByTurnMarker(
       withMtime.sort((a, b) => b.mtime - a.mtime);
       for (const { name } of withMtime.slice(0, scanLimit)) {
         try {
-          const raw = await fs.readFile(
+          const buf = await fs.readFile(
             path.join(root, name, ".system_generated", "logs", "transcript.jsonl"),
-            "utf8",
           );
-          if (!raw.includes(turnMarker)) continue;
-          const r = parseAntigravityRunEntries(raw, turnMarker);
-          if (r.found && r.reply) return { brainId: name, entries: r.entries, reply: r.reply, found: true };
+          if (!buf.includes(turnMarker)) continue;
+          const turnOffset = turnLineOffset(buf, turnMarker);
+          const slice = buf.subarray(turnOffset).toString("utf8");
+          const r = parseAntigravityRunEntries(slice, turnMarker);
+          if (r.found && r.reply) {
+            return { brainId: name, entries: r.entries, reply: r.reply, found: true, turnOffset };
+          }
           // turnMarker matched but no prose yet — remember the freshest entries in case
           // no prose ever arrives (work run). Overwrite each pass for the fullest set.
-          if (r.found) matchedNoReply = { brainId: name, entries: r.entries };
+          if (r.found) matchedNoReply = { brainId: name, entries: r.entries, turnOffset };
         } catch { /* skip */ }
       }
     } catch { /* brain root missing */ }
@@ -410,9 +439,15 @@ export async function findAntigravityRunByTurnMarker(
   // with no prose), return that brain + its entries so the caller can synthesize a
   // work-summary. Only a never-matched turnMarker is a genuine "not found".
   if (matchedNoReply) {
-    return { brainId: matchedNoReply.brainId, entries: matchedNoReply.entries, reply: "", found: true };
+    return {
+      brainId: matchedNoReply.brainId,
+      entries: matchedNoReply.entries,
+      reply: "",
+      found: true,
+      turnOffset: matchedNoReply.turnOffset,
+    };
   }
-  return { brainId: "", entries: [], reply: "", found: false };
+  return { brainId: "", entries: [], reply: "", found: false, turnOffset: 0 };
 }
 
 // Read + normalize ONE known brain's run entries (used by the live transcript poller
@@ -506,12 +541,12 @@ export async function findAntigravityReplyByTurnMarker(
       withMtime.sort((a, b) => b.mtime - a.mtime);
       for (const { name } of withMtime.slice(0, scanLimit)) {
         try {
-          const raw = await fs.readFile(
+          const buf = await fs.readFile(
             path.join(root, name, ".system_generated", "logs", "transcript.jsonl"),
-            "utf8",
           );
-          if (!raw.includes(turnMarker)) continue;
-          const result = parseReplyOnce(raw, turnMarker);
+          if (!buf.includes(turnMarker)) continue;
+          const slice = buf.subarray(turnLineOffset(buf, turnMarker)).toString("utf8");
+          const result = parseReplyOnce(slice, turnMarker);
           if (result.found) return { brainId: name, reply: result.reply, found: true };
         } catch {
           // unreadable — skip
@@ -536,8 +571,11 @@ export async function readAntigravityReplyFromTranscript(
   const transcriptPath = antigravityTranscriptPath(conversationId);
   for (let attempt = 0; attempt < attempts; attempt++) {
     try {
-      const raw = await fs.readFile(transcriptPath, "utf8");
-      const result = parseReplyOnce(raw, turnMarker);
+      const buf = await fs.readFile(transcriptPath);
+      const slice = turnMarker && buf.includes(turnMarker)
+        ? buf.subarray(turnLineOffset(buf, turnMarker)).toString("utf8")
+        : buf.toString("utf8");
+      const result = parseReplyOnce(slice, turnMarker);
       if (result.found) return result;
     } catch {
       // transcript not written yet — fall through to retry.
@@ -549,15 +587,24 @@ export async function readAntigravityReplyFromTranscript(
 
 export async function readAntigravityTranscriptUsage(
   conversationId: string,
+  fromOffset = 0,
 ): Promise<{ usage: AntigravityUsage; costUsd: number | null }> {
   const usage: AntigravityUsage = { inputTokens: 0, cachedInputTokens: 0, outputTokens: 0 };
   let costUsd: number | null = null;
   if (!conversationId) return { usage, costUsd };
+  const file = antigravityTranscriptPath(conversationId);
   try {
-    const raw = await fs.readFile(antigravityTranscriptPath(conversationId), "utf8");
+    let raw: string | null = null;
+    if (fromOffset > 0) {
+      raw = await readFrom(file, fromOffset);
+    }
+    if (raw === null) {
+      raw = await fs.readFile(file, "utf8");
+    }
     for (const rawLine of raw.split(/\r?\n/)) {
       const line = rawLine.trim();
       if (!line) continue;
+      if (!line.includes("usage") && !line.includes("cost")) continue;
       const event = parseJson(line);
       if (!event) continue;
       if (event.usage || event.usageMetadata) {

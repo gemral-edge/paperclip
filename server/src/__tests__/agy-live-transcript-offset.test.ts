@@ -5,21 +5,36 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   findAntigravityRunByTurnMarker,
   readAntigravityRunEntries,
+  readAntigravityTranscriptUsage,
   turnLineOffset,
 } from "@paperclipai/adapter-antigravity-local/server";
 
 // GEMRAL 26/10 — Paperclip DB pool wedged 05:43-06:01: the agy live poller re-read and
-// JSON-parsed whole multi-MB resumed-brain transcripts every 1.2s. The poller now reads
-// from this run's turn offset; the result must equal a full read.
+// JSON-parsed whole multi-MB resumed-brain transcripts every 1.2s. The poller and post-run
+// toResult now read from this run's turn offset; the result must equal a full read.
 const line = (o: Record<string, unknown>) => `${JSON.stringify(o)}\n`;
 const oldTurns = Array.from({ length: 200 }, (_, i) =>
   line({ type: "USER_INPUT", content: `old turn ${i} prompt-old-${i}.md` }) +
-  line({ type: "PLANNER_RESPONSE", source: "MODEL", thinking: "x".repeat(500), content: `old reply ${i}` }),
+  line({
+    type: "PLANNER_RESPONSE",
+    source: "MODEL",
+    thinking: "x".repeat(500),
+    content: `old reply ${i}`,
+    usage: { input_tokens: 10, output_tokens: 5 },
+    cost_usd: 0.001,
+  }),
 ).join("");
 const MARKER = "paperclip-agy-prompt-run42.md";
 const ourTurn =
   line({ type: "USER_INPUT", content: `Làm việc này. ${MARKER}` }) +
-  line({ type: "PLANNER_RESPONSE", source: "MODEL", thinking: "nghĩ", tool_calls: [{ name: "run_command", args: { cmd: "ls" } }] });
+  line({
+    type: "PLANNER_RESPONSE",
+    source: "MODEL",
+    thinking: "nghĩ",
+    tool_calls: [{ name: "run_command", args: { cmd: "ls" } }],
+    usage: { input_tokens: 120, cached_input_tokens: 30, output_tokens: 45 },
+    cost_usd: 0.025,
+  });
 
 let home: string;
 let file: string;
@@ -68,12 +83,42 @@ describe("agy live transcript offset", () => {
     expect(beyondEof.turnOffset).toBe(Buffer.byteLength(oldTurns));
   });
 
-  it("find skips brains not written since the run started", async () => {
+  it("find skips brains not written since the run started and returns turnOffset", async () => {
     const future = Date.now() + 60_000;
     const miss = await findAntigravityRunByTurnMarker(MARKER, { attempts: 1, modifiedSinceMs: future });
     expect(miss.found).toBe(false);
+    expect(miss.turnOffset).toBe(0);
     const hit = await findAntigravityRunByTurnMarker(MARKER, { attempts: 1, modifiedSinceMs: Date.now() - 60_000 });
     expect(hit.found).toBe(true);
     expect(hit.brainId).toBe("brain-1");
+    expect(hit.turnOffset).toBe(Buffer.byteLength(oldTurns));
+
+    // When knownBrainId + fromOffset are provided (post-run toResult fast path), it reads directly from offset
+    fs.appendFileSync(file, line({ type: "PLANNER_RESPONSE", source: "MODEL", content: "Báo cáo hoàn tất ạ." }));
+    const fastHit = await findAntigravityRunByTurnMarker(MARKER, {
+      attempts: 1,
+      knownBrainId: "brain-1",
+      fromOffset: hit.turnOffset,
+    });
+    expect(fastHit.found).toBe(true);
+    expect(fastHit.reply).toBe("Báo cáo hoàn tất ạ.");
+    expect(fastHit.turnOffset).toBe(hit.turnOffset);
+  });
+
+  it("readAntigravityTranscriptUsage slices from turnOffset to avoid full-history JSON.parse and double-counting", async () => {
+    const turnOffset = Buffer.byteLength(oldTurns);
+    const slicedUsage = await readAntigravityTranscriptUsage("brain-1", turnOffset);
+    expect(slicedUsage.usage).toEqual({
+      inputTokens: 120,
+      cachedInputTokens: 30,
+      outputTokens: 45,
+    });
+    expect(slicedUsage.costUsd).toBeCloseTo(0.025, 6);
+
+    // Fallback when fromOffset = 0 or beyond EOF reads the full file
+    const fullUsage = await readAntigravityTranscriptUsage("brain-1", 0);
+    expect(fullUsage.usage.inputTokens).toBe(200 * 10 + 120);
+    const beyondEofUsage = await readAntigravityTranscriptUsage("brain-1", 10_000_000);
+    expect(beyondEofUsage.usage.inputTokens).toBe(200 * 10 + 120);
   });
 });

@@ -1048,6 +1048,12 @@ export async function execute(ctx: AdapterExecutionContext): Promise<AdapterExec
   // onLog during the run, so the post-run flush in toResult emits only the remainder
   // (no duplicates). Shared closure state between the poller and toResult.
   let streamedEntryCount = 0;
+  let liveBrainId = "";
+  // Byte offset of this run's turn inside the (resumed, multi-MB) brain transcript: each
+  // tick and the post-run toResult read only this run's turn, not the whole history
+  // (GEMRAL 26/10 DB-pool wedge / GEM-1654).
+  let liveTurnOffset = 0;
+  const liveStartedAtMs = Date.now();
 
   const toResult = async (
     attempt: {
@@ -1107,9 +1113,14 @@ export async function execute(ctx: AdapterExecutionContext): Promise<AdapterExec
     // heartbeat resumes the SAME brain. (On Windows stdout is TTY-blind → always
     // read from the transcript. Lesson evolution-log/08-windows.md.)
     const turnMarker = path.basename(tempPromptFile);
-    const detected = await findAntigravityRunByTurnMarker(turnMarker);
+    const detected = await findAntigravityRunByTurnMarker(turnMarker, {
+      modifiedSinceMs: liveStartedAtMs - 5_000,
+      knownBrainId: liveBrainId || undefined,
+      fromOffset: liveTurnOffset,
+    });
+    if (detected.found && detected.turnOffset > 0) liveTurnOffset = detected.turnOffset;
     const realBrainId = detected.found && detected.brainId ? detected.brainId : conversationId;
-    const { usage, costUsd } = await readAntigravityTranscriptUsage(realBrainId);
+    const { usage, costUsd } = await readAntigravityTranscriptUsage(realBrainId, liveTurnOffset);
     // agy WORK runs (heartbeat) may end with NO prose reply (they finish on a tool
     // action) → detected.reply is empty even though real work happened. Fall back to a
     // synthesized work-summary from the run entries so a successful run is NOT
@@ -1268,11 +1279,6 @@ export async function execute(ctx: AdapterExecutionContext): Promise<AdapterExec
   // the post-run flush emits only what the poller didn't already stream. Best-effort: any
   // read error is swallowed; toResult performs the authoritative final read.
   const liveTurnMarker = path.basename(tempPromptFile);
-  let liveBrainId = "";
-  // Byte offset of this run's turn inside the (resumed, multi-MB) brain transcript: each
-  // tick re-reads only this run's turn, not the whole history (GEMRAL 26/10 DB-pool wedge).
-  let liveTurnOffset = 0;
-  const liveStartedAtMs = Date.now();
   let livePolling = true;
   const pumpLiveTranscript = async () => {
     try {
@@ -1282,11 +1288,13 @@ export async function execute(ctx: AdapterExecutionContext): Promise<AdapterExec
         if (read.found) liveTurnOffset = read.turnOffset;
         r = read;
       } else {
-        r = await findAntigravityRunByTurnMarker(liveTurnMarker, {
+        const found = await findAntigravityRunByTurnMarker(liveTurnMarker, {
           attempts: 1,
           scanLimit: 30,
           modifiedSinceMs: liveStartedAtMs - 5_000,
         });
+        if (found.found) liveTurnOffset = found.turnOffset;
+        r = found;
       }
       if (!liveBrainId && r.found && r.brainId) liveBrainId = r.brainId;
       if (r.found && r.entries.length > streamedEntryCount) {
