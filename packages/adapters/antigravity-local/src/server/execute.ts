@@ -45,6 +45,13 @@ import {
   isAntigravityUnfinishedPromise,
 } from "./parse.js";
 import { firstNonEmptyLine } from "./utils.js";
+import {
+  computeMaxAccountRotations,
+  getActiveAntigravityAccountEmail,
+  getAntigravityPoolAccountCount,
+  markAntigravityAccountHealthy,
+  rotateAntigravityAccountOnQuota,
+} from "./account-rotation.js";
 
 const __moduleDir = path.dirname(fileURLToPath(import.meta.url));
 
@@ -1316,11 +1323,14 @@ export async function execute(ctx: AdapterExecutionContext): Promise<AdapterExec
   })();
 
   const modelsTried: string[] = [];
+  let lastActiveAccountEmail = getActiveAntigravityAccountEmail();
   const initial = await (async () => {
     try {
       for (let i = 0; ; i++) {
         const attemptModel = modelChain[i] ?? model;
         modelsTried.push(attemptModel);
+        let attemptAccountEmail = getActiveAntigravityAccountEmail();
+        lastActiveAccountEmail = attemptAccountEmail;
         let attempt = await runAttempt(conversationId, attemptModel);
         // GEM-1452: race (brain deleted between the existsSync check and agy start) ->
         // retry ONCE on a fresh conversation (runId) instead of failing the whole run.
@@ -1336,6 +1346,51 @@ export async function execute(ctx: AdapterExecutionContext): Promise<AdapterExec
           conversationId = runId;
           attempt = await runAttempt(conversationId, attemptModel);
         }
+
+        // AGY-SW-002 (26/10/2026): Tự động xoay vòng tài khoản Google trong kho khi chạm giới hạn
+        // quota (5h hoặc weekly), giữ nguyên 100% `attemptModel` (không đổi model/provider — tuân thủ luật 22/10).
+        let accountRotations = 0;
+        let maxRotations = Math.max(1, computeMaxAccountRotations(getAntigravityPoolAccountCount()));
+        while (
+          accountRotations < maxRotations &&
+          (shouldAntigravityFallback({ stderr: attempt.proc.stderr }) ||
+            (detectAntigravityAuthRequired({ stdout: attempt.proc.stdout, stderr: attempt.proc.stderr }).requiresAuth &&
+              getAntigravityPoolAccountCount() > 1))
+        ) {
+          const rot = await rotateAntigravityAccountOnQuota({
+            failedEmail: attemptAccountEmail,
+            stderr: attempt.proc.stderr,
+            runId,
+            cwd,
+          });
+          if (rot.totalAccounts > 1) {
+            maxRotations = computeMaxAccountRotations(rot.totalAccounts);
+          }
+          if (!rot.rotated || accountRotations >= maxRotations) {
+            break;
+          }
+          accountRotations += 1;
+          attemptAccountEmail = rot.newEmail ?? getActiveAntigravityAccountEmail();
+          lastActiveAccountEmail = attemptAccountEmail;
+          await onLog(
+            "stderr",
+            `[paperclip] Tài khoản Antigravity "${rot.previousEmail ?? "active"}" chạm giới hạn quota (${rot.limitType ?? "5h"}) → tự động xoay sang tài khoản "${rot.newEmail}" (${rot.label ?? "pool"}, còn ${rot.readyAccounts}/${rot.totalAccounts} sẵn sàng) và chạy lại ngay trên cùng model "${attemptModel}".\n`,
+          );
+          attempt = await runAttempt(conversationId, attemptModel);
+          if (
+            conversationId !== runId &&
+            (attempt.proc.exitCode ?? 0) !== 0 &&
+            /conversation\s+"?[0-9a-f-]{8,}"?\s+not found/i.test(attempt.proc.stderr ?? "")
+          ) {
+            await onLog(
+              "stderr",
+              `[paperclip] agy: conversation "${conversationId}" thuộc tài khoản trước → tạo hội thoại mới với đầy đủ bối cảnh.\n`,
+            );
+            conversationId = runId;
+            attempt = await runAttempt(conversationId, attemptModel);
+          }
+        }
+
         const next = modelChain[i + 1];
         if (!next || !shouldAntigravityFallback({ stderr: attempt.proc.stderr })) return attempt;
         await onLog(
@@ -1348,5 +1403,8 @@ export async function execute(ctx: AdapterExecutionContext): Promise<AdapterExec
       await liveLoop;
     }
   })();
+  if ((initial.proc.exitCode ?? 0) === 0 && !shouldAntigravityFallback({ stderr: initial.proc.stderr })) {
+    void markAntigravityAccountHealthy(lastActiveAccountEmail, { cwd });
+  }
   return toResult(initial, conversationId, modelsTried[modelsTried.length - 1] ?? model, modelsTried);
 }

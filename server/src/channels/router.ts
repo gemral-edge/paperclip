@@ -13,6 +13,8 @@ import {
   looksLikeSystemPromptLeak as agyLooksLikeLeak,
   defaultAgyCommand,
   shouldAntigravityFallback,
+  getActiveAntigravityAccountEmail,
+  rotateAntigravityAccountOnQuota,
   DEFAULT_ANTIGRAVITY_MODEL,
 } from '@paperclipai/adapter-antigravity-local/server';
 
@@ -1324,6 +1326,7 @@ async function runViaAntigravity(
   message: string,
   sessionKey: string = '',
   signal?: AbortSignal,
+  _accountRotated: boolean = false,
 ): Promise<string> {
   if (signal?.aborted) throw new AgentAbortedError();
   const model = config.model || DEFAULT_ANTIGRAVITY_MODEL; // 21/10: 3.1 Pro bị agy gỡ (GEM-1583)
@@ -1428,6 +1431,8 @@ async function runViaAntigravity(
   ];
 
   const streamKey = `${config.slug}:${Date.now()}`;
+  const attemptStartedAtMs = Date.now();
+  const attemptAccountEmail = getActiveAntigravityAccountEmail();
   streamEvents.emit('agent:start', { agentSlug: config.slug, streamKey });
   console.log(`[Router] Antigravity ${config.slug}: model=${model}, brain=${conversationId.substring(0, 8)}, ctx=${contextDoc.length} chars`);
 
@@ -1501,7 +1506,38 @@ async function runViaAntigravity(
 
         // 22/10/2026 chị Jennie: KHÔNG đổi model/provider khi agy hết credits/quota — chỉ đường agy local,
         // để lỗi nguyên (reject → caller trả rỗng → edge chốt câu quá tải). Đã gỡ chuỗi model (GEM-1241).
+        // 26/10/2026 (AGY-SW-002): Cho phép tự động xoay sang tài khoản Google khác trong kho Antigravity
+        // (giữ nguyên 100% `model`) tối đa 1 lần nếu lượt đầu phát hiện lỗi quota trong < 25s.
         if (!reply && shouldAntigravityFallback({ stderr })) {
+          const elapsedMs = Date.now() - attemptStartedAtMs;
+          if (!_accountRotated && elapsedMs < 25_000) {
+            const rot = await rotateAntigravityAccountOnQuota({
+              failedEmail: attemptAccountEmail,
+              stderr,
+              runId: streamKey,
+              cwd: PROJECT_ROOT,
+            });
+            if (rot.rotated) {
+              console.warn(
+                `[Router/antigravity] ${config.slug}: tài khoản "${rot.previousEmail ?? 'active'}" hết quota (${rot.limitType ?? '5h'}) → đã tự động xoay sang "${rot.newEmail}" (${rot.label ?? 'pool'}) và chạy lại 1 lần trên cùng model "${model}".`,
+              );
+              try {
+                const retryReply = await runViaAntigravity(
+                  config,
+                  systemPrompt,
+                  history,
+                  message,
+                  sessionKey,
+                  signal,
+                  true,
+                );
+                resolve(retryReply);
+              } catch (retryErr) {
+                reject(retryErr);
+              }
+              return;
+            }
+          }
           console.warn(`[Router/antigravity] ${config.slug}: agy hết credits/quota → KHÔNG fallback, để lỗi nguyên`);
           streamEvents.emit('agent:error', { agentSlug: config.slug, streamKey, error: 'antigravity quota: hết credits/quota (không fallback)' });
           reject(new ProviderQuotaError('antigravity', 'Antigravity', config.slug));

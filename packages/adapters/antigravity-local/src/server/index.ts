@@ -24,6 +24,16 @@ export {
   isAntigravityUnfinishedPromise,
 } from "./parse.js";
 export { defaultAgyCommand } from "./execute.js";
+export {
+  computeMaxAccountRotations,
+  getActiveAntigravityAccountEmail,
+  getAntigravityPoolAccountCount,
+  markAntigravityAccountHealthy,
+  resolveAgyAccountSwitcherScript,
+  rotateAntigravityAccountOnQuota,
+  type AntigravityAccountRotationResult,
+  type RotateAntigravityAccountOptions,
+} from "./account-rotation.js";
 export { DEFAULT_ANTIGRAVITY_FALLBACK_MODELS, DEFAULT_ANTIGRAVITY_MODEL } from "../index.js";
 import type { AdapterSessionCodec } from "@paperclipai/adapter-utils";
 

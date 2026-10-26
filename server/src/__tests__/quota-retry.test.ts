@@ -1,7 +1,9 @@
 import { describe, expect, it } from "vitest";
 import {
+  computeMaxAccountRotations,
   detectAntigravityQuotaExhausted,
   detectAntigravityTransientDisconnect,
+  rotateAntigravityAccountOnQuota,
 } from "@paperclipai/adapter-antigravity-local/server";
 import {
   QUOTA_RETRY_MAX_ATTEMPTS,
@@ -166,5 +168,99 @@ describe("planQuotaRetry — jitter (GEM-1009 retry herd)", () => {
     const d = delayMin(planQuotaRetry({ ...base, errorCode: "claude_weekly_limit", errorMeta: { resetsAt }, random: () => 0.9999 }));
     expect(d).toBeGreaterThanOrEqual(62);
     expect(d).toBeLessThan(65);
+  });
+});
+
+describe("rotateAntigravityAccountOnQuota & computeMaxAccountRotations (AGY-SW-003)", () => {
+  it("caps per-run account rotations to Math.min(10, totalAccounts - 1)", () => {
+    expect(computeMaxAccountRotations(0)).toBe(0);
+    expect(computeMaxAccountRotations(1)).toBe(0);
+    expect(computeMaxAccountRotations(2)).toBe(1);
+    expect(computeMaxAccountRotations(10)).toBe(9);
+    expect(computeMaxAccountRotations(15)).toBe(10);
+  });
+
+  it("rotates to the next ready Google account on 5h quota limit", async () => {
+    const res = await rotateAntigravityAccountOnQuota({
+      failedEmail: "acc1@gmail.com",
+      stderr: REAL_QUOTA_STDERR,
+      runId: "run-5h",
+      runner: async (_cmd, args) => {
+        expect(args).toContain("rotate-on-quota");
+        expect(args).toContain("--failed-email");
+        expect(args).toContain("acc1@gmail.com");
+        return {
+          exitCode: 0,
+          stdout: JSON.stringify({
+            rotated: true,
+            already_rotated_by_peer: false,
+            previous_email: "acc1@gmail.com",
+            new_email: "acc2@gmail.com",
+            label: "tk-02",
+            tier: "g1-ultra-tier",
+            limit_type: "5h",
+            previous_cooldown_until: "2026-10-26T22:00:00Z",
+            total_accounts: 10,
+            ready_accounts: 9,
+          }),
+          stderr: "",
+        };
+      },
+    });
+    expect(res.rotated).toBe(true);
+    expect(res.newEmail).toBe("acc2@gmail.com");
+    expect(res.limitType).toBe("5h");
+    expect(res.totalAccounts).toBe(10);
+    expect(res.readyAccounts).toBe(9);
+  });
+
+  it("handles weekly quota limit and returns rotated=false when all accounts are in cooldown", async () => {
+    const res = await rotateAntigravityAccountOnQuota({
+      failedEmail: "acc10@gmail.com",
+      stderr: "error: RESOURCE_EXHAUSTED: weekly usage limit reached",
+      runId: "run-weekly",
+      runner: async () => ({
+        exitCode: 2,
+        stdout: JSON.stringify({
+          rotated: false,
+          reason: "all_accounts_in_cooldown",
+          previous_email: "acc10@gmail.com",
+          limit_type: "weekly",
+          cooldown_until: "2026-11-02T10:00:00Z",
+          earliest_cooldown_until: "2026-10-26T20:00:00Z",
+          total_accounts: 10,
+          ready_accounts: 0,
+        }),
+        stderr: "",
+      }),
+    });
+    expect(res.rotated).toBe(false);
+    expect(res.exitCode).toBe(2);
+    expect(res.limitType).toBe("weekly");
+    expect(res.reason).toBe("all_accounts_in_cooldown");
+    expect(res.earliestCooldownUntil).toBe("2026-10-26T20:00:00Z");
+  });
+
+  it("recognizes concurrent rotation already performed by a peer worker", async () => {
+    const res = await rotateAntigravityAccountOnQuota({
+      failedEmail: "acc1@gmail.com",
+      stderr: REAL_QUOTA_STDERR,
+      runner: async () => ({
+        exitCode: 0,
+        stdout: JSON.stringify({
+          rotated: true,
+          already_rotated_by_peer: true,
+          previous_email: "acc1@gmail.com",
+          new_email: "acc3@gmail.com",
+          label: "tk-03",
+          total_accounts: 10,
+          ready_accounts: 8,
+        }),
+        stderr: "",
+      }),
+    });
+    expect(res.rotated).toBe(true);
+    expect(res.alreadyRotatedByPeer).toBe(true);
+    expect(res.newEmail).toBe("acc3@gmail.com");
   });
 });

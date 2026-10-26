@@ -383,8 +383,8 @@ export async function findAntigravityRunByTurnMarker(
   // work run as an empty-reply failure. Lesson: evolution-log/01-paperclip.md.
   let matchedNoReply: { brainId: string; entries: AntigravityNormEntry[]; turnOffset: number } | null = null;
   for (let attempt = 0; attempt < attempts; attempt++) {
-    const pinnedBrainId = matchedNoReply?.brainId || opts.knownBrainId || "";
-    const pinnedOffset = matchedNoReply ? matchedNoReply.turnOffset : (opts.fromOffset ?? 0);
+    const pinnedBrainId: string = matchedNoReply?.brainId || opts.knownBrainId || "";
+    const pinnedOffset: number = matchedNoReply ? matchedNoReply.turnOffset : (opts.fromOffset ?? 0);
     if (pinnedBrainId) {
       const direct = await readAntigravityRunEntries(pinnedBrainId, turnMarker, pinnedOffset);
       if (direct.found && direct.reply) {

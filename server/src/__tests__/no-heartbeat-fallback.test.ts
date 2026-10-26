@@ -24,4 +24,11 @@ describe("heartbeat agent: no fallback", () => {
     expect(idx).toMatch(/DEFAULT_ANTIGRAVITY_FALLBACK_MODELS: readonly string\[\] = \[\];/);
     expect(read("packages/adapters/antigravity-local/src/server/parse.ts")).not.toMatch(/resolveAntigravityModelChain/);
   });
+
+  it("xoay vòng tài khoản Google khi hết quota vẫn giữ nguyên attemptModel (không đổi model hay provider)", () => {
+    const src = read("packages/adapters/antigravity-local/src/server/execute.ts");
+    expect(src).toMatch(/const modelChain = \[model\];/);
+    expect(src).toMatch(/rotateAntigravityAccountOnQuota\(/);
+    expect(src).toMatch(/attempt = await runAttempt\(conversationId, attemptModel\);/);
+  });
 });

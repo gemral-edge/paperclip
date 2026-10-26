@@ -22,6 +22,10 @@ import {
   parseAntigravityStdout,
 } from "./parse.js";
 import { firstNonEmptyLine } from "./utils.js";
+import {
+  getActiveAntigravityAccountEmail,
+  rotateAntigravityAccountOnQuota,
+} from "./account-rotation.js";
 
 function summarizeStatus(checks: AdapterEnvironmentCheck[]): AdapterEnvironmentTestResult["status"] {
   if (checks.some((check) => check.level === "error")) return "fail";
@@ -120,7 +124,8 @@ export async function testEnvironment(
       if (model) args.push("--model", model);
       if (extraArgs.length > 0) args.push(...extraArgs);
 
-      const probe = await runChildProcess(
+      const initialAccountEmail = getActiveAntigravityAccountEmail();
+      let probe = await runChildProcess(
         `antigravity-envtest-${ctx.adapterType}`,
         command,
         args,
@@ -132,6 +137,29 @@ export async function testEnvironment(
           onLog: async () => {},
         },
       );
+      let rotatedToEmail: string | null = null;
+      if (detectAntigravityQuotaExhausted({ stdout: probe.stdout, stderr: probe.stderr }).exhausted) {
+        const rot = await rotateAntigravityAccountOnQuota({
+          failedEmail: initialAccountEmail,
+          stderr: probe.stderr,
+          cwd,
+        });
+        if (rot.rotated) {
+          rotatedToEmail = rot.newEmail ?? null;
+          probe = await runChildProcess(
+            `antigravity-envtest-rot-${ctx.adapterType}`,
+            command,
+            args,
+            {
+              cwd,
+              env,
+              timeoutSec: helloProbeTimeoutSec,
+              graceSec: 5,
+              onLog: async () => {},
+            },
+          );
+        }
+      }
       const parsed = parseAntigravityStdout(probe.stdout);
       const detail = summarizeProbeDetail(probe.stdout, probe.stderr);
       const authMeta = detectAntigravityAuthRequired({ stdout: probe.stdout, stderr: probe.stderr });
@@ -141,9 +169,9 @@ export async function testEnvironment(
         checks.push({
           code: "antigravity_hello_probe_quota_exhausted",
           level: "warn",
-          message: "Antigravity authentication is configured, but the Google AI Ultra quota is exhausted.",
+          message: "Antigravity authentication is configured, but the Google AI Ultra quota is exhausted across all ready pool accounts.",
           ...(detail ? { detail } : {}),
-          hint: "Wait for the Ultra quota to reset, or switch the agent to another provider in the UI.",
+          hint: "Wait for the Ultra quota to reset, or add another account via `python scripts/agy_account_switcher.py login-new`.",
         });
       } else if (probe.timedOut) {
         checks.push({
@@ -159,7 +187,9 @@ export async function testEnvironment(
           code: hasHello ? "antigravity_hello_probe_passed" : "antigravity_hello_probe_unexpected_output",
           level: hasHello ? "info" : "warn",
           message: hasHello
-            ? "Antigravity hello probe succeeded."
+            ? rotatedToEmail
+              ? `Antigravity hello probe succeeded after auto-rotating to ${rotatedToEmail}.`
+              : "Antigravity hello probe succeeded."
             : "Antigravity probe ran but did not return `hello` as expected.",
           ...(summary ? { detail: summary.replace(/\s+/g, " ").trim().slice(0, 240) } : {}),
         });
