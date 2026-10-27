@@ -33,6 +33,7 @@ import { instanceSettingsService } from "./instance-settings.js";
 import { redactCurrentUserText } from "../log-redaction.js";
 import { resolveIssueGoalId, resolveNextIssueGoalId } from "./issue-goal-fallback.js";
 import { getDefaultCompanyGoal } from "./goals.js";
+import { uuidAny } from "./sql-any.js";
 
 const ALL_ISSUE_STATUSES = ["backlog", "todo", "in_progress", "in_review", "blocked", "done", "cancelled"];
 const MAX_ISSUE_COMMENT_PAGE_LIMIT = 500;
@@ -394,7 +395,7 @@ async function labelMapForIssues(dbOrTx: any, issueIds: string[]): Promise<Map<s
     })
     .from(issueLabels)
     .innerJoin(labels, eq(issueLabels.labelId, labels.id))
-    .where(inArray(issueLabels.issueId, issueIds))
+    .where(uuidAny(issueLabels.issueId, issueIds))
     .orderBy(asc(labels.name), asc(labels.id));
 
   for (const row of rows) {
@@ -444,7 +445,7 @@ async function activeRunMapForIssues(
     .from(heartbeatRuns)
     .where(
       and(
-        inArray(heartbeatRuns.id, runIds),
+        uuidAny(heartbeatRuns.id, runIds),
         inArray(heartbeatRuns.status, ACTIVE_RUN_STATUSES),
       ),
     );
@@ -565,7 +566,7 @@ export function issueService(db: Db) {
     const existing = await dbOrTx
       .select({ id: labels.id })
       .from(labels)
-      .where(and(eq(labels.companyId, companyId), inArray(labels.id, labelIds)));
+      .where(and(eq(labels.companyId, companyId), uuidAny(labels.id, labelIds)));
     if (existing.length !== new Set(labelIds).size) {
       throw unprocessable("One or more labels are invalid for this company");
     }
@@ -697,7 +698,7 @@ export function issueService(db: Db) {
           .from(issueLabels)
           .where(and(eq(issueLabels.companyId, companyId), eq(issueLabels.labelId, filters.labelId)));
         if (labeledIssueIds.length === 0) return [];
-        conditions.push(inArray(issues.id, labeledIssueIds.map((row) => row.issueId)));
+        conditions.push(uuidAny(issues.id, labeledIssueIds.map((row) => row.issueId)));
       }
       if (hasSearch) {
         conditions.push(
@@ -763,7 +764,7 @@ export function issueService(db: Db) {
         .where(
           and(
             eq(issueComments.companyId, companyId),
-            inArray(issueComments.issueId, issueIds),
+            uuidAny(issueComments.issueId, issueIds),
           ),
         )
         .groupBy(issueComments.issueId);
@@ -777,7 +778,7 @@ export function issueService(db: Db) {
           and(
             eq(issueReadStates.companyId, companyId),
             eq(issueReadStates.userId, contextUserId),
-            inArray(issueReadStates.issueId, issueIds),
+            uuidAny(issueReadStates.issueId, issueIds),
           ),
         );
       const statsByIssueId = new Map(statsRows.map((row) => [row.issueId, row]));
@@ -1223,13 +1224,13 @@ export function issueService(db: Db) {
         if (removedIssue && attachmentAssetIds.length > 0) {
           await tx
             .delete(assets)
-            .where(inArray(assets.id, attachmentAssetIds.map((row) => row.assetId)));
+            .where(uuidAny(assets.id, attachmentAssetIds.map((row) => row.assetId)));
         }
 
         if (removedIssue && issueDocumentIds.length > 0) {
           await tx
             .delete(documents)
-            .where(inArray(documents.id, issueDocumentIds.map((row) => row.documentId)));
+            .where(uuidAny(documents.id, issueDocumentIds.map((row) => row.documentId)));
         }
 
         if (!removedIssue) return null;
@@ -1911,7 +1912,7 @@ export function issueService(db: Db) {
         .where(
           and(
             eq(projects.companyId, issue.companyId),
-            inArray(projects.id, [...mentionedIds]),
+            uuidAny(projects.id, [...mentionedIds]),
           ),
         );
       const valid = new Set(rows.map((row) => row.id));
@@ -1988,7 +1989,7 @@ export function issueService(db: Db) {
         const workspaceRows = await db
           .select()
           .from(projectWorkspaces)
-          .where(inArray(projectWorkspaces.projectId, projectIds))
+          .where(uuidAny(projectWorkspaces.projectId, projectIds))
           .orderBy(desc(projectWorkspaces.isPrimary), asc(projectWorkspaces.createdAt), asc(projectWorkspaces.id));
         const workspaceMap = new Map<string, Array<(typeof workspaceRows)[number]>>();
         for (const workspace of workspaceRows) {
@@ -2000,7 +2001,7 @@ export function issueService(db: Db) {
         const rows = await db.select({
           id: projects.id, name: projects.name, description: projects.description,
           status: projects.status, goalId: projects.goalId,
-        }).from(projects).where(inArray(projects.id, projectIds));
+        }).from(projects).where(uuidAny(projects.id, projectIds));
         for (const r of rows) {
           const projectWorkspaceRows = workspaceMap.get(r.id) ?? [];
           const workspaces = projectWorkspaceRows.map((workspace) => ({
@@ -2031,7 +2032,7 @@ export function issueService(db: Db) {
         const rows = await db.select({
           id: goals.id, title: goals.title, description: goals.description,
           level: goals.level, status: goals.status,
-        }).from(goals).where(inArray(goals.id, goalIds));
+        }).from(goals).where(uuidAny(goals.id, goalIds));
         for (const r of rows) goalMap.set(r.id, r);
       }
 
