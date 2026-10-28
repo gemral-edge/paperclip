@@ -152,7 +152,11 @@ export async function resolveAgent(msg: InboundMessage): Promise<string> {
   }
 
   // ── Tier 3: Channel default agent ──
-  const cacheKey = msg.channel;
+  // 29/10 chị Jennie: chat gemral.com (đăng nhập hay chưa) đều do agent của kênh `cskh-web` trả lời;
+  // `cskh-internal` chỉ còn giữ app gem-mobile. cskh-inbound ghi metadata.source = 'mobile' | 'web'.
+  // Phiên/hộp thư vẫn ở `cskh-internal` (owner reply, bot-toggle không đổi) — chỉ đổi agent trả lời.
+  const routeChannel = msg.channel === 'cskh-internal' && msg.metadata?.source === 'web' ? 'cskh-web' : msg.channel;
+  const cacheKey = routeChannel;
   const cached = agentCache.get(cacheKey);
 
   if (cached && cached.expiresAt > Date.now()) {
@@ -162,7 +166,7 @@ export async function resolveAgent(msg: InboundMessage): Promise<string> {
   const { data: instance } = await supabase
     .from('channel_instances')
     .select('agent_slug')
-    .eq('name', msg.channel)
+    .eq('name', routeChannel)
     .single();
 
   const slug = instance?.agent_slug || '';
