@@ -1917,6 +1917,40 @@ router.post('/:slug/test', async (req, res) => {
     return;
   }
 
+  // ── Live Persona Terminal ASYNC REPLY (LVT-013, 28/10) ── Đường dùng chung cho các trang nhân vật trực live
+  // (moon-keeper-reply, jennie-desk-reply, *-reply). Edge fn `live-terminal-reply` gửi header x-lt-reply-of (id tin khách)
+  // → 202 NGAY, chạy agent nền, xong gọi RPC live_terminal_post_bot_reply (lọc cứng + chống trùng theo reply_of).
+  const ltReplyOf = String(req.headers['x-lt-reply-of'] || '').trim();
+  if (ltReplyOf && slug.endsWith('-reply') && trainingSessionId?.startsWith('ltreply:')) {
+    const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    if (!UUID_RE.test(ltReplyOf) || !hasText) {
+      return res.status(400).json({ error: 'invalid live terminal reply job' });
+    }
+    const callerAgyTimeoutLt = agyCallerTimeoutMs(req.headers['x-agy-timeout-ms']);
+    if (callerAgyTimeoutLt) (config as any)._agyTimeoutMs = callerAgyTimeoutLt;
+    res.status(202).json({ accepted: true, reply_of: ltReplyOf });
+    void (async () => {
+      let reply = '';
+      try {
+        reply = ((await AgentRouter.runAgentWithConfig(
+          config as AgentConfig,
+          `training:${slug}:${trainingSessionId}`,
+          message || '',
+        )) || '').trim();
+      } catch (err: any) {
+        console.error(`[AgentTest/lt] ${slug} reply_of ${ltReplyOf} failed: ${err?.message || err}`);
+      }
+      if (!reply || reply.toUpperCase() === 'SKIP') {
+        console.log(`[AgentTest/lt] ${slug} reply_of ${ltReplyOf} no reply (${reply ? 'SKIP' : 'empty'})`);
+        return;
+      }
+      const { data, error } = await supabase.rpc('live_terminal_post_bot_reply', { p_reply_of: ltReplyOf, p_text: reply });
+      if (error) console.error(`[AgentTest/lt] ${slug} post reply_of ${ltReplyOf} failed: ${error.message}`);
+      else console.log(`[AgentTest/lt] ${slug} reply_of ${ltReplyOf} ${data} after ${Date.now() - startTime}ms`);
+    })();
+    return;
+  }
+
   // Hủy ngay subprocess CLI (agy/gemini/claude) khi caller (vd: gemini-proxy ở 38–53.5s)
   // đóng kết nối HTTP sớm, chống chạy mồ côi tới 300s rồi đốt oan fallback claude-sonnet-4-6
   // vào socket đã đóng (GEM-1427 / OPS-1014-S1-05).
