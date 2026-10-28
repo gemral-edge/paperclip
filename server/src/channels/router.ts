@@ -3334,9 +3334,9 @@ async function buildSystemPrompt(
   tryLoad(pathResolve(agentsDir, 'TOOLS.md'), 'CÔNG CỤ');
   tryLoad(pathResolve(agentsDir, 'HEARTBEAT.md'), 'HEARTBEAT CHECKLIST');
 
-  // 1.5. Tone profile (how to talk to owner)
-  const toneProfilePath = pathResolve(projectRoot, 'memory', 'agents', config.slug, 'tone-profile.md');
-  tryLoad(toneProfilePath, 'TONE VỚI OWNER');
+  // 1.5. (bỏ 28/10/2026) Giọng + correction chị dạy giờ sống ở SOUL.md §🗣️ (đã nạp ở PERSONA bên trên).
+  // memory/agents/<slug>/tone-profile.md đã gộp nguyên văn vào SOUL.md và gỡ — không nạp nữa
+  // (máy gác crypto-pattern-scanner scripts/audit_agent_tone_profile.py).
 
   // 2. Agent memory (tacit knowledge)
   const agentMemoryPath = pathResolve(projectRoot, 'memory', 'agents', config.slug, 'MEMORY.md');
