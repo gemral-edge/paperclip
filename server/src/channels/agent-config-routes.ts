@@ -1883,6 +1883,40 @@ router.post('/:slug/test', async (req, res) => {
     return;
   }
 
+  // ── QuAnt Trader Pit ASYNC REPLY (28/10) ── Cùng lý do Gem Master (tunnel cắt ~125s, agy trả lời
+  // tin Pit đo 140s). Edge fn `quant-pit-reply` gửi header x-pit-reply-of (id tin khách) → 202 NGAY,
+  // chạy agent nền, xong gọi RPC quant_post_bot_reply (lọc cứng + chống trùng theo reply_of ở DB).
+  const pitReplyOf = String(req.headers['x-pit-reply-of'] || '').trim();
+  if (pitReplyOf && slug === 'quant-pit-reply' && trainingSessionId?.startsWith('quantpit:')) {
+    const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    if (!UUID_RE.test(pitReplyOf) || !hasText) {
+      return res.status(400).json({ error: 'invalid pit reply job' });
+    }
+    const callerAgyTimeoutPit = agyCallerTimeoutMs(req.headers['x-agy-timeout-ms']);
+    if (callerAgyTimeoutPit) (config as any)._agyTimeoutMs = callerAgyTimeoutPit;
+    res.status(202).json({ accepted: true, reply_of: pitReplyOf });
+    void (async () => {
+      let reply = '';
+      try {
+        reply = ((await AgentRouter.runAgentWithConfig(
+          config as AgentConfig,
+          `training:${slug}:${trainingSessionId}`,
+          message || '',
+        )) || '').trim();
+      } catch (err: any) {
+        console.error(`[AgentTest/pit] reply_of ${pitReplyOf} failed: ${err?.message || err}`);
+      }
+      if (!reply || reply.toUpperCase() === 'SKIP') {
+        console.log(`[AgentTest/pit] reply_of ${pitReplyOf} no reply (${reply ? 'SKIP' : 'empty'})`);
+        return;
+      }
+      const { data, error } = await supabase.rpc('quant_post_bot_reply', { p_reply_of: pitReplyOf, p_text: reply });
+      if (error) console.error(`[AgentTest/pit] post reply_of ${pitReplyOf} failed: ${error.message}`);
+      else console.log(`[AgentTest/pit] reply_of ${pitReplyOf} ${data} after ${Date.now() - startTime}ms`);
+    })();
+    return;
+  }
+
   // Hủy ngay subprocess CLI (agy/gemini/claude) khi caller (vd: gemini-proxy ở 38–53.5s)
   // đóng kết nối HTTP sớm, chống chạy mồ côi tới 300s rồi đốt oan fallback claude-sonnet-4-6
   // vào socket đã đóng (GEM-1427 / OPS-1014-S1-05).
