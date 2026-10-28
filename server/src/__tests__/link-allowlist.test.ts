@@ -76,3 +76,25 @@ describe('AGENT_LINK_SOURCES', () => {
     }
   });
 });
+
+// 29/10: hướng dẫn Edge ghi đường dẫn ngắn (/edge/connect) → link gemral.com tương ứng hợp lệ; link bịa vẫn bị bỏ.
+import { guideLinks } from '../channels/link-allowlist.js';
+
+describe('link allowlist (đường dẫn ngắn trong hướng dẫn)', () => {
+  const md = '## Use Edge in Claude: /edge/connect\nAPI docs: /edge/api-docs. Status: /edge/status.';
+  const allow = allowedLinksFromHtml(guideLinks([md], ['https://www.gemral.com', 'https://gemral.com']).join('\n'), null);
+
+  it('giữ link có trong hướng dẫn, kể cả không www', () => {
+    const s = 'Open https://www.gemral.com/edge/connect\nDocs: https://gemral.com/edge/api-docs';
+    expect(stripUnlistedLinks(s, allow).removed).toEqual([]);
+  });
+
+  it('vẫn bỏ link bịa không có trong hướng dẫn', () => {
+    const r = stripUnlistedLinks('Go to https://www.gemral.com/edge/made-up-page', allow);
+    expect(r.removed).toEqual(['https://www.gemral.com/edge/made-up-page']);
+  });
+
+  it('không nhặt nhầm phần đường dẫn của URL đầy đủ', () => {
+    expect(guideLinks(['see https://example.com/edge/x'], ['https://www.gemral.com'])).toEqual([]);
+  });
+});

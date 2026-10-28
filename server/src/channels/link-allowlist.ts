@@ -3,7 +3,7 @@
 // Không kiểm sống/chết bằng HTTP được (Instagram trả 200 mọi đường dẫn) → kiểm theo danh sách nguồn.
 // Thêm agent = thêm 1 dòng AGENT_LINK_SOURCES.
 
-import { readFileSync } from 'node:fs';
+import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 const LINK_REGISTRY = 'memory/sops/DOC-HTML/reference_and_policies/REF-PRODUCT-CATALOG.md';
@@ -15,6 +15,9 @@ interface LinkSource {
   inline: boolean;
   /** Gốc site của chính agent — mọi đường dẫn dưới gốc này đều hợp lệ (trang tĩnh nhỏ, tự kiểm soát). */
   siteOrigin: string | null;
+  /** 29/10: bộ hướng dẫn ghi đường dẫn ngắn (/edge/connect) — mọi file trong thư mục có tên bắt đầu bằng prefix,
+   *  đường dẫn ngắn trong đó ghép với từng origin thành link hợp lệ. Link ngoài danh sách vẫn bị chặn. */
+  guidePaths?: { dir: string; prefix: string; origins: string[] };
 }
 
 export const AGENT_LINK_SOURCES: Record<string, LinkSource> = {
@@ -24,8 +27,22 @@ export const AGENT_LINK_SOURCES: Record<string, LinkSource> = {
   'jennie-support': { files: [LINK_REGISTRY], inline: true, siteOrigin: 'https://jennie.yinyangmasters.com' },
   'sales-closer': { files: [LINK_REGISTRY], inline: true, siteOrigin: null },
   'yinyang-support': { files: [LINK_REGISTRY], inline: true, siteOrigin: null },
-  'edge-sales-closer': { files: [LINK_REGISTRY], inline: true, siteOrigin: null },
+  'edge-sales-closer': {
+    files: [LINK_REGISTRY], inline: true, siteOrigin: null,
+    guidePaths: { dir: 'memory/sops/DOC-HTML/user_guides', prefix: 'UG-EDGE-', origins: ['https://www.gemral.com', 'https://gemral.com'] },
+  },
 };
+
+const REL_PATH_RE = /(?<![\w./:-])\/[a-z][\w-]*(?:\/[\w.-]+)*/gi;
+
+/** Đường dẫn ngắn trong bộ hướng dẫn → link đầy đủ theo từng origin. */
+export function guideLinks(texts: string[], origins: string[]): string[] {
+  const out: string[] = [];
+  for (const t of texts) {
+    for (const m of t.matchAll(REL_PATH_RE)) for (const o of origins) out.push(o + m[0]);
+  }
+  return out;
+}
 
 /** Link hệ thống tự sinh, luôn hợp lệ: ảnh/tệp kho Supabase công khai (media gửi khách). */
 const TRUSTED_PREFIXES = ['https://pgfkbcnzqozzkohwbgbk.supabase.co/storage/v1/object/public/'];
@@ -100,6 +117,15 @@ export function loadAgentLinkAllowlist(slug: string, projectRoot: string): LinkA
   for (const f of files) {
     try { texts.push(readFileSync(join(projectRoot, f), 'utf8')); }
     catch { console.warn(`[Router/links] ${slug}: thiếu file nguồn link ${f}`); }
+  }
+  if (src.guidePaths) {
+    const g = src.guidePaths;
+    try {
+      const guideTexts = readdirSync(join(projectRoot, g.dir))
+        .filter((f) => f.startsWith(g.prefix) && f.endsWith('.md'))
+        .map((f) => readFileSync(join(projectRoot, g.dir, f), 'utf8'));
+      texts.push(guideLinks(guideTexts, g.origins).join('\n'));
+    } catch { console.warn(`[Router/links] ${slug}: không đọc được thư mục hướng dẫn ${g.dir}`); }
   }
   const allow = texts.length ? allowedLinksFromHtml(texts.join('\n'), src.siteOrigin) : null;
   cache.set(slug, { at: Date.now(), allow });
