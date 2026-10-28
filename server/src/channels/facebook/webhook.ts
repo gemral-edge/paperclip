@@ -490,7 +490,12 @@ router.post('/send', async (req: Request, res: Response) => {
     return;
   }
 
-  const bodyText = typeof message === 'string' ? message : JSON.stringify(message);
+  // Tin ảnh (Graph `{attachment:{type:'image',payload:{url}}}`) → ghi sổ đúng loại 'image' + media[url]
+  // để hộp thư hiện ẢNH (ChatPanel ẩn body khi content_type=image có media), không hiện chuỗi JSON.
+  // body = '[đính kèm]' khớp đúng body của echo ảnh (handleEchoEvent lớp b body-match).
+  const imageUrl: string | null = typeof message === 'object' && message?.attachment?.type === 'image'
+    && typeof message.attachment.payload?.url === 'string' ? message.attachment.payload.url : null;
+  const bodyText = typeof message === 'string' ? message : imageUrl ? '[đính kèm]' : JSON.stringify(message);
 
   // CLAIM-BEFORE-SEND (fail-closed, plan §5.2 + Codex R1-F2): ghi row 'sending' TRƯỚC Graph.
   //  - Echo message_echoes có thể về TRƯỚC → lớp (b) body-match tra trúng row này ⇒ KHÔNG ghi 'manual_fb'.
@@ -503,7 +508,8 @@ router.post('/send', async (req: Request, res: Response) => {
     thread_type: 'dm',
     to_uid: recipient_id,
     body: bodyText,
-    content_type: 'text',
+    content_type: imageUrl ? 'image' : 'text',
+    ...(imageUrl ? { media: [imageUrl] } : {}),
     status: 'sending',
     sent_by: sent_by || 'api',
   }).select('id').single();
