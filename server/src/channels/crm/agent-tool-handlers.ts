@@ -89,6 +89,7 @@ export async function resolveToolContextFromEnv(supabase: SupabaseClient): Promi
 export const GATED_TOOL_NAMES = new Set([
   'get_customer_info',
   'check_course_access',
+  'check_edge_access',
   'link_gemral_account',
   'crm_update',
   'send_email',

@@ -36,6 +36,7 @@ import {
   handleLinkGemral,
   handleSearchKnowledge,
 } from './crm/mcp-server.js';
+import { handleCheckEdgeAccess } from './crm/edge-access.js';
 import {
   handleVerifyCustomerIdentity,
   handleLookupOrderShopify,
@@ -68,6 +69,7 @@ export const ALLOWED_TOOLS = [
   // Identity-gated
   'get_customer_info',
   'check_course_access',
+  'check_edge_access',
   'link_gemral_account',
   'crm_update',
   'send_email',
@@ -243,6 +245,9 @@ export function renderToolCatalogForPrompt(_agentSlug: string): string {
     '4. check_course_access({"customer_id":"<uuid>","course_id":"<uuid_optional>"})',
     '   → Course enrollments + tier app Gemral của khách.',
     '',
+    '4b. check_edge_access({"customer_id":"<uuid>"})',
+    '   → Gói Gemral Edge của khách (plan, trạng thái, kỳ hạn, hết hạn, dùng thử, đổi gói gần nhất, Scanner tier, có API key). Đọc-only.',
+    '',
     '5. link_gemral_account({"customer_id":"<uuid>","email":"..."} hoặc {"phone":"..."})',
     '   → Liên kết CRM customer với account app Gemral qua email/SĐT.',
     '',
@@ -316,7 +321,7 @@ export async function executeTool(call: ToolCall, ctx: ToolExecutionContext): Pr
 
   // Auto-inject verified customer_id when caller forgot to pass it
   if (isGatedTool(call.name) && ctx.verifiedCustomerId && !call.args.customer_id) {
-    if (['get_customer_info', 'check_course_access', 'link_gemral_account', 'crm_update', 'create_order', 'recall_memory'].includes(call.name)) {
+    if (['get_customer_info', 'check_course_access', 'check_edge_access', 'link_gemral_account', 'crm_update', 'create_order', 'recall_memory'].includes(call.name)) {
       call.args.customer_id = ctx.verifiedCustomerId;
     }
   }
@@ -344,6 +349,9 @@ export async function executeTool(call: ToolCall, ctx: ToolExecutionContext): Pr
         break;
       case 'recall_memory':
         result = adaptShared(await handleRecallMemory(call.args, sharedCtx));
+        break;
+      case 'check_edge_access':
+        result = adaptShared(await handleCheckEdgeAccess(call.args, sharedCtx));
         break;
       case 'kg_lookup_entity':
         result = adaptShared(await handleKgLookupEntity(call.args, sharedCtx));

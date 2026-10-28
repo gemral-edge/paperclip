@@ -247,6 +247,17 @@ const TOOLS = [
     },
   },
   {
+    name: 'check_edge_access',
+    description: 'Tra gói Gemral Edge của CHÍNH khách đang chat (đọc-only): gói, trạng thái, kỳ hạn, ngày gia hạn/hết hạn, dùng thử, lịch sử đổi gói gần nhất, Scanner tier, có API key hay không (không trả key). PRECONDITION: verify_customer_identity.',
+    inputSchema: {
+      type: 'object' as const,
+      properties: {
+        customer_id: { type: 'string', description: 'CRM customer_id (auto-inject từ verified state nếu thiếu)' },
+        email: { type: 'string', description: 'Email của chính khách này (tùy chọn, phải khớp hồ sơ CRM)' },
+      },
+    },
+  },
+  {
     name: 'kg_lookup_entity',
     description: 'Tra Knowledge Graph entity (sản phẩm, khóa học, khái niệm) theo name hoặc id. PUBLIC tool — không cần verify.',
     inputSchema: {
@@ -960,6 +971,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
 }));
 
 // ── 5 NEW shared tools — single source of truth in crm/agent-tool-handlers.ts ──
+import { handleCheckEdgeAccess } from './edge-access.js';
 import {
   resolveToolContextFromEnv,
   checkIdentityGate,
@@ -991,7 +1003,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
     // env vars (PAPERCLIP_SESSION_KEY etc) so identity gate state is honored
     // even though Claude/Gemini CLI re-spawn this process per request.
     const SHARED_TOOL_NAMES = new Set([
-      'verify_customer_identity', 'lookup_order', 'lookup_order_shopify', 'recall_memory',
+      'verify_customer_identity', 'lookup_order', 'lookup_order_shopify', 'recall_memory', 'check_edge_access',
       'kg_lookup_entity', 'kg_traverse',
     ]);
 
@@ -1012,6 +1024,9 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
             break;
           case 'recall_memory':
             shared = await handleRecallMemory(args || {}, ctx);
+            break;
+          case 'check_edge_access':
+            shared = await handleCheckEdgeAccess(args || {}, ctx);
             break;
           case 'kg_lookup_entity':
             shared = await handleKgLookupEntity(args || {}, ctx);
