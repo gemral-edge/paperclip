@@ -1340,10 +1340,15 @@ async function runViaAntigravity(
   const conversationId =
     (config.conversation_id || '').trim() || (sessionKey || '').trim() || `agy-${config.slug}`;
 
+  // 29/10: agent `"sandbox": true` — không khối "NATIVE MCP tools … override", chạy thư mục tạm ngoài dự án
+  // (agy không tự nạp GEMINI.md/AGENTS.md của dự án), môi trường không khoá (sandboxedChildEnv).
+  const sandboxed = isSandboxedReplyAgent(config.slug);
   const mediaLib = loadMediaLibrary(config.slug);
-  const augmentedSystemPrompt = systemPrompt
-    ? [systemPrompt, buildProviderOverride(config.slug, mediaLib)].join('\n')
-    : buildProviderOverride(config.slug, mediaLib);
+  const augmentedSystemPrompt = sandboxed
+    ? systemPrompt
+    : systemPrompt
+      ? [systemPrompt, buildProviderOverride(config.slug, mediaLib)].join('\n')
+      : buildProviderOverride(config.slug, mediaLib);
 
   // ── AUDIENCE hardening (incident 2026-08-11 operator-report leak) ──
   // agy loads the GLOBAL dev rule files (~/.gemini + workspace GEMINI/AGENTS.md,
@@ -1373,7 +1378,8 @@ async function runViaAntigravity(
     ? [audienceBlock, '', augmentedSystemPrompt, '', buildFullPrompt(history, '')].join('\n')
     : [audienceBlock, '', buildFullPrompt(history, '')].join('\n');
 
-  const tmpDir = pathJoin(PROJECT_ROOT, '.gemini', 'tmp');
+  const workDir = sandboxed ? pathJoin(tmpdir(), 'paperclip-reply-sandbox', config.slug) : PROJECT_ROOT;
+  const tmpDir = sandboxed ? workDir : pathJoin(PROJECT_ROOT, '.gemini', 'tmp');
   mkdirSync(tmpDir, { recursive: true });
   // Filename is the per-run turnMarker — must be unique + present in the prompt.
   const promptFileName = `agy_reply_${config.slug}_${Date.now()}.md`;
@@ -1440,8 +1446,11 @@ async function runViaAntigravity(
     // agy is a real .exe → spawnHidden spawns it directly (full path resolved).
     // No stdin (agy reads the prompt from the -p arg / file pointer).
     const child = spawnHidden(agy, args, {
-      cwd: PROJECT_ROOT,
-      env: {
+      cwd: workDir,
+      env: sandboxed ? {
+        ...sandboxedChildEnv(process.env),
+        PAPERCLIP_AGENT_SLUG: config.slug,
+      } : {
         ...childEnvWithoutGeminiApi(process.env),
         GEMRAL_SUPABASE_URL: process.env.GEMRAL_SUPABASE_URL || '',
         GEMRAL_SUPABASE_SERVICE_KEY: process.env.GEMRAL_SUPABASE_SERVICE_KEY || '',
@@ -3277,6 +3286,29 @@ export function isCustomerFacingAgent(agentDir: string): boolean {
   }
 }
 
+/** Agent trả lời khách khai `"sandbox": true` trong agent.meta.json (29/10, rà bảo mật live-terminal):
+ *  chạy agy trong thư mục tạm NGOÀI dự án, môi trường không mang khoá, prompt không có khối MCP/mục tiêu.
+ *  Chỉ bật cho agent không cần công cụ (mọi ngữ cảnh đã nạp sẵn trong prompt) — CSKH/Gem Master giữ nguyên. */
+export function isSandboxedReplyAgent(slug: string): boolean {
+  try {
+    const dir = pathResolve(process.env.AGENTS_DIR || pathResolve(PROJECT_ROOT, 'agents'), slug);
+    const meta = JSON.parse(readFileSync(pathResolve(dir, 'agent.meta.json'), 'utf-8'));
+    return meta?.type === 'reply' && meta?.sandbox === true;
+  } catch {
+    return false;
+  }
+}
+
+/** Môi trường cho agy chạy riêng: bỏ mọi biến mang khoá/bí mật, giữ biến hệ điều hành agy cần để chạy. */
+export function sandboxedChildEnv(base: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
+  const SECRET_RE = /(KEY|SECRET|TOKEN|PASSWORD|PASSWD|CREDENTIAL|SUPABASE|SHOPIFY|RESEND|STRIPE|DATABASE_URL|DIRECT_URL|PAPERCLIP_API)/i;
+  const out: NodeJS.ProcessEnv = {};
+  for (const [k, v] of Object.entries(childEnvWithoutGeminiApi(base))) {
+    if (!SECRET_RE.test(k)) out[k] = v;
+  }
+  return out;
+}
+
 async function buildSystemPrompt(
   config: AgentConfig,
   customerContext?: any,
@@ -3344,8 +3376,13 @@ async function buildSystemPrompt(
 
   // 2.5 Company Goals and Directions — SSOT live from Supabase `goals` table.
   // File fallback (memory/goals.md) only used if DB returns nothing.
-  const dbGoals = await fetchCompanyGoalsBlock(companyId);
-  if (dbGoals.block) {
+  // 29/10: agent chạy riêng (sandbox) KHÔNG nhận mục tiêu doanh thu nội bộ (lộ số + đẩy agent chào bán).
+  // CSKH/Gem Master giữ nguyên theo yêu cầu chị Jennie (cần ngữ cảnh chung).
+  const sandboxed = isSandboxedReplyAgent(config.slug);
+  const dbGoals = sandboxed ? { block: '', count: 0 } : await fetchCompanyGoalsBlock(companyId);
+  if (sandboxed) {
+    // không nạp cả bản file dự phòng memory/goals.md
+  } else if (dbGoals.block) {
     parts.push(dbGoals.block);
     loadedFiles.push(`DB goals (${dbGoals.count} live)`);
   } else {
@@ -3438,8 +3475,9 @@ async function buildSystemPrompt(
     ].filter(Boolean).join('\n'));
   }
 
-  // 6. Chat-specific rules
-  parts.push([
+  // 6. Chat-specific rules — agent chạy riêng theo ENGINE MODE trong system_prompt (không công cụ, 1 câu),
+  // khối này ("Bạn CÓ MCP tools", "2-4 câu", "chuyển chuyên viên") mâu thuẫn hợp đồng của nó → bỏ.
+  if (!sandboxed) parts.push([
     '# QUY TẮC CHAT',
     '- Đây là tin nhắn từ khách hàng qua kênh chat (Zalo / Facebook / chat trên web). Trả lời TRỰC TIẾP.',
     '- NHẮN NGẮN 2-4 câu. Thân thiện. Trả lời bằng đúng ngôn ngữ khách đang dùng (tiếng Anh → tiếng Anh, tiếng Việt → tiếng Việt có dấu đầy đủ, tiếng Trung → tiếng Trung).',
