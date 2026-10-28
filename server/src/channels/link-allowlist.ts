@@ -19,7 +19,9 @@ interface LinkSource {
 
 export const AGENT_LINK_SOURCES: Record<string, LinkSource> = {
   // Trang Jennie + bảng link chung (khách hỏi Gemral thì được đưa link forum/Telegram/app — chị chốt 14/10).
-  'jennie-support': { files: ['jennie-web/index.html', LINK_REGISTRY], inline: false, siteOrigin: 'https://jennie.yinyangmasters.com' },
+  // 29/10: trang Jennie chuyển từ jennie-web/index.html (đã xoá 28/10) sang yinyang-web/content/jennie/copy.json —
+  // đọc qua _INLINE.json (inline: true) để file nguồn đổi thì chốt đổi theo, không trỏ cứng file chết.
+  'jennie-support': { files: [LINK_REGISTRY], inline: true, siteOrigin: 'https://jennie.yinyangmasters.com' },
   'sales-closer': { files: [LINK_REGISTRY], inline: true, siteOrigin: null },
   'yinyang-support': { files: [LINK_REGISTRY], inline: true, siteOrigin: null },
   'edge-sales-closer': { files: [LINK_REGISTRY], inline: true, siteOrigin: null },
