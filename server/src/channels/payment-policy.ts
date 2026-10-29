@@ -12,11 +12,12 @@ import { dirname, join } from 'node:path';
 
 /** Agent slugs the prepay policy applies to. */
 // yinyang-support (14/10, plan CSKH-SPLIT): chốt đơn crystal qua chat cũng trả trước 100% — cùng cổng.
-export const PREPAY_POLICY_AGENTS = new Set<string>(['sales-closer', 'yinyang-support', 'edge-sales-closer']);
+// jennie-support (29/10): chốt đơn đá qua chat kênh Jennie — cùng luật trả trước.
+export const PREPAY_POLICY_AGENTS = new Set<string>(['sales-closer', 'yinyang-support', 'edge-sales-closer', 'jennie-support']);
 
 /**
- * Agent KHÔNG bán hàng (14/10, EC-084): jennie-support trả lời fan + đề xuất hợp tác trên kênh thương hiệu
- * cá nhân Jennie. Router không gán vai "tư vấn bán hàng, chốt đơn"; cron chăm sóc không nhắn câu mời mua.
+ * Agent KHÔNG CHỦ ĐỘNG bán (14/10, EC-084): jennie-support trả lời fan + đề xuất hợp tác trên kênh thương hiệu
+ * cá nhân Jennie; cron chăm sóc không nhắn câu mời mua. 29/10: khách TỰ hỏi đá thì agent tự tư vấn + chốt đơn.
  */
 export const NON_SALES_AGENTS = new Set<string>(['jennie-support']);
 

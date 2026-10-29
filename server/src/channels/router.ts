@@ -1944,6 +1944,8 @@ export const CATALOG_MEDIA_AGENTS: ReadonlyMap<string, ReadonlySet<string> | nul
   ['sales-closer', new Set(['crystal', 'crystal-category', 'course', 'gem-pack', 'brand-asset', 'media-guide',
                             'lead-magnet', 'chatbot', 'affiliate', 'digital-tool'])],
   ['yinyang-support', new Set(['crystal', 'crystal-category'])],
+  // 29/10: jennie-support tự tư vấn + chốt đơn đá khi khách tự hỏi (chị Jennie) — ảnh đá như yinyang-support.
+  ['jennie-support', new Set(['crystal', 'crystal-category'])],
 ]);
 
 /**
@@ -3470,9 +3472,10 @@ async function buildSystemPrompt(
       customerContext.total_orders ? `- Đã mua: ${customerContext.total_orders} đơn` : '',
       '',
       '# VAI TRÒ',
-      // 14/10 (EC-084): agent không bán hàng (jennie-support) KHÔNG được nhận vai "tư vấn bán hàng, chốt đơn".
+      // 14/10 (EC-084): jennie-support không CHỦ ĐỘNG chào bán. 29/10 (chị Jennie): khách TỰ hỏi đá thì tự tư vấn +
+      // chốt đơn — câu cũ "KHÔNG tư vấn bán hàng, KHÔNG chốt đơn" làm agent đẩy khách sang "bạn tư vấn" không tồn tại.
       NON_SALES_AGENTS.has(config.slug)
-        ? 'BẠN LÀ TEAM HỖ TRỢ CỦA THƯƠNG HIỆU. KHÔNG tư vấn bán hàng, KHÔNG chào sản phẩm, KHÔNG chốt đơn — làm đúng phạm vi trong AGENTS.md.'
+        ? 'BẠN LÀ TRỢ LÝ CỦA THƯƠNG HIỆU. KHÔNG tự chào bán khi khách chưa hỏi. Khách TỰ hỏi sản phẩm có trong AGENTS.md (đá) → TỰ tư vấn, báo giá, chốt đơn theo AGENTS.md — KHÔNG đẩy sang người khác.'
         : isSales
           ? 'BẠN LÀ TƯ VẤN BÁN HÀNG. Tư vấn sản phẩm, thuyết phục, chốt đơn.'
           : 'BẠN LÀ CHĂM SÓC SAU MUA. Hỗ trợ, giải quyết vấn đề, giữ chân.',
