@@ -33,6 +33,7 @@ import {
   detectAntigravityQuotaExhausted,
   shouldAntigravityFallback,
   detectAntigravityTransientDisconnect,
+  detectAntigravityZeroTokenBudget,
   findAntigravityRunByTurnMarker,
   looksLikeSystemPromptLeak,
   parseAntigravityStdout,
@@ -1361,6 +1362,20 @@ export async function execute(ctx: AdapterExecutionContext): Promise<AdapterExec
             `[paperclip] agy báo cần đăng nhập (thường do đọc token Windows Credential Manager bị timeout lúc máy quá tải) → chạy lại 1 lần trên cùng tài khoản "${attemptAccountEmail ?? "active"}", cùng model "${attemptModel}". KHÔNG xoay tài khoản.\n`,
           );
           await new Promise<void>((resolve) => setTimeout(resolve, 15_000));
+          attempt = await runAttempt(conversationId, attemptModel);
+        }
+
+        // GEM-1741: agy chết trước khi gọi model/chạy công cụ ("maxMessageTokens must be positive,
+        // got 0") → chạy lại 1 lần CÙNG model, CÙNG phiên, CÙNG tài khoản (không phải fallback).
+        if (
+          (attempt.proc.exitCode ?? 0) !== 0 &&
+          detectAntigravityZeroTokenBudget({ stderr: attempt.proc.stderr ?? "" }).zeroBudget
+        ) {
+          await onLog(
+            "stderr",
+            `[paperclip] agy hỏng trước khi bắt đầu (maxMessageTokens = 0, chưa gọi model, chưa chạy công cụ) → chạy lại 1 lần cùng model "${attemptModel}", cùng phiên.\n`,
+          );
+          await new Promise<void>((resolve) => setTimeout(resolve, 5_000));
           attempt = await runAttempt(conversationId, attemptModel);
         }
 

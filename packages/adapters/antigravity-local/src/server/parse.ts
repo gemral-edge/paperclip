@@ -676,6 +676,20 @@ export function detectAntigravityTransientDisconnect(input: { stderr: string }):
   return { transient };
 }
 
+// GEM-1741 (31/10/2026): agy ≥1.4.9 (lần đầu 29/10 00:25, 0 lần trong log 22–28/10) đôi khi chết
+// ngay bước tuần tự hoá trajectory đầu tiên của cascade: "maxMessageTokens must be positive, got 0"
+// (agentexecutor.go:387, binary Google). Đo 7 ngày: 4/371 lượt agy; trajectory cho thấy lỗi nổ TRƯỚC
+// khi gọi model hay chạy công cụ (0 token, 0 tool) và lượt kế tiếp trên CÙNG phiên luôn chạy được.
+const ZERO_TOKEN_BUDGET_RE = /serializing trajectory: maxMessageTokens must be positive, got 0/i;
+
+/** STDERR-only: agy hỏng trước khi làm gì (ngân sách token = 0) → chạy lại an toàn cùng model/phiên. */
+export function detectAntigravityZeroTokenBudget(input: { stderr: string }): { zeroBudget: boolean } {
+  const zeroBudget = scanLines("", input.stderr)
+    .filter((line) => !line.startsWith("[paperclip]"))
+    .some((line) => ZERO_TOKEN_BUDGET_RE.test(line));
+  return { zeroBudget };
+}
+
 /** Lượt chạy hỏng vì hết credits/quota (stderr) và KHÔNG phải lỗi đăng nhập → đáng thử model kế. */
 export function shouldAntigravityFallback(input: { stdout?: string; stderr: string }): boolean {
   if (!detectAntigravityQuotaExhausted({ stdout: "", stderr: input.stderr }).exhausted) return false;
