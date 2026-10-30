@@ -44,6 +44,7 @@ import { selectInlineJson } from './inline-ssot-select.js';
 import { ProviderCrashError, ProviderQuotaError, ProviderTimeoutError, isAgyCrashEmpty, getTimeoutBreaker, resolveTimeoutFallback, runWithTimeoutFallback, withApiTimeout } from './agy-timeout-fallback.js';
 import { loadAgentLinkAllowlist, stripUnlistedLinks } from './link-allowlist.js';
 import { agyReplyTimeoutMs, childEnvWithoutGeminiApi } from './llm-route-policy.js';
+import { AGY_STREAM_ARGS, agyStreamFinalText, agyStreamUserMessage, feedAgyStream, newAgyStreamState } from './agy-stream-json.js';
 
 // Global event emitter for streaming events
 export const streamEvents = new EventEmitter();
@@ -1432,13 +1433,36 @@ async function runViaAntigravity(
     message,
   ].join('\n');
 
+  // 31/10: sandboxed reply agents (live terminal + QuAnt pit) send the full context on stdin so the
+  // answer is agy's FIRST step — the read_file step of the pointer path sat behind agy ≥1.4.11's slow
+  // policy-guardian init past the 240s cap. Images still need view_file → keep the pointer path then.
+  const inlineStdin = sandboxed && !mediaDirective;
+  const inlinePrompt = inlineStdin
+    ? [
+        contextDoc,
+        '',
+        '---',
+        'Trả lời tin nhắn mới nhất của khách dưới đây bằng đúng NGÔN NGỮ khách đang dùng (khách viết tiếng Anh → trả lời tiếng Anh; tiếng Việt → tiếng Việt có dấu đầy đủ; tiếng Trung → tiếng Trung), đúng vai trò + giọng đã mô tả ở trên. KHÔNG dùng công cụ nào. TUYỆT ĐỐI KHÔNG đọc lại / trích lại phần bối cảnh cho khách — chỉ trả lời tự nhiên như đang nhắn tin. Bọc DUY NHẤT tin nhắn gửi khách trong [[REPLY]] ... [[/REPLY]]:',
+        message,
+      ].join('\n')
+    : '';
+  if (inlineStdin) { try { rmSync(promptFile, { force: true }); } catch {} }
+
   const agy = defaultAgyCommand();
-  const args: string[] = [
-    '-p', pointerPrompt,
-    '--model', model,
-    '--dangerously-skip-permissions',
-    '--conversation', conversationId,
-  ];
+  const args: string[] = inlineStdin
+    ? [
+        ...AGY_STREAM_ARGS,
+        '--model', model,
+        '--dangerously-skip-permissions',
+        '--conversation', conversationId,
+        '-p=', // 1 token: empty -p, prompt comes from stdin (see line ~606 on dropped empty args)
+      ]
+    : [
+        '-p', pointerPrompt,
+        '--model', model,
+        '--dangerously-skip-permissions',
+        '--conversation', conversationId,
+      ];
 
   const streamKey = `${config.slug}:${Date.now()}`;
   const attemptStartedAtMs = Date.now();
@@ -1466,11 +1490,17 @@ async function runViaAntigravity(
         PAPERCLIP_SESSION_KEY: sessionKey,
         PAPERCLIP_CHANNEL_NAME: (config as any)._customerContext?.channel_name || '',
       },
-      stdio: ['ignore', 'pipe', 'pipe'],
+      stdio: [inlineStdin ? 'pipe' : 'ignore', 'pipe', 'pipe'],
     });
+    const streamState = inlineStdin ? newAgyStreamState() : null;
+    if (inlineStdin) {
+      child.stdin?.on('error', () => { /* agy exited early; close handler reports it */ });
+      child.stdin?.end(agyStreamUserMessage(inlinePrompt), 'utf8');
+    }
 
     let stderr = '';
     let timedOut = false;
+    let stoppedAfterReply = false;
     const timeout = setTimeout(() => {
       timedOut = true;
       child.kill('SIGTERM');
@@ -1480,7 +1510,18 @@ async function runViaAntigravity(
 
     child.stdout?.setEncoding("utf8");
     child.stdout.on('data', (chunk: Buffer) => {
-      streamEvents.emit('agent:chunk', { agentSlug: config.slug, streamKey, chunk: chunk.toString('utf-8') });
+      if (!streamState) {
+        streamEvents.emit('agent:chunk', { agentSlug: config.slug, streamKey, chunk: chunk.toString('utf-8') });
+        return;
+      }
+      const deltas = feedAgyStream(streamState, chunk.toString('utf-8'));
+      if (deltas) streamEvents.emit('agent:chunk', { agentSlug: config.slug, streamKey, chunk: deltas });
+      // Reply step finished with a full envelope → stop agy now (its later steps only wait on the gate).
+      if (streamState.completedReply && !stoppedAfterReply && !timedOut) {
+        stoppedAfterReply = true;
+        console.log(`[Router/antigravity] ${config.slug}: reply step done after ${Date.now() - attemptStartedAtMs}ms → stopping agy`);
+        child.kill('SIGTERM');
+      }
     });
     child.stderr?.setEncoding("utf8");
     child.stderr.on('data', (chunk: Buffer) => { stderr += chunk.toString('utf-8'); });
@@ -1500,8 +1541,14 @@ async function runViaAntigravity(
         // Windows TTY trap + agy auto-brain: agy may IGNORE the --conversation id
         // and create its own brain, so scan brains by THIS run's turnMarker (unique
         // temp-prompt filename) to find the real brain + reply (poll-retry for flush).
-        const t = await findAntigravityReplyByTurnMarker(promptFileName);
-        reply = (t.reply || '').trim();
+        if (streamState) {
+          // Inline stdin path: the reply comes from agy's stream-json stdout, not a brain file.
+          if (streamState.resultError) stderr += `\n${streamState.resultError}`;
+          reply = agyStreamFinalText(streamState).trim();
+        } else {
+          const t = await findAntigravityReplyByTurnMarker(promptFileName);
+          reply = (t.reply || '').trim();
+        }
 
         // Reply-envelope contract (2026-08-11): keep only the customer message.
         reply = extractEnvelopedReply(reply);
