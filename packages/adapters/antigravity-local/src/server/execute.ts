@@ -1347,16 +1347,29 @@ export async function execute(ctx: AdapterExecutionContext): Promise<AdapterExec
           attempt = await runAttempt(conversationId, attemptModel);
         }
 
+        // AGY-AUTH-001 (30/10/2026): "Authentication required" KHÔNG phải hết quota. Đo run 00671030
+        // (06:05) + 7a2b8862 (16:47): agy đọc token từ Windows Credential Manager bị timeout 5s/10s khi
+        // máy quá tải ("Keyring LoadStoredToken timed out") -> silent auth failed -> mở OAuth tương tác
+        // 60s rồi chết. Token vẫn còn hạn. Xử lý: chạy lại 1 lần trên CÙNG tài khoản + CÙNG model; KHÔNG
+        // xoay tài khoản (xoay = đặt nhầm 5h cooldown cho tài khoản còn quota, sự cố 30/10 06:08).
+        if (
+          !shouldAntigravityFallback({ stderr: attempt.proc.stderr }) &&
+          detectAntigravityAuthRequired({ stdout: attempt.proc.stdout, stderr: attempt.proc.stderr }).requiresAuth
+        ) {
+          await onLog(
+            "stderr",
+            `[paperclip] agy báo cần đăng nhập (thường do đọc token Windows Credential Manager bị timeout lúc máy quá tải) → chạy lại 1 lần trên cùng tài khoản "${attemptAccountEmail ?? "active"}", cùng model "${attemptModel}". KHÔNG xoay tài khoản.\n`,
+          );
+          await new Promise<void>((resolve) => setTimeout(resolve, 15_000));
+          attempt = await runAttempt(conversationId, attemptModel);
+        }
+
         // AGY-SW-002 (26/10/2026): Tự động xoay vòng tài khoản Google trong kho khi chạm giới hạn
         // quota (5h hoặc weekly), giữ nguyên 100% `attemptModel` (không đổi model/provider — tuân thủ luật 22/10).
+        // CHỈ xoay khi đúng lỗi quota (RESOURCE_EXHAUSTED/429) — lỗi đăng nhập không được xoay (AGY-AUTH-001).
         let accountRotations = 0;
         let maxRotations = Math.max(1, computeMaxAccountRotations(getAntigravityPoolAccountCount()));
-        while (
-          accountRotations < maxRotations &&
-          (shouldAntigravityFallback({ stderr: attempt.proc.stderr }) ||
-            (detectAntigravityAuthRequired({ stdout: attempt.proc.stdout, stderr: attempt.proc.stderr }).requiresAuth &&
-              getAntigravityPoolAccountCount() > 1))
-        ) {
+        while (accountRotations < maxRotations && shouldAntigravityFallback({ stderr: attempt.proc.stderr })) {
           const rot = await rotateAntigravityAccountOnQuota({
             failedEmail: attemptAccountEmail,
             stderr: attempt.proc.stderr,
