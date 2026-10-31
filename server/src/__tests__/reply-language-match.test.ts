@@ -23,7 +23,7 @@ describe('reply language match', () => {
   });
 
   it('replaces an owner-name leak in the reply language', () => {
-    expect(scrubBannedPhrases('Please contact Jennie for that.', 'sales-closer')).toContain('our senior support team');
-    expect(scrubBannedPhrases('Dạ chị Jennie sẽ hỗ trợ ạ.', 'sales-closer')).toContain('team chuyên môn cấp cao');
+    expect(scrubBannedPhrases('Please contact Jennie for that.', 'sales-closer')).toContain('our support team');
+    expect(scrubBannedPhrases('Dạ chị Jennie sẽ hỗ trợ ạ.', 'sales-closer')).toContain('đội ngũ hỗ trợ');
   });
 });

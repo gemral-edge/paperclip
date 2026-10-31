@@ -9,7 +9,7 @@
 //
 // Corpus-check 2026-08-11: 882 channel_sent_messages + 253 cskh assistant rows
 // → 0 FP trên mọi trục SAU khi mask [[SEND_MEDIA]]/URL. Negative-control dưới
-// đây lấy từ 6 row THẬT (cụm "team chuyên môn cấp cao" do scrub sinh ra).
+// đây lấy từ 6 row THẬT (cụm thay tên chị do scrub sinh ra — cụm cũ đã bị chị cấm 31/10, câu giữ nguyên văn để khoá detector).
 import { describe, expect, it, vi } from 'vitest';
 import * as fs from 'fs';
 import * as path from 'path';

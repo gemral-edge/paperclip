@@ -50,7 +50,7 @@ describe('detectOwnerPersonalInfoLeak', () => {
   it.each([
     'Dạ khóa Kích Hoạt Tần Số Tình Yêu giúp bạn hàn gắn với chồng và gia đình ạ.',
     'Bạn sinh năm 1992 thì cung mệnh là Kiếm Phong Kim nha.',
-    'Team chuyên môn cấp cao sẽ phản hồi bạn trong vòng 24-48 tiếng ạ.',
+    'Đội ngũ hỗ trợ sẽ phản hồi bạn trong vòng 24-48 tiếng ạ.',
     'GEM Master là trợ lý AI trong app Gemral ạ.',
   ])('không chặn oan: %s', (s) => expect(detectOwnerPersonalInfoLeak(s)).toBe(false));
 });
@@ -73,7 +73,7 @@ describe('scrubBannedPhrases — tự nhận AI', () => {
 });
 
 // 14/10 (EC-084): jennie-support trả lời trên kênh thương hiệu cá nhân Jennie — tên "Jennie" là tên thương hiệu,
-// đổi thành "team chuyên môn cấp cao" làm hỏng link/handle (ca thật: "team chuyên môn cấp cao Uyen Chu").
+// đổi thành cụm thay thế làm hỏng link/handle (ca thật 14/10: chừa "Uyen Chu" sau cụm thay thế).
 describe('scrubBannedPhrases — kênh thương hiệu cá nhân (jennie-support)', () => {
   it('giữ tên thương hiệu + link + handle', () => {
     const s = 'Bạn xem lịch video trên kênh YouTube @JennieUyenChu của chị Jennie nha. Form hợp tác ở https://jennie.yinyangmasters.com/#hop-tac';
@@ -88,7 +88,7 @@ describe('scrubBannedPhrases — kênh thương hiệu cá nhân (jennie-support
 });
 
 // 14/10: luật đổi tên chị cắt cả link/handle cho MỌI agent — ca thật sales-closer 10/09
-// "facebook.com/team chuyên môn cấp caochuofficial", 12/08 "youtube.com/@team", 14/10 "team chuyên môn cấp cao Uyen Chu".
+// link facebook bị chèn cụm thay thế vào giữa, 12/08 "youtube.com/@team", 14/10 chừa "Uyen Chu".
 describe('scrubBannedPhrases — không đụng link/handle', () => {
   it.each([
     'Fanpage: https://www.facebook.com/jenniechuofficial',
@@ -104,7 +104,7 @@ describe('scrubBannedPhrases — không đụng link/handle', () => {
   });
   it('tên ngoài link vẫn bị đổi', () => {
     const out = scrubBannedPhrases('Chị Jennie gửi bạn link https://www.youtube.com/@JennieUyenChu nha', 'sales-closer');
-    expect(out).toBe('team chuyên môn cấp cao gửi bạn link https://www.youtube.com/@JennieUyenChu nha');
+    expect(out).toBe('đội ngũ hỗ trợ gửi bạn link https://www.youtube.com/@JennieUyenChu nha');
   });
 });
 
@@ -119,5 +119,19 @@ describe('detectOwnerPersonalInfoLeak — liên hệ công khai của trang ngu�
   });
   it('gmail KHÁC (không công khai) vẫn chặn', () => {
     expect(detectOwnerPersonalInfoLeak('Gmail riêng của chị Jennie là abc@gmail.com', ['jennieuyenchu@gmail.com'])).toBe(true);
+  });
+});
+
+// 31/10 chị Jennie cấm tuyệt đối cụm "team chuyên môn cấp cao" (Bé Trợ Lý nói "team chuyên môn cấp cao hay dặn").
+describe('scrubBannedPhrases — cụm thay tên chị bị cấm', () => {
+  it.each(['sales-closer', 'yinyang-support', 'moon-keeper-reply', 'quant-pit-reply'])('%s không bao giờ sinh cụm cấm', (slug) => {
+    const vi = scrubBannedPhrases('Dạ chị Jennie hay dặn mình thở chậm lại ạ.', slug);
+    const en = scrubBannedPhrases('Jennie always says breathe slowly.', slug);
+    expect(vi).not.toMatch(/chuyên môn cấp cao/i);
+    expect(en).not.toMatch(/senior support team/i);
+  });
+  it('jennie-desk-reply (Bé Trợ Lý) giữ nguyên "chị Jennie"', () => {
+    const s = 'Em thương bạn nha, chị Jennie hay dặn hãy dịu dàng với chính mình ạ.';
+    expect(scrubBannedPhrases(s, 'jennie-desk-reply')).toBe(s);
   });
 });

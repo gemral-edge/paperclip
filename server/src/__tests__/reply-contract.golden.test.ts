@@ -95,10 +95,11 @@ describe("reply-contract golden-set (P0 baseline)", () => {
   });
 
   // ── G6: owner name leak (Rule 1) ──
-  it("G6 owner name → 'team chuyên môn cấp cao'", () => {
+  it("G6 owner name → 'đội ngũ hỗ trợ'", () => {
     const out = scrubBannedPhrases("Để chị Jennie hỗ trợ mình nhé.", "sales-closer");
     expect(out).not.toMatch(/jennie/i);
-    expect(out).toContain("team chuyên môn cấp cao");
+    expect(out).toContain("đội ngũ hỗ trợ");
+    expect(out).not.toMatch(/chuyên môn cấp cao/i);
   });
 
   // ── G7: short-time promise (Rule 2) ──

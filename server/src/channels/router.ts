@@ -2488,7 +2488,7 @@ const OPREPORT_STRONG_RES: Array<[string, RegExp]> = [
 const OPREPORT_MDTABLE_RE = /^[ \t]*\|.*\|[^\n]*\n[ \t]*\|.*\|/m;
 const OPREPORT_WEAK_RES: RegExp[] = [/SPEC-LOCK/i, /ĐO[- ]GATE/i, /GIAO KÈO/i];
 // Pre-scrub reality: the operator greeting reads "chị Jennie" here (scrubBannedPhrases
-// rewrites it to "team chuyên môn cấp cao" LATER), so match both forms.
+// rewrites it to OWNER_REPLACEMENT_VI LATER), so match both forms.
 const OPREPORT_ADDR_RE =
   /Em chào\s+(?:chị\s+Jennie|team)\b|(?:gửi|trình|báo cáo)\s+(?:chị|team)[^\n]{0,40}(?:duyệt|kiểm tra|xem lại)|Chị xem[^\n]{0,60}giúp em/i;
 // Behavioral pair — self-narrated process + operator-facing deliverable framing.
@@ -2781,7 +2781,7 @@ const ESCALATION_REASON_WHITELIST = new Set([
  * router level before the message ever reaches the customer:
  *
  *   1. NEVER name the owner — "chị Jennie", "Jennie", "Dr. Jennie", "owner",
- *      "sếp em", "boss em", "chị chủ" → replaced with "team chuyên môn cấp cao".
+ *      "sếp em", "boss em", "chị chủ" → replaced with OWNER_REPLACEMENT_VI ("đội ngũ hỗ trợ").
  *
  *   2. NEVER promise resolution faster than 24h — any "X phút", "X tiếng",
  *      "ngay bây giờ", "ngay trong hôm nay" pattern in a resolution-promise
@@ -2792,14 +2792,21 @@ const ESCALATION_REASON_WHITELIST = new Set([
 const AI_PERSONA_AGENTS = new Set(['gem-master']);
 /**
  * Agent trả lời trên kênh thương hiệu CÁ NHÂN của chị (14/10, EC-084 jennie-support): tên "Jennie" là tên
- * thương hiệu công khai (link jennie.yinyangmasters.com, @JennieUyenChu) — Rule 1 đổi tên thành "team chuyên
- * môn cấp cao" làm hỏng link + câu ("team chuyên môn cấp cao Uyen Chu", ca thật 14/10). Các agent này chỉ
+ * thương hiệu công khai (link jennie.yinyangmasters.com, @JennieUyenChu) — Rule 1 đổi tên làm hỏng link + câu
+ * (ca thật 14/10: tên không dấu "Uyen Chu" đứng sau cụm thay thế). Các agent này chỉ
  * bị chặn cụm nội bộ (sếp em/chị chủ/owner); đời tư vẫn do detectOwnerPersonalInfoLeak chặn.
  */
-const OWNER_BRAND_AGENTS = new Set(['jennie-support']);
+// 31/10: + jennie-desk-reply — Bé Trợ Lý là "trợ lý nhỏ của chị Jennie", nhắc chị là đúng vai; luật cũ đổi thành
+// cụm thay thế trên trang live (chị đã cấm cụm đó).
+const OWNER_BRAND_AGENTS = new Set(['jennie-support', 'jennie-desk-reply']);
 
 // Link (http/www/tên-miền) và @handle — các luật đổi chữ không được chạm vào bên trong.
 const LINK_OR_HANDLE_RE = /(https?:\/\/\S+|www\.\S+|[\w-]+(?:\.[\w-]+)*\.(?:com|vn|net|org|io|me|co|app)\b\S*|@[\w.]+)/gi;
+
+// Cụm thay tên chị. 31/10 chị Jennie CẤM tuyệt đối cụm cũ "team chuyên môn cấp cao" / "our senior support team"
+// — đừng đưa lại (test customer-privacy-guard khoá).
+export const OWNER_REPLACEMENT_VI = 'đội ngũ hỗ trợ';
+export const OWNER_REPLACEMENT_EN = 'our support team';
 
 function replaceOutsideLinks(text: string, re: RegExp, replacement: string): string {
   return text
@@ -2817,10 +2824,10 @@ export function scrubBannedPhrases(text: string, agentSlug: string): string {
   const ownerNameRe = OWNER_BRAND_AGENTS.has(agentSlug)
     ? /(sếp\s+em|boss\s+em|chị\s+chủ|owner)/gi
     : /(chị\s+jennie|dr\.?\s*jennie|jennie\s+uy[eê]n\s+chu|jennie(?!\s*team)|sếp\s+em|boss\s+em|chị\s+chủ|owner)/gi;
-  // 14/10: KHÔNG đổi tên bên trong link/@handle — đổi ở đó làm hỏng link ("facebook.com/team chuyên môn cấp
-  // caochuofficial", "youtube.com/@team" — ca thật sales-closer). Link công khai của kênh không phải đời tư.
+  // 14/10: KHÔNG đổi tên bên trong link/@handle — đổi ở đó làm hỏng link (ca thật sales-closer: link
+  // facebook/youtube bị chèn cụm thay thế vào giữa). Link công khai của kênh không phải đời tư.
   const isViReply = /[ăâđêôơưạảấầẩẫậắằẳẵặẹẻẽếềểễệỉịọỏốồổỗộớờởỡợụủứừửữựỳỵỷỹ]/i.test(scrubbed);
-  const ownerScrubbed = replaceOutsideLinks(scrubbed, ownerNameRe, isViReply ? 'team chuyên môn cấp cao' : 'our senior support team');
+  const ownerScrubbed = replaceOutsideLinks(scrubbed, ownerNameRe, isViReply ? OWNER_REPLACEMENT_VI : OWNER_REPLACEMENT_EN);
   if (ownerScrubbed !== scrubbed) {
     violations.push('owner_name');
     scrubbed = ownerScrubbed;
