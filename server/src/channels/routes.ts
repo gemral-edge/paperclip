@@ -714,7 +714,7 @@ router.post('/send', async (req, res) => {
   // lỗi token/24h-window/PSID phải lộ ra UI thay vì thành "tin ma"). Zalo/CSKH bên dưới GIỮ NGUYÊN.
   // Cổng = cổng server ĐANG nghe thật (index.ts publish PAPERCLIP_LISTEN_PORT sau listen — đúng cả khi
   // PORT bận nhảy cổng); KHÔNG chép `PORT || 3101` của dòng forward cũ (3101 là cổng cũ). Codex R3.
-  if (inst.channel_type === 'facebook') {
+  if (inst.channel_type === 'facebook' || inst.channel_type === 'instagram') {
     const fbPort = process.env.PAPERCLIP_LISTEN_PORT || process.env.PORT || 3100;
     const fbUrl = `http://localhost:${fbPort}/api/channels/facebook/send`;
     // Timeout (Codex R2): proxy treo/rớt SAU khi sub-handler đã claim row + Graph có thể đã nhận →

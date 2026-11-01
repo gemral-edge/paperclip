@@ -213,6 +213,9 @@ export async function markPendingSkippedBeforeUnpause(sessionKey: string): Promi
     const { error } = await q;
     if (error) { console.error(`[Consumer] markPendingSkippedBeforeUnpause ${sessionKey} failed:`, error.message); return; }
     console.log(`[Consumer] Dọn backlog paused-window cho ${sessionKey} (mốc ${boundary})`);
+    // Khi người vận hành bật lại bot (đã xử lý tay hoặc bỏ qua tin lạc đề như TK-20261022-001),
+    // tự đóng các vé agent_silent / agent_output_corrupted còn mở của phiên để không treo vĩnh viễn.
+    await autoResolveNoReplyTickets(sessionKey, 'system_unpause_tombstone');
   } catch (err: any) {
     console.error(`[Consumer] markPendingSkippedBeforeUnpause ${sessionKey} error:`, err?.message || err);
   }
@@ -307,6 +310,19 @@ export function startConsumer(): void {
         .gte('created_at', new Date(Date.now() - 60 * 60 * 1000).toISOString())
         .select('id');
       if (orphans && orphans.length > 0) console.log(`[Consumer] Startup: un-claimed ${orphans.length} orphan 'processing' row(s) → pending`);
+
+      // Dọn các bản ghi outbound 'sending' mồ côi khi tiến trình cũ bị tắt giữa chừng trước khi gửi xong
+      // (GEM-1757: row 882eb6f7 kẹt 'sending' lúc restart 29/10 làm P42 tưởng đã trả lời khách).
+      const twoMinBeforeBoot = new Date(Date.now() - 2 * 60 * 1000).toISOString();
+      const { data: stuckSending } = await supabase
+        .from('channel_sent_messages')
+        .update({ status: 'failed', error_message: 'orphaned_sending_on_restart' })
+        .eq('status', 'sending')
+        .lt('created_at', twoMinBeforeBoot)
+        .select('id');
+      if (stuckSending && stuckSending.length > 0) {
+        console.log(`[Consumer] Startup: marked ${stuckSending.length} orphan 'sending' row(s) → failed`);
+      }
     } catch (err: any) {
       console.error('[Consumer] Startup orphan un-claim failed:', err?.message || err);
     }

@@ -520,17 +520,32 @@ router.post('/send', async (req: Request, res: Response) => {
   const rowId = row.id as string;
 
   try {
+    const msgPayload = typeof message === 'string' ? { text: message } : message;
     const fbRes = await fetch(`${GRAPH_API}/${page_id}/messages?access_token=${token}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         recipient: { id: recipient_id },
-        message: typeof message === 'string' ? { text: message } : message,
+        message: msgPayload,
         messaging_type: message_type || 'RESPONSE',
       }),
     });
 
-    const result = await fbRes.json();
+    let result = await fbRes.json();
+    // Ngoài cửa sổ 24h (code=10, subcode=2018278/2534022): thử lại bằng HUMAN_AGENT (cửa sổ 7 ngày cho CSKH)
+    if (result.error?.code === 10 && !message_type) {
+      const haRes = await fetch(`${GRAPH_API}/${page_id}/messages?access_token=${token}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          recipient: { id: recipient_id },
+          message: msgPayload,
+          messaging_type: 'MESSAGE_TAG',
+          tag: 'HUMAN_AGENT',
+        }),
+      });
+      result = await haRes.json();
+    }
     if (result.error) {
       console.error(`[FB] Send error:`, result.error);
       const { status, body } = await cleanupClaimedRow(supabase, rowId, result.error.message);
