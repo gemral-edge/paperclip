@@ -841,6 +841,16 @@ function isSameTaskScope(left: string | null, right: string | null) {
   return (left ?? null) === (right ?? null);
 }
 
+// GEM-1764: lượt Process lost KHÔNG chạy bù khi issue của nó đã done/cancelled (việc đã commit trước
+// khi crash) — TRỪ issue Heartbeat Thread (evergreen, status đổi theo từng lượt, không phải việc).
+export function shouldSkipProcessLostRetryForIssue(
+  issue: { status: string | null; originId: string | null } | null,
+): boolean {
+  if (!issue) return false;
+  if (issue.originId?.startsWith("heartbeat-thread:")) return false;
+  return issue.status === "done" || issue.status === "cancelled";
+}
+
 function isTrackedLocalChildProcessAdapter(adapterType: string) {
   return SESSIONED_LOCAL_ADAPTERS.has(adapterType);
 }
@@ -2441,12 +2451,15 @@ export function heartbeatService(db: Db) {
       if (shouldRetry) {
         const contextIssueId = readNonEmptyString(parseObject(run.contextSnapshot).issueId);
         if (contextIssueId) {
-          const issueStatus = await db
-            .select({ status: issues.status })
+          const issueRow = await db
+            .select({ status: issues.status, originId: issues.originId })
             .from(issues)
             .where(and(eq(issues.id, contextIssueId), eq(issues.companyId, run.companyId)))
-            .then((rows) => rows[0]?.status ?? null);
-          if (issueStatus === "done" || issueStatus === "cancelled") {
+            .then((rows) => rows[0] ?? null);
+          // GEM-1764: Heartbeat Thread (origin_id=heartbeat-thread:*) là luồng thường trực, đóng/mở theo
+          // từng lượt — status của nó KHÔNG phải tín hiệu "việc của lượt này đã xong". Trước bản vá,
+          // lượt timer bị mất lúc thread đang done/cancelled không bao giờ được chạy bù (18/31 ca 21-31/10).
+          if (shouldSkipProcessLostRetryForIssue(issueRow)) {
             shouldRetry = false;
           }
         }
