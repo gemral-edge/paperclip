@@ -695,3 +695,24 @@ export function shouldAntigravityFallback(input: { stdout?: string; stderr: stri
   if (!detectAntigravityQuotaExhausted({ stdout: "", stderr: input.stderr }).exhausted) return false;
   return !detectAntigravityAuthRequired({ stdout: "", stderr: input.stderr }).requiresAuth;
 }
+
+// GEM-1763 (01/11/2026): agy từ chối model ngay lúc khởi động — `invalid model selection
+// (--model "X" …): model X is not recognized as a known model or custom model in settings`.
+// Đo 01/11 trên ~700 log agy 20/10→01/11: lỗi CHẶN lượt chỉ xảy ra khi tài khoản Google đang
+// active là gói PRO + model chỉ có ở gói ULTRA (Gemini 4 Argon) — 3/3 lượt; tài khoản ULTRA
+// chạy Argon 134 lượt không hỏng lượt nào. Tức là danh sách model phụ thuộc gói tài khoản.
+const MODEL_NOT_AVAILABLE_RE =
+  /invalid model selection \(--model "([^"]+)"[^)]*\):[^\n]*not recognized as a known model/i;
+
+/** agy từ chối model vì không có trong danh sách model của tài khoản đang đăng nhập. */
+export function detectAntigravityModelNotAvailable(input: { stderr?: string | null }): {
+  notAvailable: boolean;
+  model: string | null;
+} {
+  const lines = scanLines("", input.stderr ?? "").filter((line) => !line.startsWith("[paperclip]"));
+  for (const line of lines) {
+    const m = MODEL_NOT_AVAILABLE_RE.exec(line);
+    if (m) return { notAvailable: true, model: m[1] ?? null };
+  }
+  return { notAvailable: false, model: null };
+}

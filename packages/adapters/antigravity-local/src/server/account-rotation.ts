@@ -232,3 +232,85 @@ export async function markAntigravityAccountHealthy(
     /* best effort */
   }
 }
+
+// ── GEM-1763: model theo gói tài khoản (ULTRA-only model trên tài khoản PRO) ────────────────
+
+export interface AntigravityPoolAccount {
+  email: string;
+  plan: string | null;
+  status: string | null;
+  cooldownUntil: string | null;
+}
+
+export function readAntigravityPoolAccounts(homeDir: string = os.homedir()): AntigravityPoolAccount[] {
+  try {
+    const poolPath = path.join(homeDir, ".gemini", "agy-accounts", "pool.json");
+    if (!existsSync(poolPath)) return [];
+    const parsed = JSON.parse(readFileSync(poolPath, "utf8")) as Record<string, unknown>;
+    const raw = Array.isArray(parsed.accounts) ? parsed.accounts : [];
+    return raw
+      .filter((a): a is Record<string, unknown> => typeof a === "object" && a !== null)
+      .filter((a) => typeof a.email === "string" && a.email.trim().length > 0)
+      .map((a) => ({
+        email: String(a.email).trim().toLowerCase(),
+        plan: typeof a.plan === "string" ? a.plan.trim().toLowerCase() : null,
+        status: typeof a.status === "string" ? a.status : null,
+        cooldownUntil: typeof a.cooldown_until === "string" ? a.cooldown_until : null,
+      }));
+  } catch {
+    return [];
+  }
+}
+
+function isPoolAccountReady(acc: AntigravityPoolAccount, nowMs: number): boolean {
+  if (!acc.cooldownUntil) return acc.status !== "disabled";
+  const until = Date.parse(acc.cooldownUntil);
+  return !Number.isFinite(until) || until <= nowMs;
+}
+
+export function planForAntigravityAccount(
+  email: string | null | undefined,
+  accounts: AntigravityPoolAccount[] = readAntigravityPoolAccounts(),
+): string | null {
+  if (!email) return null;
+  const key = email.trim().toLowerCase();
+  return accounts.find((a) => a.email === key)?.plan ?? null;
+}
+
+/**
+ * Tài khoản sẵn sàng đầu tiên có đúng gói `plan` (bỏ qua `excludeEmail`), cùng thời điểm hồi
+ * quota sớm nhất của gói đó khi không còn tài khoản nào sẵn sàng (để hẹn chạy lại đúng giờ).
+ */
+export function findReadyAntigravityAccountByPlan(
+  plan: string,
+  opts: { excludeEmail?: string | null; now?: Date; accounts?: AntigravityPoolAccount[] } = {},
+): { email: string | null; earliestCooldownUntil: string | null } {
+  const accounts = opts.accounts ?? readAntigravityPoolAccounts();
+  const nowMs = (opts.now ?? new Date()).getTime();
+  const exclude = opts.excludeEmail?.trim().toLowerCase() ?? null;
+  const samePlan = accounts.filter((a) => a.plan === plan.toLowerCase());
+  const ready = samePlan.find((a) => a.email !== exclude && isPoolAccountReady(a, nowMs));
+  if (ready) return { email: ready.email, earliestCooldownUntil: null };
+  const cooldowns = samePlan
+    .map((a) => (a.cooldownUntil ? Date.parse(a.cooldownUntil) : Number.NaN))
+    .filter((ms) => Number.isFinite(ms) && ms > nowMs)
+    .sort((x, y) => x - y);
+  return {
+    email: null,
+    earliestCooldownUntil: cooldowns.length > 0 ? new Date(cooldowns[0]!).toISOString() : null,
+  };
+}
+
+/** Chuyển CLI agy sang tài khoản chỉ định (giữ nguyên model) qua `agy_account_switcher.py use`. */
+export async function useAntigravityAccount(
+  email: string,
+  opts: Pick<RotateAntigravityAccountOptions, "cwd" | "timeoutMs" | "runner"> = {},
+): Promise<{ ok: boolean; exitCode: number | null }> {
+  const scriptPath = resolveAgyAccountSwitcherScript(opts.cwd);
+  if (!scriptPath && !opts.runner) return { ok: false, exitCode: 1 };
+  const runner = opts.runner ?? defaultPythonRunner;
+  const args = [scriptPath ?? "agy_account_switcher.py", "use", email, "--json"];
+  const { exitCode, stdout } = await runner("python", args, Math.max(1000, opts.timeoutMs ?? 20_000));
+  const ok = exitCode === 0 && /"ok"\s*:\s*true/.test(stdout);
+  return { ok, exitCode };
+}

@@ -44,14 +44,19 @@ import {
   isAntigravityCleanExitProse,
   countAntigravityMutationCalls,
   isAntigravityUnfinishedPromise,
+  detectAntigravityModelNotAvailable,
 } from "./parse.js";
 import { firstNonEmptyLine } from "./utils.js";
 import {
   computeMaxAccountRotations,
+  findReadyAntigravityAccountByPlan,
   getActiveAntigravityAccountEmail,
   getAntigravityPoolAccountCount,
   markAntigravityAccountHealthy,
+  planForAntigravityAccount,
+  readAntigravityPoolAccounts,
   rotateAntigravityAccountOnQuota,
+  useAntigravityAccount,
 } from "./account-rotation.js";
 
 const __moduleDir = path.dirname(fileURLToPath(import.meta.url));
@@ -1167,7 +1172,28 @@ export async function execute(ctx: AdapterExecutionContext): Promise<AdapterExec
     const stderrLine = firstNonEmptyLine(attempt.proc.stderr);
     let errorCode: string | null = null;
     let errorMessage: string | null = null;
-    if (!exitOk && authMeta.requiresAuth) {
+    let errorMeta: Record<string, unknown> | undefined;
+    const modelGap = !exitOk ? detectAntigravityModelNotAvailable({ stderr: attempt.proc.stderr }) : null;
+    if (modelGap?.notAvailable) {
+      // GEM-1763: model bị từ chối. Tài khoản đang dùng KHÔNG phải ULTRA ⇒ model có thật nhưng
+      // mọi tài khoản ULTRA đang hết quota (nhánh chuyển ULTRA ở trên không tìm được) ⇒ đây là
+      // tường quota theo thời gian → quota-retry hẹn chạy lại CÙNG model lúc ULTRA hồi quota.
+      // Tài khoản ULTRA mà vẫn từ chối ⇒ model thật sự không còn (Google gỡ) → lỗi riêng, không retry.
+      const poolAccounts = readAntigravityPoolAccounts();
+      const activeEmail = getActiveAntigravityAccountEmail();
+      const activePlan = planForAntigravityAccount(activeEmail, poolAccounts);
+      if (activePlan && activePlan !== "ultra") {
+        const { earliestCooldownUntil } = findReadyAntigravityAccountByPlan("ultra", { accounts: poolAccounts });
+        errorCode = "antigravity_quota_exhausted";
+        errorMessage =
+          `Model "${modelGap.model ?? model}" chỉ có ở gói ULTRA; tài khoản đang dùng "${activeEmail}" là gói ${activePlan.toUpperCase()} ` +
+          `và mọi tài khoản ULTRA đang hết quota${earliestCooldownUntil ? ` tới ${earliestCooldownUntil}` : ""} → hẹn chạy lại cùng model.`;
+        if (earliestCooldownUntil) errorMeta = { resetsAt: earliestCooldownUntil };
+      } else {
+        errorCode = "antigravity_model_not_available";
+        errorMessage = stderrLine || `Model "${modelGap.model ?? model}" không được agy nhận.`;
+      }
+    } else if (!exitOk && authMeta.requiresAuth) {
       errorCode = "antigravity_auth_required";
       errorMessage = stderrLine || `Antigravity (agy) exited with code ${attempt.proc.exitCode ?? -1}`;
     } else if (quotaMeta.exhausted) {
@@ -1235,6 +1261,7 @@ export async function execute(ctx: AdapterExecutionContext): Promise<AdapterExec
       timedOut: false,
       errorMessage,
       errorCode,
+      ...(errorMeta ? { errorMeta } : {}),
       usage,
       sessionId: realBrainId,
       sessionParams,
@@ -1377,6 +1404,35 @@ export async function execute(ctx: AdapterExecutionContext): Promise<AdapterExec
           );
           await new Promise<void>((resolve) => setTimeout(resolve, 5_000));
           attempt = await runAttempt(conversationId, attemptModel);
+        }
+
+        // GEM-1763 (01/11/2026): model chỉ có ở gói ULTRA (Gemini 4 Argon) mà tài khoản đang active
+        // là gói PRO → agy từ chối "not recognized as a known model". Chuyển sang 1 tài khoản ULTRA
+        // còn quota rồi chạy lại CÙNG model (đổi tài khoản, KHÔNG đổi model — luật 22/10 + 26/10).
+        // Không còn ULTRA nào → toResult báo hết quota ULTRA + hẹn giờ chạy lại (quota-retry).
+        if (
+          (attempt.proc.exitCode ?? 0) !== 0 &&
+          detectAntigravityModelNotAvailable({ stderr: attempt.proc.stderr }).notAvailable
+        ) {
+          const poolAccounts = readAntigravityPoolAccounts();
+          const activePlan = planForAntigravityAccount(attemptAccountEmail, poolAccounts);
+          const ultra =
+            activePlan && activePlan !== "ultra"
+              ? findReadyAntigravityAccountByPlan("ultra", { excludeEmail: attemptAccountEmail, accounts: poolAccounts })
+              : null;
+          if (ultra?.email) {
+            const sw = await useAntigravityAccount(ultra.email, { cwd });
+            await onLog(
+              "stderr",
+              `[paperclip] Model "${attemptModel}" không có ở gói ${activePlan?.toUpperCase()} của tài khoản "${attemptAccountEmail ?? "active"}" → ${sw.ok ? "chuyển" : "thử chuyển (lỗi)"} sang tài khoản ULTRA "${ultra.email}" và chạy lại cùng model.\n`,
+            );
+            if (sw.ok) {
+              attemptAccountEmail = ultra.email;
+              lastActiveAccountEmail = ultra.email;
+              conversationId = runId; // hội thoại cũ thuộc tài khoản trước
+              attempt = await runAttempt(conversationId, attemptModel);
+            }
+          }
         }
 
         // AGY-SW-002 (26/10/2026): Tự động xoay vòng tài khoản Google trong kho khi chạm giới hạn

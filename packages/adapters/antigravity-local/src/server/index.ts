@@ -15,6 +15,7 @@ export {
   detectAntigravityQuotaExhausted,
   detectAntigravityTransientDisconnect,
   detectAntigravityZeroTokenBudget,
+  detectAntigravityModelNotAvailable,
   shouldAntigravityFallback,
   countAntigravityActionCalls,
   ANTIGRAVITY_READ_ONLY_TOOLS,
@@ -27,6 +28,10 @@ export {
 export { defaultAgyCommand } from "./execute.js";
 export {
   computeMaxAccountRotations,
+  findReadyAntigravityAccountByPlan,
+  planForAntigravityAccount,
+  useAntigravityAccount,
+  type AntigravityPoolAccount,
   getActiveAntigravityAccountEmail,
   getAntigravityPoolAccountCount,
   markAntigravityAccountHealthy,
