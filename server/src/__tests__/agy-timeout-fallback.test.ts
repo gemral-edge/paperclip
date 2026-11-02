@@ -140,6 +140,21 @@ describe('router wiring (guard chống revert)', () => {
   it('không còn Error trần "CLI timed out" trong router.ts', () => {
     expect(src).not.toMatch(/new Error\(`(Claude|Gemini|Antigravity) CLI timed out/);
   });
+  it('GEM-1427: route /:slug/test nối res.once(close) vào AbortSignal và cả 3 CLI runner đều lắng nghe abort + killProcessTree', () => {
+    const routesSrc = readFileSync(fileURLToPath(new URL('../channels/agent-config-routes.ts', import.meta.url)), 'utf-8');
+    expect(routesSrc).toContain("res.once('close', onClientDisconnect);");
+    expect(routesSrc).toContain("req.once('aborted', onClientDisconnect);");
+    expect(routesSrc).toMatch(/AgentRouter\.runAgentWithConfig\([\s\S]{0,200}?abortController\.signal/);
+
+    const claude = src.slice(src.indexOf('async function runViaClaude('), src.indexOf('async function runViaGemini('));
+    const gemini = src.slice(src.indexOf('async function runViaGemini('), src.indexOf('async function runViaAntigravity('));
+    const agy = src.slice(src.indexOf('async function runViaAntigravity('), src.indexOf('async function runViaOpenRouter('));
+    for (const [name, block] of [['claude', claude], ['gemini', gemini], ['antigravity', agy]] as const) {
+      expect(block, `${name} must listen to signal abort`).toContain("signal?.addEventListener('abort', onAbort, { once: true })");
+      expect(block, `${name} must kill process tree on abort`).toContain('killProcessTree(child)');
+      expect(block, `${name} must reject AgentAbortedError on abort`).toContain('reject(new AgentAbortedError())');
+    }
+  });
   it('GEM-1085: runner API đi qua withApiTimeout, KHÔNG tự setTimeout(controller.abort) trần', () => {
     const api = src.slice(src.indexOf('async function runViaOpenRouter('), src.indexOf('async function resolveMediaToBase64('));
     expect(api).toContain("withApiTimeout('openrouter'");

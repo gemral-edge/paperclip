@@ -8,6 +8,7 @@ import { resolve as pathResolve, join as pathJoin } from 'node:path';
 import { tmpdir } from 'node:os';
 import { EventEmitter } from 'node:events';
 import { spawnHidden } from '../spawn-hidden.js';
+import { killProcessTree } from '@paperclipai/adapter-utils/server-utils';
 import {
   findAntigravityReplyByTurnMarker,
   looksLikeSystemPromptLeak as agyLooksLikeLeak,
@@ -701,6 +702,7 @@ async function runViaClaude(
     const timeout = setTimeout(() => {
       settled = true;
       child.kill('SIGTERM');
+      killProcessTree(child);
       // Dấu vết treo ở đâu (trước đây bỏ trống → không chẩn được): sự kiện stream cuối + stderr cuối.
       const lastEvent = stdout.trim().split('\n').pop()?.slice(0, 200) || '(chưa có stdout)';
       console.error(`[Router] Claude CLI timeout ${config.slug} (resume=${sessionId ? 'yes' : 'no'}) last_stdout=${lastEvent} stderr=${stderr.slice(-300) || '(trống)'}`);
@@ -711,9 +713,12 @@ async function runViaClaude(
       settled = true;
       clearTimeout(timeout);
       try { child.kill('SIGTERM'); } catch { /* already gone */ }
+      killProcessTree(child);
+      try { rmSync(skillsDir, { recursive: true, force: true }); } catch { /* OK */ }
       reject(new AgentAbortedError());
     };
     signal?.addEventListener('abort', onAbort, { once: true });
+    if (signal?.aborted) onAbort();
 
     child.stdout?.setEncoding("utf8");
     child.stdout.on('data', (chunk: Buffer) => {
@@ -832,6 +837,9 @@ async function runViaClaude(
     });
 
     child.on('error', (err) => {
+      if (settled) return;
+      settled = true;
+      signal?.removeEventListener('abort', onAbort);
       clearTimeout(timeout);
       try { rmSync(skillsDir, { recursive: true, force: true }); } catch { /* OK */ }
       streamEvents.emit('agent:error', { agentSlug: config.slug, streamKey, error: err.message });
@@ -1152,11 +1160,25 @@ async function runViaGemini(
     let stdout = '';
     let stderr = '';
     let timedOut = false;
+    let aborted = false;
     const timeout = setTimeout(() => {
+      if (aborted) return;
       timedOut = true;
       child.kill('SIGTERM');
+      killProcessTree(child);
       reject(new ProviderTimeoutError('gemini', 'Gemini', config.slug));
     }, AGENT_TIMEOUT_MS);
+    const onAbort = () => {
+      if (timedOut || aborted) return;
+      aborted = true;
+      clearTimeout(timeout);
+      try { child.kill('SIGTERM'); } catch { /* already gone */ }
+      killProcessTree(child);
+      if (pf) { try { rmSync(pf, { force: true }); } catch {} }
+      reject(new AgentAbortedError());
+    };
+    signal?.addEventListener('abort', onAbort, { once: true });
+    if (signal?.aborted) onAbort();
 
     child.stdout?.setEncoding("utf8");
     child.stdout.on('data', (chunk: Buffer) => {
@@ -1172,6 +1194,11 @@ async function runViaGemini(
 
     child.on('close', async (code) => {
       clearTimeout(timeout);
+      signal?.removeEventListener('abort', onAbort);
+      if (aborted) {
+        streamEvents.emit('agent:error', { agentSlug: config.slug, streamKey, error: 'gemini aborted' });
+        return;
+      }
       // Đã reject vì timeout (fallback claude có thể đang chạy) → KHÔNG parse/ghi phiên/emit agent:done
       // bằng "Xin lỗi, hệ thống đang xử lý" của tiến trình bị kill (đè _agent_session_id của fallback).
       if (timedOut) {
@@ -1264,6 +1291,8 @@ async function runViaGemini(
 
     child.on('error', (err) => {
       clearTimeout(timeout);
+      signal?.removeEventListener('abort', onAbort);
+      if (aborted || timedOut) return;
       reject(err);
     });
   });
@@ -1447,6 +1476,10 @@ async function runViaAntigravity(
       ].join('\n')
     : '';
   if (inlineStdin) { try { rmSync(promptFile, { force: true }); } catch {} }
+  if (signal?.aborted) {
+    try { rmSync(promptFile, { force: true }); } catch {}
+    throw new AgentAbortedError();
+  }
 
   const agy = defaultAgyCommand();
   const args: string[] = inlineStdin
@@ -1500,13 +1533,27 @@ async function runViaAntigravity(
 
     let stderr = '';
     let timedOut = false;
+    let aborted = false;
     let stoppedAfterReply = false;
     const timeout = setTimeout(() => {
+      if (aborted) return;
       timedOut = true;
       child.kill('SIGTERM');
+      killProcessTree(child);
       reject(new ProviderTimeoutError('antigravity', 'Antigravity', config.slug));
     }, Number((config as any)._agyTimeoutMs) > 0 ? Number((config as any)._agyTimeoutMs) : agyReplyTimeoutMs());
     // 14/10: 300s → 420s (llm-route-policy.ts), sàn 300s; caller có trần cứng (header x-agy-timeout-ms) được rút ngắn.
+    const onAbort = () => {
+      if (timedOut || aborted) return;
+      aborted = true;
+      clearTimeout(timeout);
+      try { child.kill('SIGTERM'); } catch { /* already gone */ }
+      killProcessTree(child);
+      try { rmSync(promptFile, { force: true }); } catch {}
+      reject(new AgentAbortedError());
+    };
+    signal?.addEventListener('abort', onAbort, { once: true });
+    if (signal?.aborted) onAbort();
 
     child.stdout?.setEncoding("utf8");
     child.stdout.on('data', (chunk: Buffer) => {
@@ -1517,10 +1564,11 @@ async function runViaAntigravity(
       const deltas = feedAgyStream(streamState, chunk.toString('utf-8'));
       if (deltas) streamEvents.emit('agent:chunk', { agentSlug: config.slug, streamKey, chunk: deltas });
       // Reply step finished with a full envelope → stop agy now (its later steps only wait on the gate).
-      if (streamState.completedReply && !stoppedAfterReply && !timedOut) {
+      if (streamState.completedReply && !stoppedAfterReply && !timedOut && !aborted) {
         stoppedAfterReply = true;
         console.log(`[Router/antigravity] ${config.slug}: reply step done after ${Date.now() - attemptStartedAtMs}ms → stopping agy`);
         child.kill('SIGTERM');
+        killProcessTree(child);
       }
     });
     child.stderr?.setEncoding("utf8");
@@ -1528,7 +1576,12 @@ async function runViaAntigravity(
 
     child.on('close', async (code) => {
       clearTimeout(timeout);
+      signal?.removeEventListener('abort', onAbort);
       try { rmSync(promptFile, { force: true }); } catch {}
+      if (aborted) {
+        streamEvents.emit('agent:error', { agentSlug: config.slug, streamKey, error: 'antigravity aborted' });
+        return;
+      }
       // Đã reject vì timeout (fallback claude có thể đang chạy) → KHÔNG dò brain/ghi đè
       // _agent_session_id/emit agent:done bằng fallback_message của agy.
       if (timedOut) {
@@ -1635,6 +1688,8 @@ async function runViaAntigravity(
 
     child.on('error', (err) => {
       clearTimeout(timeout);
+      signal?.removeEventListener('abort', onAbort);
+      if (aborted || timedOut) return;
       reject(err);
     });
   });
