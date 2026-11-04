@@ -1811,7 +1811,7 @@ export async function listWorkspaceRuntimeServicesForProjectWorkspaces(
     .where(
       and(
         eq(workspaceRuntimeServices.companyId, companyId),
-        inArray(workspaceRuntimeServices.projectWorkspaceId, projectWorkspaceIds),
+        uuidAny(workspaceRuntimeServices.projectWorkspaceId, projectWorkspaceIds),
         eq(workspaceRuntimeServices.scopeType, "project_workspace"),
       ),
     )

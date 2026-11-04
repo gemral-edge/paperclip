@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, inArray } from "drizzle-orm";
+import { and, asc, desc, eq } from "drizzle-orm";
 import type { Db } from "@paperclipai/db";
 import { projects, projectGoals, goals, projectWorkspaces, workspaceRuntimeServices } from "@paperclipai/db";
 import {
@@ -77,7 +77,7 @@ async function attachGoals(db: Db, rows: ProjectRow[]): Promise<ProjectWithGoals
     })
     .from(projectGoals)
     .innerJoin(goals, eq(projectGoals.goalId, goals.id))
-    .where(inArray(projectGoals.projectId, projectIds));
+    .where(uuidAny(projectGoals.projectId, projectIds));
 
   const map = new Map<string, ProjectGoalRef[]>();
   for (const link of links) {
@@ -222,7 +222,7 @@ async function attachWorkspaces(db: Db, rows: ProjectWithGoals[]): Promise<Proje
   const workspaceRows = await db
     .select()
     .from(projectWorkspaces)
-    .where(inArray(projectWorkspaces.projectId, projectIds))
+    .where(uuidAny(projectWorkspaces.projectId, projectIds))
     .orderBy(desc(projectWorkspaces.isPrimary), asc(projectWorkspaces.createdAt), asc(projectWorkspaces.id));
   const runtimeServicesByWorkspaceId = await listWorkspaceRuntimeServicesForProjectWorkspaces(
     db,

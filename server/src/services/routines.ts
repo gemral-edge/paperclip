@@ -34,6 +34,7 @@ import { parseCron, validateCron } from "./cron.js";
 import { heartbeatService } from "./heartbeat.js";
 import { queueIssueAssignmentWakeup, type IssueAssignmentWakeupDeps } from "./issue-assignment-wakeup.js";
 import { logActivity } from "./activity-log.js";
+import { uuidAny } from "./sql-any.js";
 
 const OPEN_ISSUE_STATUSES = ["backlog", "todo", "in_progress", "in_review", "blocked"];
 const LIVE_HEARTBEAT_RUN_STATUSES = ["queued", "running"];
@@ -214,7 +215,7 @@ export function routineService(db: Db, deps: { heartbeat?: IssueAssignmentWakeup
     const rows = await db
       .select()
       .from(routineTriggers)
-      .where(and(eq(routineTriggers.companyId, companyId), inArray(routineTriggers.routineId, routineIds)))
+      .where(and(eq(routineTriggers.companyId, companyId), uuidAny(routineTriggers.routineId, routineIds)))
       .orderBy(asc(routineTriggers.createdAt), asc(routineTriggers.id));
     const map = new Map<string, RoutineTrigger[]>();
     for (const row of rows) {
@@ -255,7 +256,7 @@ export function routineService(db: Db, deps: { heartbeat?: IssueAssignmentWakeup
       .from(routineRuns)
       .leftJoin(routineTriggers, eq(routineRuns.triggerId, routineTriggers.id))
       .leftJoin(issues, eq(routineRuns.linkedIssueId, issues.id))
-      .where(and(eq(routineRuns.companyId, companyId), inArray(routineRuns.routineId, routineIds)))
+      .where(and(eq(routineRuns.companyId, companyId), uuidAny(routineRuns.routineId, routineIds)))
       .orderBy(routineRuns.routineId, desc(routineRuns.createdAt), desc(routineRuns.id));
 
     const map = new Map<string, RoutineRunSummary>();
