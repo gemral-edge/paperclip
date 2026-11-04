@@ -4,7 +4,7 @@ import os from 'os';
 import path from 'path';
 import {
   buildAuthorizeUrl, cleanCode, upsertEnv, refreshDecision, refreshAll, envKeys, DEFAULT_SCOPES, scopes,
-  exchangeCode, exchangeLongLived,
+  exchangeCode, exchangeLongLived, THREADS_ACCOUNTS,
 } from '../token-store.js';
 
 const DAY = 86_400_000;
@@ -18,7 +18,9 @@ describe('authorize url + code', () => {
     expect(u.searchParams.get('client_id')).toBe('123');
     expect(u.searchParams.get('redirect_uri')).toBe('https://x.test/cb');
     expect(u.searchParams.get('response_type')).toBe('code');
-    expect(u.searchParams.get('scope')).toBe('threads_basic,threads_read_replies,threads_manage_replies');
+    expect(u.searchParams.get('scope')).toBe('threads_basic,threads_read_replies,threads_manage_replies,threads_manage_insights,threads_keyword_search');
+    expect(DEFAULT_SCOPES).toContain('threads_manage_insights');
+    expect(DEFAULT_SCOPES).toContain('threads_keyword_search');
     expect(DEFAULT_SCOPES).not.toContain('threads_content_publish');
   });
   it('THREADS_OAUTH_SCOPES env overrides scopes', () => {
@@ -86,7 +88,7 @@ describe('refreshAll', () => {
     dir = await fsp.mkdtemp(path.join(os.tmpdir(), 'thr-'));
     file = path.join(dir, '.env');
     await fsp.writeFile(file, 'KEEP=1\n', 'utf8');
-    for (const s of ['JENNIE', 'GEMRAL_EDGE']) for (const key of Object.values(envKeys(s))) delete process.env[key];
+    for (const { suffix } of Object.values(THREADS_ACCOUNTS)) for (const key of Object.values(envKeys(suffix))) delete process.env[key];
   });
   afterEach(async () => {
     for (const key of Object.values(k)) delete process.env[key];

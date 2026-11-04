@@ -16,9 +16,15 @@ import path from 'path';
 export const THREADS_GRAPH = 'https://graph.threads.net';
 export const THREADS_AUTHORIZE = 'https://threads.net/oauth/authorize';
 
-// Mặc định 3 quyền chị duyệt (không threads_content_publish). Nếu Meta đòi publish cho reply,
-// đặt THREADS_OAUTH_SCOPES trong .env rồi bấm OAuth lại — code vẫn KHÔNG có đường đăng bài.
-export const DEFAULT_SCOPES = ['threads_basic', 'threads_read_replies', 'threads_manage_replies'];
+// Mặc định 5 quyền chị duyệt (basic, read/manage replies, manage insights, keyword search; không threads_content_publish).
+// Nếu Meta đòi publish cho reply, đặt THREADS_OAUTH_SCOPES trong .env rồi bấm OAuth lại — code vẫn KHÔNG có đường đăng bài.
+export const DEFAULT_SCOPES = [
+  'threads_basic',
+  'threads_read_replies',
+  'threads_manage_replies',
+  'threads_manage_insights',
+  'threads_keyword_search',
+];
 
 export const REFRESH_WITHIN_DAYS = 10;
 const DAY_MS = 86_400_000;
