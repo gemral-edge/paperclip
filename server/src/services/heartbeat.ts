@@ -79,6 +79,7 @@ import {
   resolveSessionCompactionPolicy,
   type SessionCompactionPolicy,
 } from "@paperclipai/adapter-utils";
+import { uuidAny } from "./sql-any.js";
 
 // GEM-1443: cron slots that passed before this process started were missed while the
 // server was down (keep the stale guard); slots after it were missed by us (fire late).
@@ -2258,7 +2259,7 @@ export function heartbeatService(db: Db) {
     const rows = await db
       .select({ agentId: heartbeatRuns.agentId, lastFinishedAt: sql<string | null>`max(${heartbeatRuns.finishedAt})` })
       .from(heartbeatRuns)
-      .where(and(inArray(heartbeatRuns.companyId, companyIds), inArray(heartbeatRuns.agentId, agentIds)))
+      .where(and(uuidAny(heartbeatRuns.companyId, companyIds), uuidAny(heartbeatRuns.agentId, agentIds)))
       .groupBy(heartbeatRuns.agentId);
     for (const row of rows) {
       result.set(row.agentId, row.lastFinishedAt ? new Date(row.lastFinishedAt) : null);
@@ -4618,7 +4619,7 @@ export function heartbeatService(db: Db) {
         error: "Cancelled due to budget pause",
         updatedAt: now,
       })
-      .where(inArray(agentWakeupRequests.id, wakeupIds));
+      .where(uuidAny(agentWakeupRequests.id, wakeupIds));
 
     return wakeupIds.length;
   }
@@ -4995,7 +4996,7 @@ export function heartbeatService(db: Db) {
       // scheduled time instead of re-detecting the same stale slot on every tick.
       // GEM-1443: one statement for all stale agents instead of one round-trip each.
       if (staleResyncIds.length > 0) {
-        await db.update(agents).set({ lastHeartbeatAt: now, updatedAt: now }).where(inArray(agents.id, staleResyncIds));
+        await db.update(agents).set({ lastHeartbeatAt: now, updatedAt: now }).where(uuidAny(agents.id, staleResyncIds));
       }
       endPhase("classify");
 
@@ -5014,7 +5015,7 @@ export function heartbeatService(db: Db) {
             .from(issues)
             .where(
               and(
-                inArray(issues.assigneeAgentId, pendingIds),
+                uuidAny(issues.assigneeAgentId, pendingIds),
                 inArray(issues.status, ["todo", "in_progress", "backlog", "blocked"]),
                 sql`${issues.hiddenAt} is null`,
                 // Issues waiting on a scheduled wake are not actionable yet —

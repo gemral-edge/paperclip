@@ -1,4 +1,4 @@
-import { and, count, eq, gte, inArray, lt, sql } from "drizzle-orm";
+import { and, count, eq, gte, lt, sql } from "drizzle-orm";
 import type { Db } from "@paperclipai/db";
 import {
   companies,
@@ -27,6 +27,7 @@ import {
   companyMemberships,
 } from "@paperclipai/db";
 import { notFound, unprocessable } from "../errors.js";
+import { uuidAny } from "./sql-any.js";
 
 export function companyService(db: Db) {
   const ISSUE_PREFIX_FALLBACK = "CMP";
@@ -77,7 +78,7 @@ export function companyService(db: Db) {
       .from(costEvents)
       .where(
         and(
-          inArray(costEvents.companyId, companyIds),
+          uuidAny(costEvents.companyId, companyIds),
           gte(costEvents.occurredAt, start),
           lt(costEvents.occurredAt, end),
         ),

@@ -65,6 +65,7 @@ import {
   loadDefaultAgentInstructionsBundle,
   resolveDefaultAgentInstructionsBundleRole,
 } from "../services/default-agent-instructions.js";
+import { uuidAny } from "../services/sql-any.js";
 
 export function agentRoutes(db: Db) {
   const DEFAULT_INSTRUCTIONS_PATH_KEYS: Record<string, string> = {
@@ -2300,7 +2301,7 @@ export function agentRoutes(db: Db) {
           and(
             eq(heartbeatRuns.companyId, companyId),
             not(inArray(heartbeatRuns.status, ["queued", "running"])),
-            ...(activeIds.length > 0 ? [not(inArray(heartbeatRuns.id, activeIds))] : []),
+            ...(activeIds.length > 0 ? [not(uuidAny(heartbeatRuns.id, activeIds))] : []),
           ),
         )
         .orderBy(desc(heartbeatRuns.createdAt))

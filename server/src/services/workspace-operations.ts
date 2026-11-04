@@ -2,11 +2,12 @@ import { randomUUID } from "node:crypto";
 import type { Db } from "@paperclipai/db";
 import { workspaceOperations } from "@paperclipai/db";
 import type { WorkspaceOperation, WorkspaceOperationPhase, WorkspaceOperationStatus } from "@paperclipai/shared";
-import { asc, desc, eq, inArray, isNull, or, and } from "drizzle-orm";
+import { asc, desc, eq, isNull, or, and } from "drizzle-orm";
 import { notFound } from "../errors.js";
 import { redactCurrentUserText, redactCurrentUserValue } from "../log-redaction.js";
 import { instanceSettingsService } from "./instance-settings.js";
 import { getWorkspaceOperationLogStore } from "./workspace-operation-log-store.js";
+import { uuidAny } from "./sql-any.js";
 
 type WorkspaceOperationRow = typeof workspaceOperations.$inferSelect;
 
@@ -103,7 +104,7 @@ export function workspaceOperationService(db: Db) {
               executionWorkspaceId,
               updatedAt: new Date(),
             })
-            .where(inArray(workspaceOperations.id, createdIds));
+            .where(uuidAny(workspaceOperations.id, createdIds));
         },
 
         async recordOperation(recordInput) {

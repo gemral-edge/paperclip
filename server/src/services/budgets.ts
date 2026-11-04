@@ -23,6 +23,7 @@ import type {
 } from "@paperclipai/shared";
 import { notFound, unprocessable } from "../errors.js";
 import { logActivity } from "./activity-log.js";
+import { uuidAny } from "./sql-any.js";
 
 type ScopeRecord = {
   companyId: string;
@@ -461,7 +462,7 @@ export function budgetService(db: Db, hooks: BudgetServiceHooks = {}) {
       ? await db
         .select({ id: approvals.id, status: approvals.status })
         .from(approvals)
-        .where(inArray(approvals.id, approvalIds))
+        .where(uuidAny(approvals.id, approvalIds))
       : [];
     const approvalStatusById = new Map(approvalRows.map((row) => [row.id, row.status]));
 

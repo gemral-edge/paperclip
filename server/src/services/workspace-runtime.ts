@@ -23,6 +23,7 @@ import {
 import type { WorkspaceOperationRecorder } from "./workspace-operations.js";
 import { readExecutionWorkspaceConfig } from "./execution-workspaces.js";
 import { readProjectWorkspaceRuntimeConfig } from "./project-workspace-runtime-config.js";
+import { uuidAny } from "./sql-any.js";
 
 export interface ExecutionWorkspaceInput {
   baseCwd: string;
@@ -2020,7 +2021,7 @@ export async function persistAdapterManagedRuntimeServices(input: {
   const existingRows = await input.db
     .select()
     .from(workspaceRuntimeServices)
-    .where(inArray(workspaceRuntimeServices.id, refs.map((ref) => ref.id)));
+    .where(uuidAny(workspaceRuntimeServices.id, refs.map((ref) => ref.id)));
   const existingById = new Map(existingRows.map((row) => [row.id, row]));
 
   for (const ref of refs) {

@@ -1,4 +1,4 @@
-import { and, eq, inArray, sql } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import type { Db } from "@paperclipai/db";
 import {
   companyMemberships,
@@ -6,6 +6,7 @@ import {
   principalPermissionGrants,
 } from "@paperclipai/db";
 import type { PermissionKey, PrincipalType } from "@paperclipai/shared";
+import { uuidAny } from "./sql-any.js";
 
 type MembershipRow = typeof companyMemberships.$inferSelect;
 type GrantInput = {
@@ -180,7 +181,7 @@ export function accessService(db: Db) {
     await db.transaction(async (tx) => {
       const toDelete = existing.filter((row) => !target.has(row.companyId)).map((row) => row.id);
       if (toDelete.length > 0) {
-        await tx.delete(companyMemberships).where(inArray(companyMemberships.id, toDelete));
+        await tx.delete(companyMemberships).where(uuidAny(companyMemberships.id, toDelete));
       }
 
       for (const companyId of target) {

@@ -1,8 +1,9 @@
-import { and, desc, eq, inArray } from "drizzle-orm";
+import { and, desc, eq } from "drizzle-orm";
 import type { Db } from "@paperclipai/db";
 import { approvals, issueApprovals, issues } from "@paperclipai/db";
 import { notFound, unprocessable } from "../errors.js";
 import { redactEventPayload } from "../redaction.js";
+import { uuidAny } from "./sql-any.js";
 
 interface LinkActor {
   agentId?: string | null;
@@ -145,7 +146,7 @@ export function issueApprovalService(db: Db) {
           companyId: issues.companyId,
         })
         .from(issues)
-        .where(inArray(issues.id, uniqueIssueIds));
+        .where(uuidAny(issues.id, uniqueIssueIds));
 
       if (rows.length !== uniqueIssueIds.length) {
         throw notFound("One or more issues not found");

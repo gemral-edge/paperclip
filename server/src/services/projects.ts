@@ -18,6 +18,7 @@ import { listWorkspaceRuntimeServicesForProjectWorkspaces } from "./workspace-ru
 import { parseProjectExecutionWorkspacePolicy } from "./execution-workspace-policy.js";
 import { mergeProjectWorkspaceRuntimeConfig, readProjectWorkspaceRuntimeConfig } from "./project-workspace-runtime-config.js";
 import { resolveManagedProjectWorkspaceDir } from "../home-paths.js";
+import { uuidAny } from "./sql-any.js";
 
 type ProjectRow = typeof projects.$inferSelect;
 type ProjectWorkspaceRow = typeof projectWorkspaces.$inferSelect;
@@ -411,7 +412,7 @@ export function projectService(db: Db) {
       const rows = await db
         .select()
         .from(projects)
-        .where(and(eq(projects.companyId, companyId), inArray(projects.id, dedupedIds)));
+        .where(and(eq(projects.companyId, companyId), uuidAny(projects.id, dedupedIds)));
       const withGoals = await attachGoals(db, rows);
       const withWorkspaces = await attachWorkspaces(db, withGoals);
       const byId = new Map(withWorkspaces.map((project) => [project.id, project]));

@@ -16,6 +16,7 @@ import { isUuidLike, normalizeAgentUrlKey } from "@paperclipai/shared";
 import { conflict, notFound, unprocessable } from "../errors.js";
 import { normalizeAgentPermissions } from "./agent-permissions.js";
 import { REDACTED_EVENT_VALUE, sanitizeRecord } from "../redaction.js";
+import { uuidAny } from "./sql-any.js";
 
 function hashToken(token: string) {
   return createHash("sha256").update(token).digest("hex");
@@ -218,7 +219,7 @@ export function agentService(db: Db) {
       .where(
         and(
           eq(costEvents.companyId, companyId),
-          inArray(costEvents.agentId, agentIds),
+          uuidAny(costEvents.agentId, agentIds),
           gte(costEvents.occurredAt, start),
           lt(costEvents.occurredAt, end),
         ),
