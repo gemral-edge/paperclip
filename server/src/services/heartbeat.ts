@@ -1073,6 +1073,9 @@ export function heartbeatService(db: Db) {
   const executionWorkspacesSvc = executionWorkspaceService(db);
   const workspaceOperationsSvc = workspaceOperationService(db);
   const activeRunExecutions = new Set<string>();
+  // Lần đầu reaper thấy pid đã chết trong khi executeRun còn chạy (ân hạn hoàn tất, xem reapOrphanedRuns).
+  const pidDeadSeenAt = new Map<string, number>();
+  const EXITED_CHILD_FINALIZE_GRACE_MS = 5 * 60_000;
   // Runs already logged as held by the fleet throttle (log once per run, not every tick).
   const fleetDeferredRunIds = new Set<string>();
   const budgetHooks = {
@@ -2376,7 +2379,20 @@ export function heartbeatService(db: Db) {
         // (this server is actively executing the run).
         const pidIsKnownDead =
           tracksLocalChild && !!run.processPid && !isProcessAlive(run.processPid);
-        if (!pidIsKnownDead) continue;
+        if (!pidIsKnownDead) {
+          pidDeadSeenAt.delete(run.id);
+          continue;
+        }
+        // 04/11 (CEO run 6e8a0a4a): child đã thoát nhưng `executeRun` của CHÍNH server này còn đang
+        // hoàn tất (parse log, comment tóm tắt) → reaper đánh process_lost + xếp lượt chạy lại 0,5s
+        // trước khi lượt gốc tự ghi succeeded ⇒ lượt thừa. Chỉ khi executeRun còn sống ở process
+        // này mới cho thời gian ân hạn; quá hạn vẫn reap (adapter treo chờ stdio mãi).
+        if (activeRunExecutions.has(run.id) && !runningProcesses.has(run.id)) {
+          const firstDead = pidDeadSeenAt.get(run.id) ?? now.getTime();
+          pidDeadSeenAt.set(run.id, firstDead);
+          if (now.getTime() - firstDead < EXITED_CHILD_FINALIZE_GRACE_MS) continue;
+        }
+        pidDeadSeenAt.delete(run.id);
         runningProcesses.delete(run.id);
         activeRunExecutions.delete(run.id);
       }
@@ -3746,6 +3762,7 @@ export function heartbeatService(db: Db) {
           await releaseIssueExecutionAndPromote(run).catch(() => undefined);
           await releaseRuntimeServicesForRun(run.id).catch(() => undefined);
           activeRunExecutions.delete(run.id);
+          pidDeadSeenAt.delete(run.id);
           await startNextQueuedRunForAgent(run.agentId);
         }
   }
