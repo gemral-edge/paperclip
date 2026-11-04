@@ -2387,7 +2387,9 @@ export function heartbeatService(db: Db) {
         // hoàn tất (parse log, comment tóm tắt) → reaper đánh process_lost + xếp lượt chạy lại 0,5s
         // trước khi lượt gốc tự ghi succeeded ⇒ lượt thừa. Chỉ khi executeRun còn sống ở process
         // này mới cho thời gian ân hạn; quá hạn vẫn reap (adapter treo chờ stdio mãi).
-        if (activeRunExecutions.has(run.id) && !runningProcesses.has(run.id)) {
+        // (review agy 04/11: không đòi runningProcesses đã rời — OS có thể thấy pid chết trước khi
+        // libuv kịp chạy handler exit; executeRun còn sống ở process này là đủ để chờ.)
+        if (activeRunExecutions.has(run.id)) {
           const firstDead = pidDeadSeenAt.get(run.id) ?? now.getTime();
           pidDeadSeenAt.set(run.id, firstDead);
           if (now.getTime() - firstDead < EXITED_CHILD_FINALIZE_GRACE_MS) continue;
