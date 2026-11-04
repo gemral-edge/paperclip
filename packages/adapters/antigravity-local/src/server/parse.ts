@@ -275,6 +275,10 @@ export function countAntigravityMutationCalls(entries: AntigravityNormEntry[]): 
 export const ANTIGRAVITY_UNFINISHED_PROMISE_PATTERNS: ReadonlyArray<RegExp> = [
   /(?:bây\s+giờ|tiếp\s+theo|sau\s+đây|giờ\s+đây|ngay\s+bây\s+giờ)\s*,?\s*em\s+(?:sẽ\s+|xin\s+phép\s+)?(?:tiến\s+hành|bắt\s+đầu|bắt\s+tay|thực\s+hiện|chuyển\s+sang|đi\s+vào|làm\s+tiếp|sửa)/i,
   /\bem\s+(?:sẽ|xin\s+phép)\s+(?:tiến\s+hành|bắt\s+đầu|bắt\s+tay\s+vào|thực\s+hiện\s+ngay)/i,
+  // GEM-1307 tái phát 04/11 (run 0bf866b4 Kiểm Định Vận Hành 10:10): "Dạ em bắt đầu thực thi Slot S1
+  // ngay bây giờ ạ!" — mốc giờ đứng SAU động từ + động từ "thực thi" chưa có. Backtest 1.422 lượt agy /
+  // 20 ngày: thêm 4 lượt (đều 0 tool ghi, đều lượt rỗng thật), 0 bắt oan.
+  /\bem\s+(?:xin\s+phép\s+)?(?:bắt\s+đầu|tiến\s+hành|bắt\s+tay\s+vào)\s+(?:thực\s+thi|thực\s+hiện|triển\s+khai|làm|chạy|sửa|xử\s+lý)/i,
   /\b(?:now|next),?\s+I(?:'ll|\s+will|\s+am\s+going\s+to|'m\s+going\s+to)\s+(?:proceed|start|begin|implement|fix|apply|edit|write|make)/i,
   /\blet\s+me\s+(?:now\s+)?(?:proceed|start|begin)\b/i,
   /\bI(?:'ll|\s+will)\s+now\s+(?:proceed|start|begin|implement|fix|apply|edit|write)/i,

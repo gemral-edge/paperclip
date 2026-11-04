@@ -52,6 +52,12 @@ describe("antigravity_unfinished_turn", () => {
     expect(isAntigravityUnfinishedPromise("Let me start with the first file.")).toBe(true);
   });
 
+  it("04/11 run 0bf866b4: mốc giờ đứng sau + động từ 'thực thi'", () => {
+    expect(isAntigravityUnfinishedPromise("| 13 | … |\n\n---\n\nDạ em bắt đầu thực thi Slot S1 ngay bây giờ ạ!")).toBe(true);
+    expect(isAntigravityUnfinishedPromise("--- Dạ em bắt đầu thực thi chu trình theo bảng SPEC-LOCK trên ạ!")).toBe(true);
+    expect(isAntigravityUnfinishedPromise("Em đã bắt đầu thực thi lúc 10:10 và xong cả 13 bước, commit abc123 ạ.")).toBe(false);
+  });
+
   it("mã mới được thử lại ngắn như no_action", () => {
     expect(TRANSIENT_RETRY_ERROR_CODES.has("antigravity_unfinished_turn")).toBe(true);
     const base = { runId: "2f7855e4", issueId: null, fromTimer: true, now: new Date("2026-10-21T22:50:00Z"), random: () => 0 };
