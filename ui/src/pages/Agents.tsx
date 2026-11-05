@@ -187,6 +187,21 @@ export function Agents() {
     return map;
   }, [runs]);
 
+  // Map agentId -> first queued run + queued run count.
+  const queuedRunByAgent = useMemo(() => {
+    const map = new Map<string, { runId: string; queuedCount: number }>();
+    for (const r of runs ?? []) {
+      if (r.status !== "queued") continue;
+      const existing = map.get(r.agentId);
+      if (existing) {
+        existing.queuedCount += 1;
+        continue;
+      }
+      map.set(r.agentId, { runId: r.id, queuedCount: 1 });
+    }
+    return map;
+  }, [runs]);
+
   const agentMap = useMemo(() => {
     const map = new Map<string, Agent>();
     for (const a of agents ?? []) map.set(a.id, a);
@@ -413,6 +428,7 @@ export function Agents() {
                   agentStatusDot={agentStatusDot}
                   agentStatusDotDefault={agentStatusDotDefault}
                   liveRunByAgent={liveRunByAgent}
+                  queuedRunByAgent={queuedRunByAgent}
                   agentRouteRef={agentRouteRef}
                 />
               ))}
@@ -431,7 +447,7 @@ export function Agents() {
       {effectiveView === "org" && filteredOrg.length > 0 && (
         <div className="border border-border py-1">
           {filteredOrg.map((node) => (
-            <OrgTreeNode key={node.id} node={node} depth={0} agentMap={agentMap} liveRunByAgent={liveRunByAgent} />
+            <OrgTreeNode key={node.id} node={node} depth={0} agentMap={agentMap} liveRunByAgent={liveRunByAgent} queuedRunByAgent={queuedRunByAgent} />
           ))}
         </div>
       )}
@@ -458,6 +474,7 @@ function SortableAgentRow({
   agentStatusDot,
   agentStatusDotDefault,
   liveRunByAgent,
+  queuedRunByAgent,
   agentRouteRef,
 }: any) {
   const {
@@ -507,14 +524,22 @@ function SortableAgentRow({
           }
           trailing={
             <div className="flex items-center gap-3">
-              <span className="sm:hidden">
-                {liveRunByAgent.has(agent.id) ? (
+              <span className="sm:hidden flex items-center gap-1.5">
+                {liveRunByAgent.has(agent.id) && (
                   <LiveRunIndicator
                     agentRef={agentRouteRef(agent)}
                     runId={liveRunByAgent.get(agent.id)!.runId}
                     liveCount={liveRunByAgent.get(agent.id)!.liveCount}
                   />
-                ) : (
+                )}
+                {queuedRunByAgent.has(agent.id) && (
+                  <QueuedRunIndicator
+                    agentRef={agentRouteRef(agent)}
+                    runId={queuedRunByAgent.get(agent.id)!.runId}
+                    queuedCount={queuedRunByAgent.get(agent.id)!.queuedCount}
+                  />
+                )}
+                {!liveRunByAgent.has(agent.id) && !queuedRunByAgent.has(agent.id) && (
                   <StatusBadge status={agent.status} />
                 )}
               </span>
@@ -524,6 +549,13 @@ function SortableAgentRow({
                     agentRef={agentRouteRef(agent)}
                     runId={liveRunByAgent.get(agent.id)!.runId}
                     liveCount={liveRunByAgent.get(agent.id)!.liveCount}
+                  />
+                )}
+                {queuedRunByAgent.has(agent.id) && (
+                  <QueuedRunIndicator
+                    agentRef={agentRouteRef(agent)}
+                    runId={queuedRunByAgent.get(agent.id)!.runId}
+                    queuedCount={queuedRunByAgent.get(agent.id)!.queuedCount}
                   />
                 )}
                 <div className="flex flex-col items-start justify-center w-64 shrink-0 border-l border-border/50 pl-3">
@@ -564,11 +596,13 @@ function OrgTreeNode({
   depth,
   agentMap,
   liveRunByAgent,
+  queuedRunByAgent,
 }: {
   node: OrgNode;
   depth: number;
   agentMap: Map<string, Agent>;
   liveRunByAgent: Map<string, { runId: string; liveCount: number }>;
+  queuedRunByAgent: Map<string, { runId: string; queuedCount: number }>;
 }) {
   const agent = agentMap.get(node.id);
 
@@ -591,14 +625,22 @@ function OrgTreeNode({
           </span>
         </div>
         <div className="flex items-center gap-3 shrink-0">
-          <span className="sm:hidden">
-            {liveRunByAgent.has(node.id) ? (
+          <span className="sm:hidden flex items-center gap-1.5">
+            {liveRunByAgent.has(node.id) && (
               <LiveRunIndicator
                 agentRef={agent ? agentRouteRef(agent) : node.id}
                 runId={liveRunByAgent.get(node.id)!.runId}
                 liveCount={liveRunByAgent.get(node.id)!.liveCount}
               />
-            ) : (
+            )}
+            {queuedRunByAgent.has(node.id) && (
+              <QueuedRunIndicator
+                agentRef={agent ? agentRouteRef(agent) : node.id}
+                runId={queuedRunByAgent.get(node.id)!.runId}
+                queuedCount={queuedRunByAgent.get(node.id)!.queuedCount}
+              />
+            )}
+            {!liveRunByAgent.has(node.id) && !queuedRunByAgent.has(node.id) && (
               <StatusBadge status={node.status} />
             )}
           </span>
@@ -608,6 +650,13 @@ function OrgTreeNode({
                 agentRef={agent ? agentRouteRef(agent) : node.id}
                 runId={liveRunByAgent.get(node.id)!.runId}
                 liveCount={liveRunByAgent.get(node.id)!.liveCount}
+              />
+            )}
+            {queuedRunByAgent.has(node.id) && (
+              <QueuedRunIndicator
+                agentRef={agent ? agentRouteRef(agent) : node.id}
+                runId={queuedRunByAgent.get(node.id)!.runId}
+                queuedCount={queuedRunByAgent.get(node.id)!.queuedCount}
               />
             )}
             {agent && (
@@ -644,7 +693,7 @@ function OrgTreeNode({
       {node.reports && node.reports.length > 0 && (
         <div className="border-l border-border/50 ml-4">
           {node.reports.map((child) => (
-            <OrgTreeNode key={child.id} node={child} depth={depth + 1} agentMap={agentMap} liveRunByAgent={liveRunByAgent} />
+            <OrgTreeNode key={child.id} node={child} depth={depth + 1} agentMap={agentMap} liveRunByAgent={liveRunByAgent} queuedRunByAgent={queuedRunByAgent} />
           ))}
         </div>
       )}
@@ -673,6 +722,32 @@ function LiveRunIndicator({
       </span>
       <span className="text-[11px] font-medium text-blue-600 dark:text-blue-400">
         Live{liveCount > 1 ? ` (${liveCount})` : ""}
+      </span>
+    </Link>
+  );
+}
+
+function QueuedRunIndicator({
+  agentRef,
+  runId,
+  queuedCount,
+}: {
+  agentRef: string;
+  runId: string;
+  queuedCount: number;
+}) {
+  return (
+    <Link
+      to={`/agents/${agentRef}/runs/${runId}`}
+      className="flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-amber-500/10 hover:bg-amber-500/20 transition-colors no-underline"
+      onClick={(e) => e.stopPropagation()}
+      title="Đang xếp hàng chờ chỗ chạy"
+    >
+      <span className="relative flex h-2 w-2">
+        <span className="relative inline-flex rounded-full h-2 w-2 bg-amber-500" />
+      </span>
+      <span className="text-[11px] font-medium text-amber-600 dark:text-amber-400">
+        Queued{queuedCount > 1 ? ` (${queuedCount})` : ""}
       </span>
     </Link>
   );
