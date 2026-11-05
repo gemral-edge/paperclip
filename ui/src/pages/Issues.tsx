@@ -77,7 +77,7 @@ export function Issues() {
   const liveIssueIds = useMemo(() => {
     const ids = new Set<string>();
     for (const run of liveRuns ?? []) {
-      if (run.issueId) ids.add(run.issueId);
+      if (run.status === "running" && run.issueId) ids.add(run.issueId);
     }
     return ids;
   }, [liveRuns]);

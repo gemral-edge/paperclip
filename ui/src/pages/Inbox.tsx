@@ -739,7 +739,7 @@ export function Inbox() {
   const liveIssueIds = useMemo(() => {
     const ids = new Set<string>();
     for (const run of heartbeatRuns ?? []) {
-      if (run.status !== "running" && run.status !== "queued") continue;
+      if (run.status !== "running") continue;
       const issueId = readIssueIdFromRun(run);
       if (issueId) ids.add(issueId);
     }

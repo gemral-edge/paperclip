@@ -171,11 +171,12 @@ export function Agents() {
     refetchInterval: 15_000,
   });
 
-  // Map agentId -> first live run + live run count
+  // Map agentId -> first live (running) run + live run count.
+  // Chỉ đếm lượt đang chạy thật (`running`); lượt `queued` (xếp hàng chờ chỗ chạy) không tính là Live.
   const liveRunByAgent = useMemo(() => {
     const map = new Map<string, { runId: string; liveCount: number }>();
     for (const r of runs ?? []) {
-      if (r.status !== "running" && r.status !== "queued") continue;
+      if (r.status !== "running") continue;
       const existing = map.get(r.agentId);
       if (existing) {
         existing.liveCount += 1;
