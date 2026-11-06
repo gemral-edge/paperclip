@@ -1074,8 +1074,9 @@ async function processResolved(
       const hasChunks = Array.isArray((merged as any)._messageChunks) && (merged as any)._messageChunks.length > 0;
       const hasMedia = Array.isArray(outboundMedia) && outboundMedia.length > 0;
       if ((!replyText || !replyText.trim()) && !hasChunks && !hasMedia) {
-        console.log(`${logPrefix} Agent produced empty reply — staying silent (no fallback), left in inbox`);
-        await markBatch('agent', 'skipped', 'agent_silent');
+        const isClosure = isClosureIntent(merged.content);
+        console.log(`${logPrefix} Agent produced empty reply — staying silent (no fallback), left in inbox (closure=${isClosure})`);
+        await markBatch('agent', 'skipped', isClosure ? 'closure_intent' : 'agent_silent');
         if (customerId && merged.peerKind !== 'group') aiSummarizer.scheduleSummary(sessionKey, customerId);
         // GEM-1037: "để lại inbox cho người" chỉ đúng khi CÓ người biết mà vào. Trước đây rỗng = câm
         // hoàn toàn (khách Zalo Hồ Thị Mỹ Huệ bị bỏ rơi 28→29/09, 3 tin, ~20h không ai hay).
@@ -1085,7 +1086,6 @@ async function processResolved(
         // không gửi câu đệm "Dạ mình đợi em kiểm tra…" — chị Jennie: câu đệm gửi cả cho spam MISA).
         // Escalation router gắn vẫn phải chạy (dừng bot + phiếu + ping) — nhánh rỗng return sớm nên
         // xử lý TẠI ĐÂY, thay cho alert agent_silent noPause bên dưới.
-        const isClosure = isClosureIntent(merged.content);
         const routerEsc = (merged as any)._escalation as
           | { reason: string; priority: 'low' | 'normal' | 'high' | 'urgent'; summary: string }
           | undefined;
@@ -1145,7 +1145,7 @@ async function processResolved(
             chatId: merged.chatId,
             customerId: customerId || null,
             customerName: ((merged as any)._customerContext?.name as string) || merged.senderName || null,
-            reason: 'agent_silent',
+            reason: isClosure ? 'closure_intent' : 'agent_silent',
             priority: isClosure ? 'low' : 'high',
             summary: isClosure
               ? `Khách gửi tin nhắn kết thúc cuộc trò chuyện ("${merged.content.slice(0, 50)}") — tự động resolve ticket (GEM-1572)`
@@ -1158,7 +1158,7 @@ async function processResolved(
               : '(agent trả rỗng — KHÔNG có gì được gửi cho khách)',
             noPause: true,
             statusLine: isClosure
-              ? 'Khách gửi tin nhắn kết thúc (Ok/cảm ơn) — phiếu đã được tự động resolve.'
+              ? 'Khách gửi tin nhắn kết thúc (Ok/cảm ơn/emoji) — phiếu đã được tự động resolve.'
               : 'Bot KHÔNG bị tắt (tin kế tiếp của khách sẽ được bot thử lại). Cần người trả lời tay tin này.',
             closureIntent: isClosure,
           }).catch((err) => {

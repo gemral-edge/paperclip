@@ -36,7 +36,7 @@ describe("buildGreetingFallback", () => {
 describe("consumer.ts nối đúng ngoại lệ chào hỏi", () => {
   const src = readFileSync(new URL("../channels/consumer.ts", import.meta.url), "utf8");
   it("nhánh agent_silent gọi isShortGreeting + dedupeKey + vẫn handleEscalation", () => {
-    const i = src.indexOf("markBatch('agent', 'skipped', 'agent_silent')");
+    const i = src.indexOf("markBatch('agent', 'skipped', isClosure ? 'closure_intent' : 'agent_silent')");
     expect(i).toBeGreaterThan(0);
     // Cắt đến hết nhánh agent_silent (`return;` đầu tiên sau handleEscalation), không phụ thuộc độ dài cố định —
     // 03/10 router-escalation chèn thêm ở trên làm cửa sổ 3200 ký tự cũ trượt mất `noPause: true`.

@@ -42,6 +42,9 @@ const CLOSURE_PHRASES: string[] = [
   'all good', 'got it', 'noted',
 ];
 
+/** Emoji giận/thất vọng/buồn/phản đối: không tự đóng phiếu như tin kết thúc. */
+const NEGATIVE_EMOJI_RE = /[😡😠🤬😤👎😢😭💔😞😒🙄😩😫😖😣🤮🖕😾]/u;
+
 function tokenize(text: string): string[] {
   return text
     .normalize('NFC')
@@ -53,18 +56,40 @@ function tokenize(text: string): string[] {
 
 /**
  * Phân loại tin nhắn của khách có phải là ý định kết thúc cuộc trò chuyện (closure intent) hay không.
- * True nếu tin nhắn chỉ mang tính xác nhận ("Ok"), cảm ơn ("Ồ vậy mình cảm ơn..."), hoặc chào tạm biệt.
+ * True nếu tin nhắn chỉ mang tính xác nhận ("Ok"), cảm ơn ("Ồ vậy mình cảm ơn..."), chào tạm biệt,
+ * hoặc biểu tượng cảm xúc / emoji thuần túy (👍, ❤️, 🙏, 🔥, 😊, 🥰, 👏, v.v.).
  *
  * Tiêu chí an toàn (Fail-closed):
  * 1. Chứa dấu hỏi '?' -> false.
  * 2. Chứa từ khóa thắc mắc/vấn đề (giá, lỗi, bao nhiêu, chưa, khi nào, ship...) -> false.
  * 3. Quá dài (> MAX_CHARS hoặc > MAX_TOKENS) -> false.
- * 4. Phải chứa ít nhất 1 dấu hiệu kết thúc cốt lõi (SINGLE_CLOSURE_TOKENS hoặc CLOSURE_PHRASES).
+ * 4. Phải chứa ít nhất 1 dấu hiệu kết thúc cốt lõi (SINGLE_CLOSURE_TOKENS, CLOSURE_PHRASES, hoặc thuần emoji/reaction).
  */
 export function isClosureIntent(text: string | null | undefined): boolean {
   if (!text) return false;
   const raw = text.trim();
   if (!raw || raw.length > MAX_CHARS || raw.includes('?')) return false;
+
+  // GEM-1621 / OPS-1024-S1-01-5502a9: Nhận diện tin nhắn thuần emoji / biểu tượng cảm xúc (🔥, 👍, ❤️, 🙏, 😊, 🥰, 👏, v.v.)
+  // Khách chỉ thả emoji / reaction mà không chứa chữ cái (\p{L}) hay câu hỏi khiếu nại -> coi là closure / reaction intent
+  // Emoji tiêu cực (giận/thất vọng/buồn/phản đối) KHÔNG phải lời kết thúc: fail-closed để người vào xem.
+  if (NEGATIVE_EMOJI_RE.test(raw)) return false;
+  // Cờ quốc gia (cặp Regional_Indicator) không nằm trong Extended_Pictographic → coi là emoji thuần.
+  const containsEmoji = /[\p{Extended_Pictographic}\u{1F1E6}-\u{1F1FF}]/u.test(raw);
+  if (containsEmoji) {
+    const withoutEmoji = raw
+      .replace(/[\p{Extended_Pictographic}\p{Emoji_Component}\u{1F1E6}-\u{1F1FF}\s!.,~_\-()^:;]+/gu, '')
+      .trim();
+    if (withoutEmoji.length === 0 && !/[\p{L}\p{N}]/u.test(raw)) {
+      return true;
+    }
+  }
+
+  // Nhận diện emoticons phổ biến (:), :))), ^^, =)), <3, :3)
+  const isEmoticonOnly = /^(?:[:;=xX8]+[\)\(DPpD\/\\]+|\^_\^|\^\^|:3|;\)|<3)+$/i.test(raw);
+  if (isEmoticonOnly) {
+    return true;
+  }
 
   const normalized = raw.normalize('NFC').toLowerCase();
   const tokens = tokenize(raw);
