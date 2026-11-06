@@ -52,10 +52,6 @@ const AGENT_CALL_TIMEOUT_MS = Number(process.env.PAPERCLIP_TRAINING_AGENT_TIMEOU
 /** Pause between consecutive turns (avoid hammering provider). */
 const TURN_DELAY_MS = Number(process.env.PAPERCLIP_TRAINING_TURN_DELAY_MS || 500);
 
-/** Ollama circuit breaker — N failures within window → switch to Gemini. */
-const OLLAMA_FAILURE_THRESHOLD = 3;
-const OLLAMA_FAILURE_WINDOW_MS = 5 * 60_000; // 5 minutes
-
 // ─────────────────────────────────────────────────────────────────────────────
 // LogStream — write log row to DB + broadcast WS event
 // ─────────────────────────────────────────────────────────────────────────────
@@ -153,10 +149,6 @@ class SessionController {
   abortController = new AbortController();
   /** Active child processes (Gemini CLI). Killed on cancel(). */
   activeChildren = new Set<ChildProcess>();
-  /** Ollama failure timestamps within rolling window. */
-  ollamaFailures: number[] = [];
-  /** True after circuit breaker tripped — all subsequent agent calls use Gemini. */
-  ollamaCircuitOpen = false;
   /** How many times the orchestrator switched to fallback in this session. */
   fallbackCount = 0;
   /** Currently active provider (for sessions table audit). */
@@ -182,17 +174,6 @@ class SessionController {
     child.once('exit', () => this.activeChildren.delete(child));
   }
 
-  /** Record an Ollama failure and decide whether to open circuit. */
-  recordOllamaFailure(): boolean {
-    const now = Date.now();
-    this.ollamaFailures = this.ollamaFailures.filter((t) => now - t < OLLAMA_FAILURE_WINDOW_MS);
-    this.ollamaFailures.push(now);
-    if (this.ollamaFailures.length >= OLLAMA_FAILURE_THRESHOLD) {
-      this.ollamaCircuitOpen = true;
-      return true;
-    }
-    return false;
-  }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -431,7 +412,7 @@ class TrainingOrchestrator extends EventEmitter {
       });
 
       // ── Step 2: Send the question to the agent under test ─────────────────
-      // With Ollama → Gemini fallback if circuit breaker is open OR call fails
+      // KHÔNG fallback provider (luật 22/10): agent lỗi ⇒ ghi lỗi nguyên vào turn
       const agentStartedAt = Date.now();
       let agentReply = '';
       let providerUsed: string = 'ollama';
@@ -1264,44 +1245,6 @@ class TrainingOrchestrator extends EventEmitter {
       clearTimeout(timeoutId);
       controller.abortController.signal.removeEventListener('abort', onSessionCancel);
     }
-  }
-
-  /**
-   * Fallback path: when Ollama is down, route the agent's reply through
-   * Gemini CLI directly. We re-use spawnGeminiCli but with a SHORT prompt
-   * that simulates the agent persona (sales-closer-style).
-   *
-   * NOTE: This is a degraded mode. The agent's tool calls + identity gate
-   * won't fire because we bypass the channel router. The reply will be
-   * "good enough" for training continuity but should be flagged in the
-   * Opus reviewer as a fallback turn.
-   */
-  private async callAgentViaGemini(
-    agentSlug: string,
-    customerMessage: string,
-    controller: SessionController,
-    log: LogStream,
-    turnNo: number,
-  ): Promise<string> {
-    const fallbackPrompt = [
-      `Bạn đang đóng vai agent **${agentSlug}** của Paperclip CRM (sales-closer / customer-success).`,
-      `Tone: thân thiện, chuyên nghiệp, tiếng Việt có dấu, ngắn gọn 2-4 câu.`,
-      `KHÔNG bịa ra số đơn hàng, KHÔNG hứa cụ thể. Nếu cần verify, yêu cầu phone + email + order_number.`,
-      `Nếu khách angry / dọa bóc phốt, tạo ngay escalate marker bằng cách reply [[ESCALATE: <reason>]].`,
-      ``,
-      `KHÁCH NÓI:`,
-      customerMessage,
-      ``,
-      `Bạn reply (chỉ text reply, không meta-comment):`,
-    ].join('\n');
-
-    void log.write({
-      turn_no: turnNo, role: 'agent', level: 'info', kind: 'fallback',
-      provider: 'gemini',
-      content: `→ Calling ${agentSlug} via GEMINI FALLBACK (Ollama unavailable)`,
-    });
-
-    return this.spawnGeminiCli(fallbackPrompt, 'gemini-2.5-flash', controller, log, turnNo);
   }
 
   // ───────────────────────────────────────────────────────────────────────────

@@ -40,4 +40,17 @@ describe("reply agent: không fallback provider/model", () => {
       expect(called).toBe(1);
     },
   );
+
+  it("kg-extractor.ts: không còn Gemini CLI fallback, không còn khoá viết thẳng (repo public), khoá đọc từ env", () => {
+    const raw = read("server/src/channels/kg-extractor.ts");
+    const src = stripComments(raw);
+    expect(src).not.toMatch(/callGeminiCli|spawn\(\s*['"]gemini['"]/);
+    expect(raw).not.toMatch(/(?<![A-Za-z0-9_-])sk-[A-Za-z0-9]{20,}/);
+    expect(src).toMatch(/process\.env\.NINEROUTER_API_KEY/);
+  });
+
+  it("training-orchestrator.ts: không còn nhánh Ollama→Gemini (callAgentViaGemini, breaker Ollama)", () => {
+    const src = stripComments(read("server/src/training/training-orchestrator.ts"));
+    expect(src).not.toMatch(/callAgentViaGemini|ollamaCircuitOpen|recordOllamaFailure|OLLAMA_FAILURE_/);
+  });
 });

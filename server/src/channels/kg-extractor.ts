@@ -1,14 +1,13 @@
 // Knowledge Graph Entity Extraction — LLM-powered extraction from chat
 // Primary: 9router (localhost:20128, cx/gpt-5.4)
-// Fallback: Gemini CLI 2.5 Flash
+// KHÔNG fallback sang provider khác (luật 22/10): 9router lỗi ⇒ log + bỏ qua lượt trích xuất.
 
-import { spawn } from 'node:child_process';
 import { supabase } from './zalo-personal/supabase.js';
 import type { KGExtractionResult } from './kg-types.js';
 
 const NINEROUTER_BASE = 'http://localhost:20128/v1';
 const NINEROUTER_TUNNEL = 'https://rgswgsv.9router.com/v1';
-const NINEROUTER_KEY = 'sk-071d4fe0dcc59a0f-kflwvy-5d2e7267';
+// Khoá 9router đọc từ env NINEROUTER_API_KEY (paperclip/server/.env) — CẤM viết thẳng vào mã (repo public).
 const NINEROUTER_MODEL = 'cx/gpt-5.4';
 
 const EXTRACTION_PROMPT = `Trích xuất entities và relations từ đoạn hội thoại.
@@ -40,6 +39,8 @@ Chỉ extract entities CÓ THẬT trong hội thoại. Confidence: 1.0=nói rõ 
 Trả về JSON ONLY, không text khác.`;
 
 async function callNineRouter(message: string): Promise<string> {
+  const apiKey = (process.env.NINEROUTER_API_KEY || '').trim();
+  if (!apiKey) throw new Error('NINEROUTER_API_KEY chưa đặt');
   // Try localhost first, then tunnel
   for (const baseUrl of [NINEROUTER_BASE, NINEROUTER_TUNNEL]) {
     try {
@@ -50,7 +51,7 @@ async function callNineRouter(message: string): Promise<string> {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${NINEROUTER_KEY}`,
+          'Authorization': `Bearer ${apiKey}`,
         },
         body: JSON.stringify({
           model: NINEROUTER_MODEL,
@@ -81,45 +82,6 @@ async function callNineRouter(message: string): Promise<string> {
   throw new Error('9router unavailable');
 }
 
-function callGeminiCli(message: string): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const args = [
-      '-m', 'gemini-2.5-flash',
-      '--',
-      `${EXTRACTION_PROMPT}\n\n${message}`,
-    ];
-
-    // GEMRAL FIX 2026-04-30: Force Gemini CLI OAuth Ultra (defense in depth):
-    // 1. Strip API keys 2. Set GOOGLE_GENAI_USE_GCA=true (escape hatch — CLI
-    // getAuthTypeFromEnv() forces LOGIN_WITH_GOOGLE).
-    const cleanEnv = Object.fromEntries(
-      Object.entries(process.env).filter(
-        ([k]) => k !== 'GEMINI_API_KEY' && k !== 'GOOGLE_API_KEY' && k !== 'GOOGLE_GENAI_API_KEY'
-      )
-    );
-    const proc = spawn('gemini', args, {
-      timeout: 30_000,
-      env: { ...cleanEnv, GOOGLE_GENAI_USE_GCA: 'true' },
-      windowsHide: true,
-    });
-
-    let stdout = '';
-    let stderr = '';
-    proc.stdout?.setEncoding("utf8");
-    proc.stdout.on('data', (d: Buffer) => { stdout += d.toString(); });
-    proc.stderr?.setEncoding("utf8");
-    proc.stderr.on('data', (d: Buffer) => { stderr += d.toString(); });
-    proc.on('close', (code) => {
-      if (code === 0 && stdout.trim()) {
-        resolve(stdout.trim());
-      } else {
-        reject(new Error(`Gemini CLI failed (code ${code}): ${stderr}`));
-      }
-    });
-    proc.on('error', reject);
-  });
-}
-
 function parseExtractionResult(raw: string): KGExtractionResult {
   // Extract JSON from potential markdown code blocks
   let cleaned = raw.trim();
@@ -147,13 +109,10 @@ async function extractEntities(
   let raw: string;
   try {
     raw = await callNineRouter(context);
-  } catch {
-    try {
-      raw = await callGeminiCli(context);
-    } catch (err: any) {
-      console.warn('[KG Extract] All LLM providers failed:', err.message);
-      return { entities: [], relations: [] };
-    }
+  } catch (err: any) {
+    // Không fallback provider khác — lỗi nguyên + log 1 dòng, bỏ qua lượt trích xuất (không crash server).
+    console.warn('[KG Extract] 9router lỗi, bỏ qua lượt này (không fallback):', err.message);
+    return { entities: [], relations: [] };
   }
 
   try {
