@@ -28,6 +28,8 @@ export {
 export { defaultAgyCommand } from "./execute.js";
 export {
   computeMaxAccountRotations,
+  checkAntigravityPoolPreflight,
+  type AntigravityPoolPreflight,
   findReadyAntigravityAccountByPlan,
   planForAntigravityAccount,
   useAntigravityAccount,

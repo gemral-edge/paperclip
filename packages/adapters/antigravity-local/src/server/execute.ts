@@ -48,6 +48,7 @@ import {
 } from "./parse.js";
 import { firstNonEmptyLine } from "./utils.js";
 import {
+  checkAntigravityPoolPreflight,
   computeMaxAccountRotations,
   findReadyAntigravityAccountByPlan,
   getActiveAntigravityAccountEmail,
@@ -516,6 +517,25 @@ export async function execute(ctx: AdapterExecutionContext): Promise<AdapterExec
   // thì để lỗi nguyên, chị hoặc Gem Kỹ Sư/BE xử. `config.fallbackModels` bị bỏ qua có chủ đích
   // (chuỗi dự phòng chỉ còn cho kênh CSKH ở channels/router.ts).
   const modelChain = [model];
+
+  // GEM-1594: pre-flight — pool agy hết sạch quota (0 tài khoản sẵn sàng, có giờ hồi) thì KHÔNG spawn:
+  // trước đây mỗi lượt vẫn mở agy rồi treo trên tường quota tới hết timeout (Pinterest 02:32 chạy 2508s).
+  // Chỉ NGỪNG gọi + fail rõ ràng; quota-retry (heartbeat) hẹn chạy lại CÙNG model lúc tài khoản sớm nhất hồi.
+  const preflight = checkAntigravityPoolPreflight();
+  if (preflight.blocked) {
+    const msg =
+      `Antigravity pool hết quota: 0/${preflight.totalAccounts} tài khoản sẵn sàng, sớm nhất hồi lúc ` +
+      `${preflight.earliestCooldownUntil} → không spawn agy, hẹn chạy lại cùng model "${model}".`;
+    await onLog("stderr", `[paperclip] ${msg}\n`);
+    return {
+      exitCode: null,
+      signal: null,
+      timedOut: false,
+      errorMessage: msg,
+      errorCode: "antigravity_quota_exhausted",
+      errorMeta: { resetsAt: preflight.earliestCooldownUntil, preflight: true },
+    };
+  }
 
   const workspaceContext = parseObject(context.paperclipWorkspace);
   const workspaceCwd = asString(workspaceContext.cwd, "");

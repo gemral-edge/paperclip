@@ -268,6 +268,41 @@ function isPoolAccountReady(acc: AntigravityPoolAccount, nowMs: number): boolean
   return !Number.isFinite(until) || until <= nowMs;
 }
 
+// ── GEM-1594: pre-flight quota check (circuit breaker trước khi spawn agy) ──────────────────
+
+export interface AntigravityPoolPreflight {
+  /** true = MỌI tài khoản trong pool đang hồi quota có hạn ⇒ KHÔNG spawn agy, fail ngay + hẹn chạy lại. */
+  blocked: boolean;
+  totalAccounts: number;
+  readyAccounts: number;
+  earliestCooldownUntil: string | null;
+}
+
+/**
+ * Trước khi spawn agy: pool hết sạch quota (0 tài khoản sẵn sàng, có giờ hồi) ⇒ chặn lượt chạy.
+ * Không chặn khi: pool rỗng/không đọc được (không biết ⇒ để agy tự báo), còn ≥1 tài khoản sẵn sàng
+ * (vòng xoay sau lỗi tự chuyển, giữ nguyên model), hoặc không tài khoản nào có giờ hồi (không biết
+ * hẹn lúc nào ⇒ để lỗi thật lộ ra). KHÔNG đổi model/provider — chỉ NGỪNG gọi (luật 22/10 cấm fallback).
+ */
+export function checkAntigravityPoolPreflight(
+  accounts: AntigravityPoolAccount[] = readAntigravityPoolAccounts(),
+  now: Date = new Date(),
+): AntigravityPoolPreflight {
+  const nowMs = now.getTime();
+  const ready = accounts.filter((a) => isPoolAccountReady(a, nowMs)).length;
+  const cooldowns = accounts
+    .map((a) => (a.cooldownUntil ? Date.parse(a.cooldownUntil) : Number.NaN))
+    .filter((ms) => Number.isFinite(ms) && ms > nowMs)
+    .sort((x, y) => x - y);
+  const earliestCooldownUntil = cooldowns.length > 0 ? new Date(cooldowns[0]!).toISOString() : null;
+  return {
+    blocked: accounts.length > 0 && ready === 0 && earliestCooldownUntil !== null,
+    totalAccounts: accounts.length,
+    readyAccounts: ready,
+    earliestCooldownUntil,
+  };
+}
+
 export function planForAntigravityAccount(
   email: string | null | undefined,
   accounts: AntigravityPoolAccount[] = readAntigravityPoolAccounts(),
