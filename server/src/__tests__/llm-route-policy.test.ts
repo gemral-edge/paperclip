@@ -1,6 +1,6 @@
 // 14/10 chị Jennie: "tắt fallback sang Gemini dự phòng luôn, ko đc gọi API. tăng thời gian chờ agy local lên".
 import { describe, expect, it } from 'vitest';
-import { resolveTimeoutFallback } from '../channels/agy-timeout-fallback.js';
+import { FALLBACK_MAP } from '../channels/agy-timeout-fallback.js';
 import {
   AGY_DEFAULT_REPLY_TIMEOUT_MS,
   AGY_MIN_REPLY_TIMEOUT_MS,
@@ -18,11 +18,8 @@ describe('llm-route-policy (no Gemini API fallback, agy timeout)', () => {
     expect(geminiApiFallbackEnabled(env({ LLM_GEMINI_API_FALLBACK: 'off' }))).toBe(false);
     expect(geminiApiFallbackEnabled(env({ LLM_GEMINI_API_FALLBACK: 'ON' }))).toBe(true);
   });
-  it('cờ tắt ⇒ không đường reply nào rơi sang gemini', () => {
-    for (const p of ['claude', 'antigravity', 'gemini', 'nvidia_nim', 'openrouter']) {
-      expect(resolveTimeoutFallback(p, env({}))?.provider).not.toBe('gemini');
-    }
-    expect(resolveTimeoutFallback('antigravity', env({}))?.provider).toBe('claude');
+  it('không đường reply nào có fallback (FALLBACK_MAP rỗng)', () => {
+    expect(Object.keys(FALLBACK_MAP)).toEqual([]);
   });
   it('CLI con không thừa hưởng khoá Gemini API khi cờ tắt', () => {
     const base = env({ GEMINI_API_KEY: 'k', GOOGLE_API_KEY: 'g', GOOGLE_GENAI_API_KEY: 'x', PATH: '/bin' });

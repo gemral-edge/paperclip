@@ -7,7 +7,6 @@ import { readPersistedDevServerStatus, toDevServerHealthStatus } from "../dev-se
 import { instanceSettingsService } from "../services/instance-settings.js";
 import { serverVersion } from "../version.js";
 import { getLivenessSnapshot, getActionableStaleness } from "../services/liveness-tracker.js";
-import { getTimeoutBreakerSnapshot } from "../channels/agy-timeout-fallback.js";
 
 // Resilience trước Supabase pooler stall (plan 2026-08-16, Codex R1-R3 + Buoc 5.5):
 // Trước fix, `/api/health` chạy `SELECT 1` với statement_timeout mặc định (2min) và
@@ -176,15 +175,6 @@ export function healthRoutes(
     const staleActionable = getActionableStaleness();
     const status = staleActionable.length > 0 ? "degraded" : "ok";
 
-    // Circuit-breaker provider AI (GEM-1094) — CHỈ để quan sát. Mạch mở KHÔNG được đẩy `status` sang
-    // `degraded`: watcher restart khi degraded, mà restart không chữa được agy 429 (lỗi phía provider).
-    let providerBreakers: ReturnType<typeof getTimeoutBreakerSnapshot> | undefined;
-    try {
-      providerBreakers = getTimeoutBreakerSnapshot();
-    } catch {
-      // best-effort như enrichment khác
-    }
-
     res.json({
       status,
       version: serverVersion,
@@ -197,7 +187,6 @@ export function healthRoutes(
         companyDeletionEnabled: opts.companyDeletionEnabled,
       },
       livenessLoops,
-      ...(providerBreakers ? { providerBreakers } : {}),
       ...(devServer ? { devServer } : {}),
     });
   });

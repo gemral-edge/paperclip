@@ -60,7 +60,6 @@ import {
 } from "./services/fleet-throttle.js";
 import { markAlive } from "./services/liveness-tracker.js";
 import { startEventLoopMonitor } from "./services/event-loop-monitor.js";
-import { configureBreakerPersistence } from "./channels/agy-timeout-fallback.js";
 import { resolvePaperclipInstanceRoot } from "./home-paths.js";
 import { createStorageServiceFromConfig } from "./storage/index.js";
 import { printStartupBanner } from "./startup-banner.js";
@@ -109,8 +108,6 @@ export async function startServer(): Promise<StartedServer> {
     redirectStdioToServerLog();
   }
   let config = loadConfig();
-  // GEM-1094: trạng thái circuit-breaker provider AI sống qua restart (mạch đang mở thì giữ mở tới hết cooldown).
-  configureBreakerPersistence(resolve(resolvePaperclipInstanceRoot(), "data", "provider-breakers.json"));
   if (process.env.PAPERCLIP_SECRETS_PROVIDER === undefined) {
     process.env.PAPERCLIP_SECRETS_PROVIDER = config.secretsProvider;
   }

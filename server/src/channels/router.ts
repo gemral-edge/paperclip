@@ -42,7 +42,7 @@ import { detectPaymentPolicyViolation, NON_SALES_AGENTS, PREPAY_POLICY_AGENTS } 
 import { splitIntoHumanMessages } from './human-message-split.js';
 import { loadSalesCloserMediaFromCatalog } from './catalog-media-source.js';
 import { selectInlineJson } from './inline-ssot-select.js';
-import { ProviderCrashError, ProviderQuotaError, ProviderTimeoutError, isAgyCrashEmpty, getTimeoutBreaker, resolveTimeoutFallback, runWithTimeoutFallback, withApiTimeout } from './agy-timeout-fallback.js';
+import { ProviderCrashError, ProviderQuotaError, ProviderTimeoutError, isAgyCrashEmpty, withApiTimeout } from './agy-timeout-fallback.js';
 import { loadAgentLinkAllowlist, stripUnlistedLinks } from './link-allowlist.js';
 import { agyReplyTimeoutMs, childEnvWithoutGeminiApi } from './llm-route-policy.js';
 import { AGY_STREAM_ARGS, agyStreamFinalText, agyStreamUserMessage, feedAgyStream, newAgyStreamState } from './agy-stream-json.js';
@@ -228,7 +228,6 @@ export async function loadAgentConfig(slug: string): Promise<AgentConfig | null>
     enabled: pa?.enabled ?? (data.status !== 'paused'),
     // Antigravity (agy) seeded brain id — see AgentConfig.conversation_id.
     conversation_id: ac.conversationId || pa?.conversation_id || null,
-    fallback_models: ac.fallbackModels,
     created_at: data.created_at,
     updated_at: pa?.updated_at || data.updated_at,
   };
@@ -378,55 +377,25 @@ export async function runAgentWithConfig(
 
   // Single dispatch closure so the pre-send payment gate can regenerate once without
   // duplicating the provider switch.
-  // CLI quá 5' → đổi provider 1 lần thay vì trả '' (khách bị bỏ rơi câm — GEM-1050 agy→claude,
-  // GEM-1067 claude→gemini · gemini→claude). Fallback gọi thẳng runViaX, không qua dispatch ⇒ không lặp.
-  const withTimeoutFallback = (primary: () => Promise<string>, msg: string): Promise<string> => {
-    const fb = resolveTimeoutFallback(config.provider);
-    return runWithTimeoutFallback(
-      primary,
-      fb
-        ? async () => {
-            // Clone: model của agent gốc ('Gemini 3.1 Pro (High)', 'claude-…') không chạy được trên CLI đích.
-            const fbConfig = { ...config, provider: fb.provider, model: fb.model } as AgentConfig;
-            // agy không lưu phiên CLI nên claude fallback được resume phiên claude của thread (như cũ).
-            // claude⇄gemini: id phiên của provider kia KHÔNG resume được ở CLI này → phiên trắng ('' = không
-            // đọc/ghi channel_sessions); lịch sử vẫn đủ vì phiên mới nhận buildFullPrompt(history).
-            // 02/10: agy→claude cũng KHÔNG resume nữa — phiên claude chỉ sinh ở các lần fallback lẻ tẻ nên
-            // thiếu các lượt agy trả lời xen giữa, lại tích token (235k/lượt) → resume treo tới timeout.
-            // Phiên mới nhận buildFullPrompt(history) = lịch sử đủ + nhẹ.
-            const fbSessionKey = '';
-            const out = fb.provider === 'gemini'
-              ? await runViaGemini(fbConfig, systemPrompt, chatHistory, msg, fbSessionKey, signal)
-              : await runViaClaude(fbConfig, systemPrompt, chatHistory, msg, fbSessionKey, signal);
-            // Session drill-down (saveHistory) phải trỏ phiên đã thật sự xử lý lượt này.
-            (config as any)._agent_session_id = (fbConfig as any)._agent_session_id;
-            return out;
-          }
-        : null,
-      () => console.warn(`[Router/${config.provider}] ${config.slug}: CLI timeout → fallback ${fb?.provider} (${fb?.model}) 1 lần`),
-      // Circuit-breaker (GEM-1068): provider timeout liên tiếp → bỏ qua primary một lúc, khách khỏi chờ 5' mỗi tin.
-      getTimeoutBreaker(config.provider),
-      () => console.warn(`[Router/${config.provider}] ${config.slug}: circuit-breaker MỞ → bỏ qua ${config.provider}, chạy thẳng ${fb?.provider}`),
-      // GEM-1427: caller (gemini-proxy) đóng kết nối → không chạy fallback claude oan vào socket đã đóng.
-      signal,
-    );
-  };
+  // 22/10/2026 chị Jennie (+ gỡ nốt 06/11): CẤM fallback provider/model. CLI/API timeout, hết quota, crash
+  // ⇒ ném ProviderTimeoutError/QuotaError/CrashError nguyên cho caller (khách nhận câu quá tải ở edge).
+  // KHÔNG chạy lại bằng claude/gemini/provider khác, không circuit-breaker "chạy thẳng provider khác".
 
   const dispatch = async (msg: string): Promise<string> => {
     switch (config.provider) {
       case 'claude':
-        return withTimeoutFallback(() => runViaClaude(config, systemPrompt, chatHistory, msg, sessionKey, signal), msg);
-      case 'gemini':
-        return withTimeoutFallback(() => runViaGemini(config, systemPrompt, chatHistory, msg, sessionKey, signal), msg);
-      case 'antigravity':
-        return withTimeoutFallback(() => runViaAntigravity(config, systemPrompt, chatHistory, msg, sessionKey, signal), msg);
-      case 'nvidia_nim':
-        return withTimeoutFallback(() => runViaNvidiaNim(config, systemPrompt, chatHistory, msg, signal), msg);
-      case 'openrouter':
-        return withTimeoutFallback(() => runViaOpenRouter(config, systemPrompt, chatHistory, msg, signal), msg);
-      default:
-        console.warn(`[Router] Unknown provider: ${config.provider}, falling back to Claude`);
         return runViaClaude(config, systemPrompt, chatHistory, msg, sessionKey, signal);
+      case 'gemini':
+        return runViaGemini(config, systemPrompt, chatHistory, msg, sessionKey, signal);
+      case 'antigravity':
+        return runViaAntigravity(config, systemPrompt, chatHistory, msg, sessionKey, signal);
+      case 'nvidia_nim':
+        return runViaNvidiaNim(config, systemPrompt, chatHistory, msg, signal);
+      case 'openrouter':
+        return runViaOpenRouter(config, systemPrompt, chatHistory, msg, signal);
+      default:
+        // 06/11/2026: provider lạ ⇒ lỗi rõ ràng, KHÔNG âm thầm chạy bằng Claude (luật cấm fallback 22/10).
+        throw new Error(`[Router] Unknown provider: ${config.provider} (${config.slug}) — không fallback sang provider khác`);
     }
   };
 
@@ -1199,7 +1168,7 @@ async function runViaGemini(
         streamEvents.emit('agent:error', { agentSlug: config.slug, streamKey, error: 'gemini aborted' });
         return;
       }
-      // Đã reject vì timeout (fallback claude có thể đang chạy) → KHÔNG parse/ghi phiên/emit agent:done
+      // Đã reject vì timeout (caller đã nhận ProviderTimeoutError) → KHÔNG parse/ghi phiên/emit agent:done
       // bằng "Xin lỗi, hệ thống đang xử lý" của tiến trình bị kill (đè _agent_session_id của fallback).
       if (timedOut) {
         streamEvents.emit('agent:error', { agentSlug: config.slug, streamKey, error: 'gemini timeout' });
@@ -1582,7 +1551,7 @@ async function runViaAntigravity(
         streamEvents.emit('agent:error', { agentSlug: config.slug, streamKey, error: 'antigravity aborted' });
         return;
       }
-      // Đã reject vì timeout (fallback claude có thể đang chạy) → KHÔNG dò brain/ghi đè
+      // Đã reject vì timeout (caller đã nhận ProviderTimeoutError) → KHÔNG dò brain/ghi đè
       // _agent_session_id/emit agent:done bằng fallback_message của agy.
       if (timedOut) {
         streamEvents.emit('agent:error', { agentSlug: config.slug, streamKey, error: 'antigravity timeout' });
@@ -1729,7 +1698,7 @@ async function runViaOpenRouter(
   // Add current message
   messages.push({ role: 'user', content: message });
 
-  // Timeout ⇒ ProviderTimeoutError (không phải AbortError trần) để withTimeoutFallback chuyển provider (GEM-1085).
+  // Timeout ⇒ ProviderTimeoutError (không phải AbortError trần) để caller trả lỗi rõ ràng, KHÔNG đổi provider (GEM-1085; fallback đã gỡ 06/11).
   return withApiTimeout('openrouter', 'OpenRouter', config.slug, AGENT_TIMEOUT_MS, signal, () => new AgentAbortedError(), async (fetchSignal) => {
     const res = await fetch('https://openrouter.ai/api/v1/chat/completions', {
       method: 'POST',
