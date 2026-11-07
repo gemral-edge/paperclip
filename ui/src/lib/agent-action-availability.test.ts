@@ -8,6 +8,7 @@ const MATRIX: Array<{
   pauseDisabled: boolean;
   resumeDisabled: boolean;
 }> = [
+  { status: "active", pauseDisabled: false, resumeDisabled: true },
   { status: "idle", pauseDisabled: false, resumeDisabled: true },
   { status: "running", pauseDisabled: false, resumeDisabled: true },
   // error is a badge, agent still runs -> Pause available, Resume not.

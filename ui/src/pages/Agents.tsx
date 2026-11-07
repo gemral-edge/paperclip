@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useCallback } from "react";
 import { Link, useNavigate, useLocation } from "@/lib/router";
 import {
   DndContext,
@@ -17,14 +17,16 @@ import {
   useSortable,
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { agentsApi, type OrgNode } from "../api/agents";
 import { heartbeatsApi } from "../api/heartbeats";
 import { useCompany } from "../context/CompanyContext";
 import { useDialog } from "../context/DialogContext";
 import { useBreadcrumbs } from "../context/BreadcrumbContext";
 import { useSidebar } from "../context/SidebarContext";
+import { useToast } from "../context/ToastContext";
 import { queryKeys } from "../lib/queryKeys";
+import { isPauseDisabled, isResumeDisabled } from "../lib/agent-action-availability";
 import { StatusBadge } from "../components/StatusBadge";
 import { agentStatusDot, agentStatusDotDefault } from "../lib/status-colors";
 import { EntityRow } from "../components/EntityRow";
@@ -36,7 +38,7 @@ import { Tabs } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuRadioGroup, DropdownMenuRadioItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
-import { Bot, Plus, List, GitBranch, SlidersHorizontal, Search, ArrowDownUp, GripVertical } from "lucide-react";
+import { Bot, Plus, List, GitBranch, SlidersHorizontal, Search, ArrowDownUp, GripVertical, Pause, Play, Loader2 } from "lucide-react";
 import { AGENT_ROLE_LABELS, type Agent } from "@paperclipai/shared";
 
 type SortOption = "name-asc" | "name-desc" | "status" | "recent" | "model" | "custom";
@@ -124,6 +126,9 @@ export function Agents() {
   const navigate = useNavigate();
   const location = useLocation();
   const { isMobile } = useSidebar();
+  const queryClient = useQueryClient();
+  const { pushToast } = useToast();
+  const [pendingByAgentId, setPendingByAgentId] = useState<Record<string, "pause" | "resume">>({});
   const pathSegment = location.pathname.split("/").pop() ?? "all";
   const tab: FilterTab = (pathSegment === "all" || pathSegment === "active" || pathSegment === "paused" || pathSegment === "error") ? pathSegment : "all";
   const [view, setView] = useState<"list" | "org">(() => {
@@ -207,6 +212,40 @@ export function Agents() {
     for (const a of agents ?? []) map.set(a.id, a);
     return map;
   }, [agents]);
+
+  const handlePauseResume = useCallback(
+    async (agentId: string, action: "pause" | "resume") => {
+      if (!selectedCompanyId || pendingByAgentId[agentId]) return;
+      setPendingByAgentId((prev) => ({ ...prev, [agentId]: action }));
+      try {
+        const updated =
+          action === "pause"
+            ? await agentsApi.pause(agentId, selectedCompanyId)
+            : await agentsApi.resume(agentId, selectedCompanyId);
+        queryClient.setQueryData<Agent[]>(
+          queryKeys.agents.list(selectedCompanyId),
+          (old) => (old ? old.map((a) => (a.id === agentId ? { ...a, ...updated } : a)) : old),
+        );
+        queryClient.invalidateQueries({ queryKey: queryKeys.agents.list(selectedCompanyId) });
+        queryClient.invalidateQueries({ queryKey: queryKeys.org(selectedCompanyId) });
+        queryClient.invalidateQueries({ queryKey: queryKeys.agents.detail(agentId) });
+        queryClient.invalidateQueries({ queryKey: queryKeys.dashboard(selectedCompanyId) });
+      } catch (err) {
+        pushToast({
+          tone: "error",
+          title: action === "pause" ? "Không thể tạm dừng agent" : "Không thể tiếp tục agent",
+          body: err instanceof Error ? err.message : "Thao tác thất bại",
+        });
+      } finally {
+        setPendingByAgentId((prev) => {
+          const next = { ...prev };
+          delete next[agentId];
+          return next;
+        });
+      }
+    },
+    [selectedCompanyId, pendingByAgentId, queryClient, pushToast],
+  );
 
   useEffect(() => {
     setBreadcrumbs([{ label: "Agents" }]);
@@ -430,6 +469,8 @@ export function Agents() {
                   liveRunByAgent={liveRunByAgent}
                   queuedRunByAgent={queuedRunByAgent}
                   agentRouteRef={agentRouteRef}
+                  pendingAction={pendingByAgentId[agent.id]}
+                  onPauseResume={handlePauseResume}
                 />
               ))}
             </SortableContext>
@@ -447,7 +488,16 @@ export function Agents() {
       {effectiveView === "org" && filteredOrg.length > 0 && (
         <div className="border border-border py-1">
           {filteredOrg.map((node) => (
-            <OrgTreeNode key={node.id} node={node} depth={0} agentMap={agentMap} liveRunByAgent={liveRunByAgent} queuedRunByAgent={queuedRunByAgent} />
+            <OrgTreeNode
+              key={node.id}
+              node={node}
+              depth={0}
+              agentMap={agentMap}
+              liveRunByAgent={liveRunByAgent}
+              queuedRunByAgent={queuedRunByAgent}
+              pendingByAgentId={pendingByAgentId}
+              onPauseResume={handlePauseResume}
+            />
           ))}
         </div>
       )}
@@ -467,6 +517,74 @@ export function Agents() {
   );
 }
 
+function AgentPauseResumeActions({
+  agentId,
+  status,
+  pendingAction,
+  onAction,
+  compact = false,
+}: {
+  agentId: string;
+  status: string;
+  pendingAction?: "pause" | "resume";
+  onAction: (agentId: string, action: "pause" | "resume") => void;
+  compact?: boolean;
+}) {
+  const isMutating = Boolean(pendingAction);
+  const pauseDisabled = isPauseDisabled(status, isMutating);
+  const resumeDisabled = isResumeDisabled(status, isMutating);
+
+  return (
+    <div
+      className="flex items-center gap-1 shrink-0"
+      onClick={(e) => {
+        e.preventDefault();
+        e.stopPropagation();
+      }}
+      onPointerDown={(e) => e.stopPropagation()}
+    >
+      <Button
+        type="button"
+        variant="outline"
+        size="xs"
+        disabled={pauseDisabled}
+        title="Tạm dừng agent (Pause)"
+        onClick={(e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          onAction(agentId, "pause");
+        }}
+      >
+        {pendingAction === "pause" ? (
+          <Loader2 className="h-3 w-3 animate-spin" />
+        ) : (
+          <Pause className="h-3 w-3" />
+        )}
+        <span className={compact ? "sr-only" : undefined}>Pause</span>
+      </Button>
+      <Button
+        type="button"
+        variant="outline"
+        size="xs"
+        disabled={resumeDisabled}
+        title="Tiếp tục chạy agent (Resume)"
+        onClick={(e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          onAction(agentId, "resume");
+        }}
+      >
+        {pendingAction === "resume" ? (
+          <Loader2 className="h-3 w-3 animate-spin" />
+        ) : (
+          <Play className="h-3 w-3" />
+        )}
+        <span className={compact ? "sr-only" : undefined}>Resume</span>
+      </Button>
+    </div>
+  );
+}
+
 function SortableAgentRow({
   agent,
   roleLabels,
@@ -476,6 +594,8 @@ function SortableAgentRow({
   liveRunByAgent,
   queuedRunByAgent,
   agentRouteRef,
+  pendingAction,
+  onPauseResume,
 }: any) {
   const {
     attributes,
@@ -542,6 +662,13 @@ function SortableAgentRow({
                 {!liveRunByAgent.has(agent.id) && !queuedRunByAgent.has(agent.id) && (
                   <StatusBadge status={agent.status} />
                 )}
+                <AgentPauseResumeActions
+                  agentId={agent.id}
+                  status={agent.status}
+                  pendingAction={pendingAction}
+                  onAction={onPauseResume}
+                  compact
+                />
               </span>
               <div className="hidden sm:flex items-center gap-3">
                 {liveRunByAgent.has(agent.id) && (
@@ -579,9 +706,17 @@ function SortableAgentRow({
                 <span className="text-xs text-muted-foreground w-16 text-right shrink-0">
                   {agent.lastHeartbeatAt ? relativeTime(agent.lastHeartbeatAt) : "—"}
                 </span>
-                <span className="w-20 flex justify-end">
-                  <StatusBadge status={agent.status} />
-                </span>
+                <div className="flex items-center justify-end gap-2 shrink-0">
+                  <span className="w-20 flex justify-end">
+                    <StatusBadge status={agent.status} />
+                  </span>
+                  <AgentPauseResumeActions
+                    agentId={agent.id}
+                    status={agent.status}
+                    pendingAction={pendingAction}
+                    onAction={onPauseResume}
+                  />
+                </div>
               </div>
             </div>
           }
@@ -597,16 +732,21 @@ function OrgTreeNode({
   agentMap,
   liveRunByAgent,
   queuedRunByAgent,
+  pendingByAgentId,
+  onPauseResume,
 }: {
   node: OrgNode;
   depth: number;
   agentMap: Map<string, Agent>;
   liveRunByAgent: Map<string, { runId: string; liveCount: number }>;
   queuedRunByAgent: Map<string, { runId: string; queuedCount: number }>;
+  pendingByAgentId: Record<string, "pause" | "resume">;
+  onPauseResume: (agentId: string, action: "pause" | "resume") => void;
 }) {
   const agent = agentMap.get(node.id);
+  const currentStatus = agent?.status ?? node.status;
 
-  const statusColor = agentStatusDot[node.status] ?? agentStatusDotDefault;
+  const statusColor = agentStatusDot[currentStatus] ?? agentStatusDotDefault;
 
   return (
     <div style={{ paddingLeft: depth * 24 }}>
@@ -641,8 +781,15 @@ function OrgTreeNode({
               />
             )}
             {!liveRunByAgent.has(node.id) && !queuedRunByAgent.has(node.id) && (
-              <StatusBadge status={node.status} />
+              <StatusBadge status={currentStatus} />
             )}
+            <AgentPauseResumeActions
+              agentId={node.id}
+              status={currentStatus}
+              pendingAction={pendingByAgentId[node.id]}
+              onAction={onPauseResume}
+              compact
+            />
           </span>
           <div className="hidden sm:flex items-center gap-3">
             {liveRunByAgent.has(node.id) && (
@@ -684,16 +831,33 @@ function OrgTreeNode({
                 </span>
               </>
             )}
-            <span className="w-20 flex justify-end">
-              <StatusBadge status={node.status} />
-            </span>
+            <div className="flex items-center justify-end gap-2 shrink-0">
+              <span className="w-20 flex justify-end">
+                <StatusBadge status={currentStatus} />
+              </span>
+              <AgentPauseResumeActions
+                agentId={node.id}
+                status={currentStatus}
+                pendingAction={pendingByAgentId[node.id]}
+                onAction={onPauseResume}
+              />
+            </div>
           </div>
         </div>
       </Link>
       {node.reports && node.reports.length > 0 && (
         <div className="border-l border-border/50 ml-4">
           {node.reports.map((child) => (
-            <OrgTreeNode key={child.id} node={child} depth={depth + 1} agentMap={agentMap} liveRunByAgent={liveRunByAgent} queuedRunByAgent={queuedRunByAgent} />
+            <OrgTreeNode
+              key={child.id}
+              node={child}
+              depth={depth + 1}
+              agentMap={agentMap}
+              liveRunByAgent={liveRunByAgent}
+              queuedRunByAgent={queuedRunByAgent}
+              pendingByAgentId={pendingByAgentId}
+              onPauseResume={onPauseResume}
+            />
           ))}
         </div>
       )}
