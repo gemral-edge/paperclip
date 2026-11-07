@@ -18,6 +18,13 @@ import {
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
+import {
+  DEFAULT_CODEX_LOCAL_BYPASS_APPROVALS_AND_SANDBOX,
+  DEFAULT_CODEX_LOCAL_MODEL,
+} from "@paperclipai/adapter-codex-local";
+import { DEFAULT_CURSOR_LOCAL_MODEL } from "@paperclipai/adapter-cursor-local";
+import { DEFAULT_GEMINI_LOCAL_MODEL } from "@paperclipai/adapter-gemini-local";
+import { DEFAULT_ANTIGRAVITY_MODEL } from "@paperclipai/adapter-antigravity-local";
 import { agentsApi, type OrgNode } from "../api/agents";
 import { heartbeatsApi } from "../api/heartbeats";
 import { useCompany } from "../context/CompanyContext";
@@ -32,13 +39,37 @@ import { agentStatusDot, agentStatusDotDefault } from "../lib/status-colors";
 import { EntityRow } from "../components/EntityRow";
 import { EmptyState } from "../components/EmptyState";
 import { PageSkeleton } from "../components/PageSkeleton";
+import { HeartbeatScheduleBuilder } from "../components/HeartbeatScheduleBuilder";
 import { relativeTime, formatDateTime, cn, agentRouteRef, agentUrl } from "../lib/utils";
 import { PageTabBar } from "../components/PageTabBar";
 import { Tabs } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { DropdownMenu, DropdownMenuContent, DropdownMenuRadioGroup, DropdownMenuRadioItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
-import { Bot, Plus, List, GitBranch, SlidersHorizontal, Search, ArrowDownUp, GripVertical, Pause, Play, Loader2 } from "lucide-react";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuRadioGroup,
+  DropdownMenuRadioItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import {
+  Bot,
+  Plus,
+  List,
+  GitBranch,
+  SlidersHorizontal,
+  Search,
+  ArrowDownUp,
+  GripVertical,
+  Pause,
+  Play,
+  Loader2,
+  ChevronDown,
+  Check,
+  CalendarClock,
+  Cpu,
+} from "lucide-react";
 import { AGENT_ROLE_LABELS, type Agent } from "@paperclipai/shared";
 
 type SortOption = "name-asc" | "name-desc" | "status" | "recent" | "model" | "custom";
@@ -47,15 +78,46 @@ const adapterLabels: Record<string, string> = {
   claude_local: "Claude",
   codex_local: "Codex",
   gemini_local: "Gemini",
+  antigravity_local: "antigravity_local",
   opencode_local: "OpenCode",
   cursor: "Cursor",
+  ollama: "Ollama",
   hermes_local: "Hermes",
   openclaw_gateway: "OpenClaw Gateway",
   process: "Process",
   http: "HTTP",
 };
 
+const QUICK_EDIT_ADAPTERS = [
+  "antigravity_local",
+  "claude_local",
+  "codex_local",
+  "gemini_local",
+  "cursor",
+  "ollama",
+  "opencode_local",
+] as const;
+
 const roleLabels = AGENT_ROLE_LABELS as Record<string, string>;
+
+function getAgentScheduleCron(agent: Agent): string {
+  const runtimeCron = (agent.runtimeConfig as Record<string, any> | undefined)?.heartbeat?.cronExpression;
+  if (typeof runtimeCron === "string" && runtimeCron.trim().length > 0) {
+    return runtimeCron.trim();
+  }
+  if (typeof agent.metadata?.schedule === "string" && agent.metadata.schedule.trim().length > 0) {
+    return agent.metadata.schedule.trim();
+  }
+  return "";
+}
+
+function getDefaultModelForAdapter(adapterType: string): string {
+  if (adapterType === "codex_local") return DEFAULT_CODEX_LOCAL_MODEL;
+  if (adapterType === "gemini_local") return DEFAULT_GEMINI_LOCAL_MODEL;
+  if (adapterType === "antigravity_local") return DEFAULT_ANTIGRAVITY_MODEL;
+  if (adapterType === "cursor") return DEFAULT_CURSOR_LOCAL_MODEL;
+  return "";
+}
 
 function formatSchedule(schedule: string | undefined | null): string {
   if (!schedule) return "Không cố định";
@@ -129,6 +191,7 @@ export function Agents() {
   const queryClient = useQueryClient();
   const { pushToast } = useToast();
   const [pendingByAgentId, setPendingByAgentId] = useState<Record<string, "pause" | "resume">>({});
+  const [updatingFieldByAgentId, setUpdatingFieldByAgentId] = useState<Record<string, "model" | "schedule">>({});
   const pathSegment = location.pathname.split("/").pop() ?? "all";
   const tab: FilterTab = (pathSegment === "all" || pathSegment === "active" || pathSegment === "paused" || pathSegment === "error") ? pathSegment : "all";
   const [view, setView] = useState<"list" | "org">(() => {
@@ -245,6 +308,47 @@ export function Agents() {
       }
     },
     [selectedCompanyId, pendingByAgentId, queryClient, pushToast],
+  );
+
+  const handleQuickUpdateAgent = useCallback(
+    async (
+      agentId: string,
+      field: "model" | "schedule",
+      patch: Record<string, unknown>,
+      successTitle: string,
+    ): Promise<boolean> => {
+      if (!selectedCompanyId || updatingFieldByAgentId[agentId]) return false;
+      setUpdatingFieldByAgentId((prev) => ({ ...prev, [agentId]: field }));
+      try {
+        const updated = await agentsApi.update(agentId, patch, selectedCompanyId);
+        queryClient.setQueryData<Agent[]>(
+          queryKeys.agents.list(selectedCompanyId),
+          (old) => (old ? old.map((a) => (a.id === agentId ? { ...a, ...updated } : a)) : old),
+        );
+        queryClient.invalidateQueries({ queryKey: queryKeys.agents.list(selectedCompanyId) });
+        queryClient.invalidateQueries({ queryKey: queryKeys.org(selectedCompanyId) });
+        queryClient.invalidateQueries({ queryKey: queryKeys.agents.detail(agentId) });
+        pushToast({
+          tone: "success",
+          title: successTitle,
+        });
+        return true;
+      } catch (err) {
+        pushToast({
+          tone: "error",
+          title: field === "model" ? "Không thể đổi model" : "Không thể cập nhật lịch heartbeat",
+          body: err instanceof Error ? err.message : "Thao tác thất bại",
+        });
+        return false;
+      } finally {
+        setUpdatingFieldByAgentId((prev) => {
+          const next = { ...prev };
+          delete next[agentId];
+          return next;
+        });
+      }
+    },
+    [selectedCompanyId, updatingFieldByAgentId, queryClient, pushToast],
   );
 
   useEffect(() => {
@@ -462,6 +566,7 @@ export function Agents() {
                 <SortableAgentRow
                   key={agent.id}
                   agent={agent}
+                  companyId={selectedCompanyId}
                   roleLabels={roleLabels}
                   adapterLabels={adapterLabels}
                   agentStatusDot={agentStatusDot}
@@ -470,7 +575,9 @@ export function Agents() {
                   queuedRunByAgent={queuedRunByAgent}
                   agentRouteRef={agentRouteRef}
                   pendingAction={pendingByAgentId[agent.id]}
+                  updatingField={updatingFieldByAgentId[agent.id]}
                   onPauseResume={handlePauseResume}
+                  onQuickUpdateAgent={handleQuickUpdateAgent}
                 />
               ))}
             </SortableContext>
@@ -492,11 +599,14 @@ export function Agents() {
               key={node.id}
               node={node}
               depth={0}
+              companyId={selectedCompanyId}
               agentMap={agentMap}
               liveRunByAgent={liveRunByAgent}
               queuedRunByAgent={queuedRunByAgent}
               pendingByAgentId={pendingByAgentId}
+              updatingFieldByAgentId={updatingFieldByAgentId}
               onPauseResume={handlePauseResume}
+              onQuickUpdateAgent={handleQuickUpdateAgent}
             />
           ))}
         </div>
@@ -585,8 +695,451 @@ function AgentPauseResumeActions({
   );
 }
 
+function AgentScheduleQuickEdit({
+  agent,
+  isUpdating,
+  onQuickUpdateAgent,
+}: {
+  agent: Agent;
+  isUpdating: boolean;
+  onQuickUpdateAgent: (
+    agentId: string,
+    field: "model" | "schedule",
+    patch: Record<string, unknown>,
+    successTitle: string,
+  ) => Promise<boolean>;
+}) {
+  const effectiveCron = getAgentScheduleCron(agent);
+  const [open, setOpen] = useState(false);
+  const [draftCron, setDraftCron] = useState<string>(effectiveCron || "0 9 * * *");
+
+  useEffect(() => {
+    if (open) {
+      setDraftCron(effectiveCron || "0 9 * * *");
+    }
+  }, [open, effectiveCron]);
+
+  const applySchedule = async (nextCron: string) => {
+    const trimmed = nextCron.trim();
+    const existingRc = ((agent.runtimeConfig ?? {}) as Record<string, unknown>);
+    const existingHb = ((existingRc.heartbeat ?? {}) as Record<string, unknown>);
+    const existingMeta = ((agent.metadata ?? {}) as Record<string, unknown>);
+
+    const patch: Record<string, unknown> = {
+      runtimeConfig: {
+        ...existingRc,
+        heartbeat: {
+          ...existingHb,
+          enabled: trimmed.length > 0 ? true : false,
+          cronExpression: trimmed,
+        },
+      },
+      ...("schedule" in existingMeta
+        ? {
+            metadata: {
+              ...existingMeta,
+              schedule: trimmed.length > 0 ? trimmed : null,
+            },
+          }
+        : {}),
+    };
+
+    const ok = await onQuickUpdateAgent(
+      agent.id,
+      "schedule",
+      patch,
+      trimmed.length > 0
+        ? `Đã cập nhật lịch cho ${agent.name} (${formatSchedule(trimmed)})`
+        : `Đã đặt lịch ${agent.name} về Không cố định`,
+    );
+    if (ok) {
+      setOpen(false);
+    }
+  };
+
+  return (
+    <div
+      className="w-64 shrink-0 border-l border-border/50 pl-2"
+      onClick={(e) => e.stopPropagation()}
+      onPointerDown={(e) => e.stopPropagation()}
+    >
+      <Popover open={open} onOpenChange={setOpen}>
+        <div
+          onClick={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
+          }}
+          onPointerDown={(e) => e.stopPropagation()}
+        >
+          <PopoverTrigger asChild>
+            <button
+              type="button"
+              disabled={isUpdating}
+              title="Bấm để sửa lịch Heartbeat"
+              className="flex flex-col items-start justify-center w-full px-1.5 py-1 rounded-sm hover:bg-accent/60 transition-colors text-left group/schedule cursor-pointer disabled:opacity-60"
+            >
+              <span className="flex items-center gap-1 text-[10px] text-muted-foreground group-hover/schedule:text-foreground font-semibold truncate w-full">
+                <span className="truncate">
+                  Lịch: {formatSchedule(effectiveCron)}
+                </span>
+                {isUpdating ? (
+                  <Loader2 className="h-2.5 w-2.5 animate-spin shrink-0 ml-auto" />
+                ) : (
+                  <ChevronDown className="h-3 w-3 opacity-50 group-hover/schedule:opacity-100 transition-opacity shrink-0 ml-auto" />
+                )}
+              </span>
+              <span className="text-xs text-muted-foreground truncate w-full">
+                {agent.lastHeartbeatAt ? formatDateTime(agent.lastHeartbeatAt) : "Chưa từng chạy"}
+              </span>
+            </button>
+          </PopoverTrigger>
+        </div>
+        <PopoverContent
+          align="start"
+          className="w-[360px] sm:w-[400px] p-3 space-y-3"
+          onClick={(e) => e.stopPropagation()}
+          onPointerDown={(e) => e.stopPropagation()}
+        >
+          <div className="flex items-center justify-between border-b border-border pb-2">
+            <div className="flex items-center gap-1.5 min-w-0">
+              <CalendarClock className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+              <span className="text-xs font-semibold truncate">
+                Lịch Heartbeat — {agent.name}
+              </span>
+            </div>
+            {effectiveCron && (
+              <button
+                type="button"
+                disabled={isUpdating}
+                onClick={() => void applySchedule("")}
+                className="text-[11px] text-destructive hover:underline shrink-0 cursor-pointer disabled:opacity-50"
+              >
+                Không cố định
+              </button>
+            )}
+          </div>
+
+          <HeartbeatScheduleBuilder
+            value={draftCron}
+            onChange={(cron) => setDraftCron(cron)}
+          />
+
+          <div className="flex items-center justify-end gap-2 pt-2 border-t border-border">
+            <Button
+              type="button"
+              variant="ghost"
+              size="xs"
+              disabled={isUpdating}
+              onClick={() => setOpen(false)}
+            >
+              Hủy
+            </Button>
+            <Button
+              type="button"
+              variant="default"
+              size="xs"
+              disabled={isUpdating || !draftCron.trim()}
+              onClick={() => void applySchedule(draftCron)}
+            >
+              {isUpdating && <Loader2 className="h-3 w-3 animate-spin mr-1" />}
+              Lưu lịch
+            </Button>
+          </div>
+        </PopoverContent>
+      </Popover>
+    </div>
+  );
+}
+
+function AgentModelQuickEdit({
+  agent,
+  companyId,
+  adapterLabels,
+  isUpdating,
+  onQuickUpdateAgent,
+}: {
+  agent: Agent;
+  companyId: string;
+  adapterLabels: Record<string, string>;
+  isUpdating: boolean;
+  onQuickUpdateAgent: (
+    agentId: string,
+    field: "model" | "schedule",
+    patch: Record<string, unknown>,
+    successTitle: string,
+  ) => Promise<boolean>;
+}) {
+  const currentModel = typeof agent.adapterConfig?.model === "string" ? agent.adapterConfig.model : "";
+  const [open, setOpen] = useState(false);
+  const [selectedAdapter, setSelectedAdapter] = useState<string>(agent.adapterType);
+  const [modelSearch, setModelSearch] = useState("");
+
+  useEffect(() => {
+    if (open) {
+      setSelectedAdapter(agent.adapterType);
+      setModelSearch("");
+    }
+  }, [open, agent.adapterType]);
+
+  const { data: adapterModels, isLoading: modelsLoading } = useQuery({
+    queryKey: queryKeys.agents.adapterModels(companyId, selectedAdapter),
+    queryFn: () => agentsApi.adapterModels(companyId, selectedAdapter),
+    enabled: open && Boolean(companyId),
+  });
+
+  const adapterOptions = useMemo(() => {
+    const list: string[] = [...QUICK_EDIT_ADAPTERS];
+    if (agent.adapterType && !list.includes(agent.adapterType)) {
+      list.unshift(agent.adapterType);
+    }
+    return list;
+  }, [agent.adapterType]);
+
+  const filteredModels = useMemo(() => {
+    const list = adapterModels ?? [];
+    const q = modelSearch.trim().toLowerCase();
+    if (!q) return list;
+    return list.filter(
+      (m) => m.id.toLowerCase().includes(q) || m.label.toLowerCase().includes(q),
+    );
+  }, [adapterModels, modelSearch]);
+
+  const handleSelectModel = async (nextAdapter: string, nextModel: string) => {
+    const adapterChanged = nextAdapter !== agent.adapterType;
+    const existingConfig = ((agent.adapterConfig ?? {}) as Record<string, unknown>);
+    const nextConfig: Record<string, unknown> = adapterChanged
+      ? {
+          ...existingConfig,
+          model: nextModel || undefined,
+          effort: "",
+          modelReasoningEffort: "",
+          variant: "",
+          mode: "",
+          ...(nextAdapter === "codex_local"
+            ? {
+                dangerouslyBypassApprovalsAndSandbox:
+                  DEFAULT_CODEX_LOCAL_BYPASS_APPROVALS_AND_SANDBOX,
+              }
+            : {}),
+        }
+      : {
+          ...existingConfig,
+          model: nextModel || undefined,
+        };
+
+    const patch: Record<string, unknown> = adapterChanged
+      ? { adapterType: nextAdapter, adapterConfig: nextConfig }
+      : { adapterConfig: nextConfig };
+
+    const labelDisplay = nextModel || "Default";
+    const ok = await onQuickUpdateAgent(
+      agent.id,
+      "model",
+      patch,
+      `Đã đổi model ${agent.name} sang ${adapterLabels[nextAdapter] ?? nextAdapter} · ${labelDisplay}`,
+    );
+    if (ok) {
+      setOpen(false);
+    }
+  };
+
+  return (
+    <div
+      className="w-36 shrink-0 border-l border-border/50 pl-2"
+      onClick={(e) => e.stopPropagation()}
+      onPointerDown={(e) => e.stopPropagation()}
+    >
+      <Popover open={open} onOpenChange={setOpen}>
+        <div
+          onClick={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
+          }}
+          onPointerDown={(e) => e.stopPropagation()}
+        >
+          <PopoverTrigger asChild>
+            <button
+              type="button"
+              disabled={isUpdating}
+              title="Bấm để đổi Adapter / Model"
+              className="flex flex-col items-end justify-center w-full px-1.5 py-1 rounded-sm hover:bg-accent/60 transition-colors text-right group/model cursor-pointer disabled:opacity-60"
+            >
+              <span className="flex items-center justify-end gap-1 text-xs text-foreground font-medium truncate w-full">
+                <span className="truncate">
+                  {adapterLabels[agent.adapterType] ?? agent.adapterType}
+                </span>
+                {isUpdating ? (
+                  <Loader2 className="h-3 w-3 animate-spin shrink-0" />
+                ) : (
+                  <ChevronDown className="h-3 w-3 text-muted-foreground opacity-50 group-hover/model:opacity-100 transition-opacity shrink-0" />
+                )}
+              </span>
+              <span
+                className="text-[10px] text-muted-foreground text-right truncate w-full"
+                title={currentModel || "Default"}
+              >
+                {currentModel || "Default"}
+              </span>
+            </button>
+          </PopoverTrigger>
+        </div>
+        <PopoverContent
+          align="end"
+          className="w-80 p-3 space-y-2.5"
+          onClick={(e) => e.stopPropagation()}
+          onPointerDown={(e) => e.stopPropagation()}
+        >
+          <div className="flex items-center justify-between border-b border-border pb-2">
+            <div className="flex items-center gap-1.5 min-w-0">
+              <Cpu className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+              <span className="text-xs font-semibold truncate">
+                Đổi Model — {agent.name}
+              </span>
+            </div>
+          </div>
+
+          <div className="space-y-1">
+            <label className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
+              Adapter
+            </label>
+            <div className="flex flex-wrap gap-1">
+              {adapterOptions.map((adapterKey) => {
+                const active = selectedAdapter === adapterKey;
+                return (
+                  <button
+                    key={adapterKey}
+                    type="button"
+                    onClick={() => setSelectedAdapter(adapterKey)}
+                    className={cn(
+                      "px-2 py-0.5 rounded text-[11px] border transition-colors cursor-pointer",
+                      active
+                        ? "bg-primary text-primary-foreground border-primary font-medium"
+                        : "bg-background text-muted-foreground border-border hover:bg-accent/60 hover:text-foreground",
+                    )}
+                  >
+                    {adapterLabels[adapterKey] ?? adapterKey}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          <div className="space-y-1.5">
+            <div className="flex items-center justify-between">
+              <label className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
+                Model ({adapterLabels[selectedAdapter] ?? selectedAdapter})
+              </label>
+              {selectedAdapter !== agent.adapterType && (
+                <button
+                  type="button"
+                  disabled={isUpdating}
+                  onClick={() =>
+                    void handleSelectModel(
+                      selectedAdapter,
+                      getDefaultModelForAdapter(selectedAdapter),
+                    )
+                  }
+                  className="text-[10px] text-primary hover:underline cursor-pointer"
+                >
+                  Dùng mặc định adapter này
+                </button>
+              )}
+            </div>
+            <div className="flex items-center gap-1.5">
+              <Input
+                type="text"
+                placeholder="Tìm hoặc nhập mã model..."
+                value={modelSearch}
+                onChange={(e) => setModelSearch(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" && modelSearch.trim()) {
+                    e.preventDefault();
+                    void handleSelectModel(selectedAdapter, modelSearch.trim());
+                  }
+                }}
+                className="h-7 text-xs"
+              />
+              {modelSearch.trim() && (
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="xs"
+                  disabled={isUpdating}
+                  onClick={() => void handleSelectModel(selectedAdapter, modelSearch.trim())}
+                >
+                  Đặt
+                </Button>
+              )}
+            </div>
+          </div>
+
+          <div className="max-h-56 overflow-y-auto border border-border rounded-sm divide-y divide-border/40">
+            {selectedAdapter !== "opencode_local" && !modelSearch.trim() && (
+              <button
+                type="button"
+                disabled={isUpdating}
+                onClick={() => void handleSelectModel(selectedAdapter, "")}
+                className={cn(
+                  "flex items-center justify-between w-full px-2.5 py-1.5 text-xs text-left hover:bg-accent/60 transition-colors cursor-pointer",
+                  selectedAdapter === agent.adapterType && !currentModel && "bg-accent/40 font-medium",
+                )}
+              >
+                <span>Default (Mặc định của adapter)</span>
+                {selectedAdapter === agent.adapterType && !currentModel && (
+                  <Check className="h-3.5 w-3.5 text-primary shrink-0" />
+                )}
+              </button>
+            )}
+
+            {modelsLoading ? (
+              <div className="flex items-center justify-center gap-1.5 py-4 text-xs text-muted-foreground">
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                <span>Đang tải danh sách model...</span>
+              </div>
+            ) : filteredModels.length > 0 ? (
+              filteredModels.map((item) => {
+                const isSelected =
+                  selectedAdapter === agent.adapterType && item.id === currentModel;
+                return (
+                  <button
+                    key={item.id}
+                    type="button"
+                    disabled={isUpdating}
+                    onClick={() => void handleSelectModel(selectedAdapter, item.id)}
+                    className={cn(
+                      "flex items-center justify-between gap-2 w-full px-2.5 py-1.5 text-xs text-left hover:bg-accent/60 transition-colors cursor-pointer",
+                      isSelected && "bg-accent/40 font-medium",
+                    )}
+                  >
+                    <div className="min-w-0 flex-1">
+                      <div className="truncate">{item.label || item.id}</div>
+                      {item.label && item.label !== item.id && (
+                        <div className="text-[10px] text-muted-foreground font-mono truncate">
+                          {item.id}
+                        </div>
+                      )}
+                    </div>
+                    {isSelected && <Check className="h-3.5 w-3.5 text-primary shrink-0" />}
+                  </button>
+                );
+              })
+            ) : (
+              <div className="px-2.5 py-3 text-xs text-muted-foreground text-center">
+                {modelSearch.trim()
+                  ? `Nhấn Enter hoặc bấm "Đặt" để dùng model "${modelSearch.trim()}"`
+                  : "Không có model cấu hình sẵn cho adapter này."}
+              </div>
+            )}
+          </div>
+        </PopoverContent>
+      </Popover>
+    </div>
+  );
+}
+
 function SortableAgentRow({
   agent,
+  companyId,
   roleLabels,
   adapterLabels,
   agentStatusDot,
@@ -595,7 +1148,9 @@ function SortableAgentRow({
   queuedRunByAgent,
   agentRouteRef,
   pendingAction,
+  updatingField,
   onPauseResume,
+  onQuickUpdateAgent,
 }: any) {
   const {
     attributes,
@@ -685,24 +1240,18 @@ function SortableAgentRow({
                     queuedCount={queuedRunByAgent.get(agent.id)!.queuedCount}
                   />
                 )}
-                <div className="flex flex-col items-start justify-center w-64 shrink-0 border-l border-border/50 pl-3">
-                  <span className="text-[10px] text-muted-foreground font-semibold truncate w-full">
-                    Lịch: {formatSchedule(typeof agent.metadata?.schedule === "string" ? agent.metadata.schedule : (agent.runtimeConfig as any)?.heartbeat?.cronExpression)}
-                  </span>
-                  <span className="text-xs text-muted-foreground truncate w-full">
-                    {agent.lastHeartbeatAt ? formatDateTime(agent.lastHeartbeatAt) : "Chưa từng chạy"}
-                  </span>
-                </div>
-                <div className="flex flex-col items-end justify-center w-32 shrink-0 border-l border-border/50 pl-3">
-                  <span className="text-xs text-foreground font-medium text-right truncate w-full">
-                    {adapterLabels[agent.adapterType] ?? agent.adapterType}
-                  </span>
-                  {typeof agent.adapterConfig?.model === "string" && (
-                    <span className="text-[10px] text-muted-foreground text-right truncate w-full" title={agent.adapterConfig.model}>
-                      {agent.adapterConfig.model}
-                    </span>
-                  )}
-                </div>
+                <AgentScheduleQuickEdit
+                  agent={agent}
+                  isUpdating={updatingField === "schedule"}
+                  onQuickUpdateAgent={onQuickUpdateAgent}
+                />
+                <AgentModelQuickEdit
+                  agent={agent}
+                  companyId={companyId}
+                  adapterLabels={adapterLabels}
+                  isUpdating={updatingField === "model"}
+                  onQuickUpdateAgent={onQuickUpdateAgent}
+                />
                 <span className="text-xs text-muted-foreground w-16 text-right shrink-0">
                   {agent.lastHeartbeatAt ? relativeTime(agent.lastHeartbeatAt) : "—"}
                 </span>
@@ -729,19 +1278,30 @@ function SortableAgentRow({
 function OrgTreeNode({
   node,
   depth,
+  companyId,
   agentMap,
   liveRunByAgent,
   queuedRunByAgent,
   pendingByAgentId,
+  updatingFieldByAgentId,
   onPauseResume,
+  onQuickUpdateAgent,
 }: {
   node: OrgNode;
   depth: number;
+  companyId: string;
   agentMap: Map<string, Agent>;
   liveRunByAgent: Map<string, { runId: string; liveCount: number }>;
   queuedRunByAgent: Map<string, { runId: string; queuedCount: number }>;
   pendingByAgentId: Record<string, "pause" | "resume">;
+  updatingFieldByAgentId: Record<string, "model" | "schedule">;
   onPauseResume: (agentId: string, action: "pause" | "resume") => void;
+  onQuickUpdateAgent: (
+    agentId: string,
+    field: "model" | "schedule",
+    patch: Record<string, unknown>,
+    successTitle: string,
+  ) => Promise<boolean>;
 }) {
   const agent = agentMap.get(node.id);
   const currentStatus = agent?.status ?? node.status;
@@ -808,24 +1368,18 @@ function OrgTreeNode({
             )}
             {agent && (
               <>
-                <div className="flex flex-col items-start justify-center w-64 shrink-0 border-l border-border/50 pl-3">
-                  <span className="text-[10px] text-muted-foreground font-semibold truncate w-full">
-                    Lịch: {formatSchedule(typeof agent.metadata?.schedule === "string" ? agent.metadata.schedule : (agent.runtimeConfig as any)?.heartbeat?.cronExpression)}
-                  </span>
-                  <span className="text-xs text-muted-foreground truncate w-full">
-                    {agent.lastHeartbeatAt ? formatDateTime(agent.lastHeartbeatAt) : "Chưa từng chạy"}
-                  </span>
-                </div>
-                <div className="flex flex-col items-end justify-center w-32 shrink-0 border-l border-border/50 pl-3">
-                  <span className="text-xs text-foreground font-medium text-right truncate w-full">
-                    {adapterLabels[agent.adapterType] ?? agent.adapterType}
-                  </span>
-                  {typeof agent.adapterConfig?.model === "string" && (
-                    <span className="text-[10px] text-muted-foreground text-right truncate w-full" title={agent.adapterConfig.model}>
-                      {agent.adapterConfig.model}
-                    </span>
-                  )}
-                </div>
+                <AgentScheduleQuickEdit
+                  agent={agent}
+                  isUpdating={updatingFieldByAgentId[node.id] === "schedule"}
+                  onQuickUpdateAgent={onQuickUpdateAgent}
+                />
+                <AgentModelQuickEdit
+                  agent={agent}
+                  companyId={companyId}
+                  adapterLabels={adapterLabels}
+                  isUpdating={updatingFieldByAgentId[node.id] === "model"}
+                  onQuickUpdateAgent={onQuickUpdateAgent}
+                />
                 <span className="text-xs text-muted-foreground w-16 text-right shrink-0">
                   {agent.lastHeartbeatAt ? relativeTime(agent.lastHeartbeatAt) : "—"}
                 </span>
@@ -852,11 +1406,14 @@ function OrgTreeNode({
               key={child.id}
               node={child}
               depth={depth + 1}
+              companyId={companyId}
               agentMap={agentMap}
               liveRunByAgent={liveRunByAgent}
               queuedRunByAgent={queuedRunByAgent}
               pendingByAgentId={pendingByAgentId}
+              updatingFieldByAgentId={updatingFieldByAgentId}
               onPauseResume={onPauseResume}
+              onQuickUpdateAgent={onQuickUpdateAgent}
             />
           ))}
         </div>
