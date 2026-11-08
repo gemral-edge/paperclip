@@ -299,6 +299,37 @@ export function isAntigravityUnfinishedPromise(reply: string | null | undefined)
   return ANTIGRAVITY_UNFINISHED_PROMISE_PATTERNS.some((p) => p.test(tail));
 }
 
+// GEM-1892 — agy `-p` keeps the process alive after the model's final answer while any
+// run_command it pushed to the background is still running ("root agent idle; waiting up
+// to 24h0m0s for N background task(s)"). Run 1d6ead3f (Giám Sát Hệ Thống, 07/11) answered
+// at 23:52 and held the fleet's run slot until 11:42 next day because one backgrounded
+// audit command never returned. GEM-1627 only detached push_via_worktree; any other
+// backgrounded command still pinned the run. Watchdog: when the LAST transcript entry is
+// an assistant message and nothing new (entry or process output) arrived for idleSec, the
+// turn is over — reap the process tree and finish the run on its answer.
+// A mid-run "đang chờ tác vụ nền" message followed by a short wait (2 min in that same
+// run) stays well under the default 30 min.
+export const ANTIGRAVITY_IDLE_AFTER_ANSWER_DEFAULT_SEC = 1800;
+
+export function shouldReapAntigravityIdleAfterAnswer(input: {
+  lastEntryKind: string | null | undefined;
+  lastActivityMs: number;
+  nowMs: number;
+  idleSec: number;
+}): boolean {
+  if (!(input.idleSec > 0)) return false;
+  if (input.lastEntryKind !== "assistant") return false;
+  return input.nowMs - input.lastActivityMs >= input.idleSec * 1000;
+}
+
+// Windows reports a killed process (taskkill /F) as 0xFFFFFFFF = 4294967295, which
+// overflows the int4 heartbeat_runs.exit_code column and failed the whole finalize write
+// ("value \"4294967295\" is out of range for type integer"). Map to signed 32-bit.
+export function normalizeProcessExitCode(code: number | null | undefined): number | null {
+  if (code == null || !Number.isFinite(code)) return null;
+  return Math.trunc(code) | 0;
+}
+
 // GEM-1316 — Clean-exit prose patterns. When an agent wakes up via timer / heartbeat / retry
 // and finds that its slot has already posted (idempotency gate), is outside the active time window,
 // or has no actionable tasks in the backlog, it MUST exit cleanly without calling side-effect tools

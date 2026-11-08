@@ -1681,9 +1681,15 @@ export function heartbeatService(db: Db) {
     patch?: Partial<typeof heartbeatRuns.$inferInsert>,
     opts?: { expectedStatus?: string },
   ) {
+    // GEM-1892: Windows reports a taskkill'd child as exit 0xFFFFFFFF (4294967295), which
+    // overflows int4 exit_code and failed the whole finalize write. Store signed 32-bit.
+    const safePatch =
+      patch && typeof patch.exitCode === "number" && Number.isFinite(patch.exitCode)
+        ? { ...patch, exitCode: Math.trunc(patch.exitCode) | 0 }
+        : patch;
     const updated = await db
       .update(heartbeatRuns)
-      .set({ status, ...patch, updatedAt: new Date() })
+      .set({ status, ...safePatch, updatedAt: new Date() })
       .where(
         opts?.expectedStatus
           ? and(eq(heartbeatRuns.id, runId), eq(heartbeatRuns.status, opts.expectedStatus))

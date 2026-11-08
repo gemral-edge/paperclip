@@ -163,7 +163,11 @@ export function workspaceOperationService(db: Db) {
               .set({
                 executionWorkspaceId,
                 status: result.status ?? "succeeded",
-                exitCode: result.exitCode ?? null,
+                // GEM-1892: Windows taskkill → 4294967295 overflows int4 → signed 32-bit.
+                exitCode:
+                  typeof result.exitCode === "number" && Number.isFinite(result.exitCode)
+                    ? Math.trunc(result.exitCode) | 0
+                    : null,
                 stdoutExcerpt: stdoutExcerpt || null,
                 stderrExcerpt: stderrExcerpt || null,
                 logBytes: finalized.bytes,

@@ -26,6 +26,8 @@ import {
   parseObject,
   renderTemplate,
   runChildProcess,
+  runningProcesses,
+  terminateProcessTree,
 } from "@paperclipai/adapter-utils/server-utils";
 import { DEFAULT_ANTIGRAVITY_MODEL } from "../index.js";
 import {
@@ -45,6 +47,9 @@ import {
   countAntigravityMutationCalls,
   isAntigravityUnfinishedPromise,
   detectAntigravityModelNotAvailable,
+  ANTIGRAVITY_IDLE_AFTER_ANSWER_DEFAULT_SEC,
+  shouldReapAntigravityIdleAfterAnswer,
+  normalizeProcessExitCode,
 } from "./parse.js";
 import { firstNonEmptyLine } from "./utils.js";
 import {
@@ -1062,15 +1067,26 @@ export async function execute(ctx: AdapterExecutionContext): Promise<AdapterExec
       });
     }
 
-    const proc = await runChildProcess(runId, command, args, {
+    idleReapedAfterAnswer = false;
+    lastActivityMs = Date.now();
+    const rawProc = await runChildProcess(runId, command, args, {
       cwd,
       env,
       timeoutSec,
       graceSec,
       onSpawn,
-      onLog,
+      onLog: async (stream, chunk) => {
+        lastActivityMs = Date.now();
+        await onLog(stream, chunk);
+      },
       // No stdin: agy reads the full prompt from the temp file via the -p pointer.
     });
+    // GEM-1892: the turn had already ended on its answer; we only reaped the leftover
+    // background wait → report a clean exit so the normal success/no_action gates apply
+    // (taskkill /F would otherwise surface as exit 4294967295 → failed run).
+    const proc = idleReapedAfterAnswer
+      ? { ...rawProc, exitCode: 0, signal: null }
+      : { ...rawProc, exitCode: normalizeProcessExitCode(rawProc.exitCode) };
     return {
       proc,
       parsed: parseAntigravityStdout(proc.stdout),
@@ -1082,6 +1098,13 @@ export async function execute(ctx: AdapterExecutionContext): Promise<AdapterExec
   // (no duplicates). Shared closure state between the poller and toResult.
   let streamedEntryCount = 0;
   let liveBrainId = "";
+  // GEM-1892 idle-after-answer watchdog state (see shouldReapAntigravityIdleAfterAnswer).
+  // Config `idleAfterAnswerSec` (0 = off). Never changes model/provider — only ends a turn
+  // that already answered.
+  const idleAfterAnswerSec = asNumber(config.idleAfterAnswerSec, ANTIGRAVITY_IDLE_AFTER_ANSWER_DEFAULT_SEC);
+  let lastActivityMs = Date.now();
+  let lastEntryKind: string | null = null;
+  let idleReapedAfterAnswer = false;
   // Byte offset of this run's turn inside the (resumed, multi-MB) brain transcript: each
   // tick and the post-run toResult read only this run's turn, not the whole history
   // (GEMRAL 26/10 DB-pool wedge / GEM-1654).
@@ -1357,10 +1380,30 @@ export async function execute(ctx: AdapterExecutionContext): Promise<AdapterExec
           await onLog("stdout", `${JSON.stringify(r.entries[i])}\n`);
         }
         streamedEntryCount = r.entries.length;
+        const last = r.entries[r.entries.length - 1] as { agyKind?: unknown } | undefined;
+        lastEntryKind = typeof last?.agyKind === "string" ? last.agyKind : null;
+        lastActivityMs = Date.now();
       }
     } catch {
       /* best-effort live preview — toResult performs the authoritative read */
     }
+    reapIfIdleAfterAnswer();
+  };
+  const reapIfIdleAfterAnswer = () => {
+    if (idleReapedAfterAnswer) return;
+    const nowMs = Date.now();
+    if (!shouldReapAntigravityIdleAfterAnswer({ lastEntryKind, lastActivityMs, nowMs, idleSec: idleAfterAnswerSec })) {
+      return;
+    }
+    const running = runningProcesses.get(runId);
+    if (!running) return;
+    idleReapedAfterAnswer = true;
+    const idleMin = Math.round((nowMs - lastActivityMs) / 60_000);
+    void onLog(
+      "stderr",
+      `[paperclip] agy đã trả lời xong nhưng còn chờ tác vụ nền (im lặng ${idleMin} phút ≥ ${Math.round(idleAfterAnswerSec / 60)} phút) → dừng cây tiến trình, kết thúc lượt bằng câu trả lời cuối, trả chỗ chạy cho cả đội (GEM-1892).\n`,
+    ).catch(() => {});
+    terminateProcessTree(running.child, running.graceSec);
   };
   const liveLoop = (async () => {
     while (livePolling) {

@@ -24,6 +24,9 @@ export {
   countAntigravityMutationCalls,
   ANTIGRAVITY_MUTATION_TOOL_RE,
   isAntigravityUnfinishedPromise,
+  ANTIGRAVITY_IDLE_AFTER_ANSWER_DEFAULT_SEC,
+  shouldReapAntigravityIdleAfterAnswer,
+  normalizeProcessExitCode,
 } from "./parse.js";
 export { defaultAgyCommand } from "./execute.js";
 export {
