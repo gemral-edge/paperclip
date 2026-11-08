@@ -16,14 +16,23 @@ import path from 'path';
 export const THREADS_GRAPH = 'https://graph.threads.net';
 export const THREADS_AUTHORIZE = 'https://threads.net/oauth/authorize';
 
-// Mặc định 5 quyền chị duyệt (basic, read/manage replies, manage insights, keyword search; không threads_content_publish).
-// Nếu Meta đòi publish cho reply, đặt THREADS_OAUTH_SCOPES trong .env rồi bấm OAuth lại — code vẫn KHÔNG có đường đăng bài.
+// ĐỦ BỘ quyền Threads cho tài khoản của chị — xin 1 lần, không thêm lắt nhắt từng quyền.
+// Gốc 08/11: danh sách cũ chỉ ghi "đủ dùng lúc đó" (14/10: 3 quyền · GEM-1818: +2 · .env: +publish) nên mỗi
+// tính năng mới (xoá bài 08/11) lại bắt chị cấp lại OAuth. Danh mục Meta: developers.facebook.com/docs/permissions.
+// Bỏ cố ý duy nhất threads_business_basic (chỉ để gắn tài khoản vào quảng cáo Business Portfolio).
+// SSOT = danh sách này; THREADS_OAUTH_SCOPES trong .env chỉ được THÊM, không bớt được quyền nào ở đây.
+// Máy gác: crypto-pattern-scanner/scripts/audit_threads_token_health.py (FULL_THREADS_SCOPES).
 export const DEFAULT_SCOPES = [
   'threads_basic',
+  'threads_content_publish',
+  'threads_delete',
   'threads_read_replies',
   'threads_manage_replies',
   'threads_manage_insights',
+  'threads_manage_mentions',
   'threads_keyword_search',
+  'threads_location_tagging',
+  'threads_profile_discovery',
 ];
 
 export const REFRESH_WITHIN_DAYS = 10;
@@ -52,8 +61,9 @@ export function envKeys(suffix: string) {
 }
 
 export function scopes(): string[] {
-  const raw = (process.env.THREADS_OAUTH_SCOPES || '').trim();
-  return raw ? raw.split(',').map((s) => s.trim()).filter(Boolean) : DEFAULT_SCOPES;
+  // .env chỉ được THÊM quyền vào bộ đủ — bản chép cũ trong .env từng thiếu quyền mà vẫn đè mất bộ đủ.
+  const extra = (process.env.THREADS_OAUTH_SCOPES || '').split(',').map((s) => s.trim()).filter(Boolean);
+  return [...new Set([...DEFAULT_SCOPES, ...extra])];
 }
 
 export function buildAuthorizeUrl(appId: string, redirectUri: string, state: string, scope: string[]): string {

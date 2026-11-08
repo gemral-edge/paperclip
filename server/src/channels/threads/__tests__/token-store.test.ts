@@ -12,20 +12,20 @@ const NOW = Date.parse('2026-10-14T00:00:00Z');
 const iso = (ms: number) => new Date(ms).toISOString();
 
 describe('authorize url + code', () => {
-  it('builds threads.net authorize URL with comma scopes, no publish scope by default', () => {
+  it('builds threads.net authorize URL with the FULL scope set in one go', () => {
     const u = new URL(buildAuthorizeUrl('123', 'https://x.test/cb', 'st', DEFAULT_SCOPES));
     expect(u.origin + u.pathname).toBe('https://threads.net/oauth/authorize');
     expect(u.searchParams.get('client_id')).toBe('123');
     expect(u.searchParams.get('redirect_uri')).toBe('https://x.test/cb');
     expect(u.searchParams.get('response_type')).toBe('code');
-    expect(u.searchParams.get('scope')).toBe('threads_basic,threads_read_replies,threads_manage_replies,threads_manage_insights,threads_keyword_search');
-    expect(DEFAULT_SCOPES).toContain('threads_manage_insights');
-    expect(DEFAULT_SCOPES).toContain('threads_keyword_search');
-    expect(DEFAULT_SCOPES).not.toContain('threads_content_publish');
+    expect(u.searchParams.get('scope')).toBe(DEFAULT_SCOPES.join(','));
+    for (const s of ['threads_basic', 'threads_content_publish', 'threads_delete', 'threads_read_replies',
+      'threads_manage_replies', 'threads_manage_insights', 'threads_manage_mentions', 'threads_keyword_search',
+      'threads_location_tagging', 'threads_profile_discovery']) expect(DEFAULT_SCOPES).toContain(s);
   });
-  it('THREADS_OAUTH_SCOPES env overrides scopes', () => {
-    process.env.THREADS_OAUTH_SCOPES = 'threads_basic, threads_manage_replies';
-    expect(scopes()).toEqual(['threads_basic', 'threads_manage_replies']);
+  it('THREADS_OAUTH_SCOPES env can only ADD scopes, never drop the full set', () => {
+    process.env.THREADS_OAUTH_SCOPES = 'threads_basic, threads_business_basic';
+    expect(scopes()).toEqual([...DEFAULT_SCOPES, 'threads_business_basic']);
     delete process.env.THREADS_OAUTH_SCOPES;
     expect(scopes()).toEqual(DEFAULT_SCOPES);
   });
