@@ -3,7 +3,7 @@
 //
 // Pure function, fail-closed: có dấu hỏi '?', có yêu cầu/khiếu nại/thắc mắc, hoặc quá dài -> false (người xử lý như cũ).
 
-const MAX_TOKENS = 25;
+const MAX_TOKENS = 30;
 const MAX_CHARS = 120;
 
 /** Các từ khóa/ký hiệu thể hiện câu hỏi, khiếu nại, yêu cầu hỗ trợ hoặc vấn đề cần xử lý -> FAIL-CLOSED (không phải closure). */
@@ -43,7 +43,7 @@ const CLOSURE_PHRASES: string[] = [
 ];
 
 /** Emoji giận/thất vọng/buồn/phản đối: không tự đóng phiếu như tin kết thúc. */
-const NEGATIVE_EMOJI_RE = /[😡😠🤬😤👎😢😭💔😞😒🙄😩😫😖😣🤮🖕😾]/u;
+const NEGATIVE_EMOJI_RE = /[😡😠🤬😤👎😢😭💔😞😒🙄😩😫😖😣🤮🖕😾☹🙁]/u;
 
 function tokenize(text: string): string[] {
   return text
@@ -75,10 +75,11 @@ export function isClosureIntent(text: string | null | undefined): boolean {
   // Emoji tiêu cực (giận/thất vọng/buồn/phản đối) KHÔNG phải lời kết thúc: fail-closed để người vào xem.
   if (NEGATIVE_EMOJI_RE.test(raw)) return false;
   // Cờ quốc gia (cặp Regional_Indicator) không nằm trong Extended_Pictographic → coi là emoji thuần.
+  // Bổ sung ZWJ (\u200D), Variation Selectors (\uFE0E, \uFE0F), ký hiệu giới tính (\u2640, \u2642) cho emoji ghép (❤️‍🔥, 🙇‍♀️, 🙇‍♂️).
   const containsEmoji = /[\p{Extended_Pictographic}\u{1F1E6}-\u{1F1FF}]/u.test(raw);
   if (containsEmoji) {
     const withoutEmoji = raw
-      .replace(/[\p{Extended_Pictographic}\p{Emoji_Component}\u{1F1E6}-\u{1F1FF}\s!.,~_\-()^:;]+/gu, '')
+      .replace(/[\p{Extended_Pictographic}\p{Emoji_Component}\u{1F1E6}-\u{1F1FF}\u200D\uFE0E\uFE0F\u2640\u2642\s!.,~_\-()^:;]+/gu, '')
       .trim();
     if (withoutEmoji.length === 0 && !/[\p{L}\p{N}]/u.test(raw)) {
       return true;
