@@ -38,4 +38,9 @@ describe("scheduler wiring guard (GEM-1443)", () => {
     expect(idx).toMatch(/computeSchedulerInitialTickDelayMs\(/);
     expect(idx).toMatch(/SCHEDULER_TICK_JOB_STAGGER_MS/);
   });
+  it("blocked-only skip never silences cron routines (CEO wake 11/11: Edge X/Threads muted 2 days)", () => {
+    const hb = src("services/heartbeat.ts");
+    expect(hb).toMatch(/shouldSkipTimerForBlockedOnly\(\{\s*hasCron:\s*Boolean\(pending\.policy\.cron\)/);
+    expect(hb).not.toMatch(/if \(!flags\.hasActionable && flags\.hasBlocked\)/);
+  });
 });

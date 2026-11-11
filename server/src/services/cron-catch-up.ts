@@ -52,3 +52,19 @@ export function shouldDeferForTickBudget(input: {
   if (input.enqueuedInThisTick === 0) return false;
   return input.nowMs - input.loopStartedAtMs >= budget;
 }
+
+/**
+ * GEM-316 skips a timer wake when every assigned issue is `blocked` (agent has nothing
+ * it can progress). That premise only holds for interval timers, whose wake exists to
+ * pick up issue work. A cron schedule is the agent's own routine (post at 09:00, daily
+ * brief…) and does not depend on issues — skipping it silenced Edge X / Edge Threads
+ * for 2 days because each held only blocked hand-off issues (CEO wake 11/11).
+ */
+export function shouldSkipTimerForBlockedOnly(input: {
+  hasCron: boolean;
+  hasActionable: boolean;
+  hasBlocked: boolean;
+}): boolean {
+  if (input.hasCron) return false;
+  return !input.hasActionable && input.hasBlocked;
+}

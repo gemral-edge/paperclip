@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { classifyCronCatchUp, shouldDeferForTickBudget } from "../services/cron-catch-up.ts";
+import { classifyCronCatchUp, shouldDeferForTickBudget, shouldSkipTimerForBlockedOnly } from "../services/cron-catch-up.ts";
 
 const H = 3_600_000;
 const GRACE = H;
@@ -52,5 +52,20 @@ describe("shouldDeferForTickBudget (GEM-1443)", () => {
 
   it("keeps enqueuing within the budget", () => {
     expect(shouldDeferForTickBudget({ enqueuedInThisTick: 2, loopStartedAtMs: 0, nowMs: 4_100, budgetMs: 6_000 })).toBe(false);
+  });
+});
+
+describe("shouldSkipTimerForBlockedOnly (cron agents not silenced by blocked issues)", () => {
+  it("cron agent with only blocked issues still fires", () => {
+    expect(shouldSkipTimerForBlockedOnly({ hasCron: true, hasActionable: false, hasBlocked: true })).toBe(false);
+  });
+  it("interval agent with only blocked issues is skipped (GEM-316 kept)", () => {
+    expect(shouldSkipTimerForBlockedOnly({ hasCron: false, hasActionable: false, hasBlocked: true })).toBe(true);
+  });
+  it("interval agent with actionable work fires", () => {
+    expect(shouldSkipTimerForBlockedOnly({ hasCron: false, hasActionable: true, hasBlocked: true })).toBe(false);
+  });
+  it("no issues at all fires", () => {
+    expect(shouldSkipTimerForBlockedOnly({ hasCron: false, hasActionable: false, hasBlocked: false })).toBe(false);
   });
 });

@@ -42,7 +42,7 @@ import type { AdapterExecutionResult, AdapterInvocationMeta, AdapterSessionCodec
 import { createLocalAgentJwt } from "../agent-auth-jwt.js";
 import { parseObject, asBoolean, asNumber, asString, appendWithCap, MAX_EXCERPT_BYTES } from "../adapters/utils.js";
 import { parseCron, nextCronTick, validateCron, type ParsedCron } from "./cron.js";
-import { classifyCronCatchUp, shouldDeferForTickBudget } from "./cron-catch-up.js";
+import { classifyCronCatchUp, shouldDeferForTickBudget, shouldSkipTimerForBlockedOnly } from "./cron-catch-up.js";
 import { costService } from "./costs.js";
 import { companySkillService } from "./company-skills.js";
 import { budgetService, type BudgetEnforcementScope } from "./budgets.js";
@@ -5051,7 +5051,8 @@ export function heartbeatService(db: Db) {
 
         // Skip timer-driven heartbeat when all assigned tasks are blocked.
         // Prevents the agent from looping on work it cannot make progress on.
-        if (!flags.hasActionable && flags.hasBlocked) {
+        // Cron routines are never silenced by blocked issues (see shouldSkipTimerForBlockedOnly).
+        if (shouldSkipTimerForBlockedOnly({ hasCron: Boolean(pending.policy.cron), ...flags })) {
           logger.debug(
             { agentId: pending.agent.id },
             "[tickTimers] Skipping timer wakeup — agent has only blocked tasks",
