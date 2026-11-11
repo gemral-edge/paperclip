@@ -17,7 +17,11 @@ import { useCompany } from "../context/CompanyContext";
 import { useDialog } from "../context/DialogContext";
 import { useBreadcrumbs } from "../context/BreadcrumbContext";
 import { queryKeys } from "../lib/queryKeys";
-import { isPauseDisabled, isResumeDisabled } from "../lib/agent-action-availability";
+import {
+  isPauseToggleDisabled,
+  isRunHeartbeatDisabled,
+  pauseToggleAction,
+} from "../lib/agent-action-availability";
 import { AgentConfigForm } from "../components/AgentConfigForm";
 import { PageTabBar } from "../components/PageTabBar";
 import { adapterLabels, roleLabels } from "../components/agent-config-primitives";
@@ -840,32 +844,27 @@ export function AgentDetail() {
             variant="outline"
             size="sm"
             onClick={() => agentAction.mutate("invoke")}
-            disabled={agentAction.isPending || isPendingApproval}
+            disabled={isRunHeartbeatDisabled(agent.status, agentAction.isPending)}
           >
             <Play className="h-3.5 w-3.5 sm:mr-1" />
             <span className="hidden sm:inline">Run Heartbeat</span>
           </Button>
-          {/* Pause + Resume = 2 nút riêng (không toggle 1-nút gây bấm nhầm/2 lần).
-              disabled khớp server guards agents.pause()/resume() (agents.ts:408-453):
-              pause throws cho terminated; resume throws cho terminated + pending_approval.
-              Xem plan 2026-08-31-PAPERCLIP-NO-AUTOPAUSE-ON-ERROR-SPLIT-BUTTON. */}
+          {/* Pause/Resume = 1 nút bật-tắt (chị Jennie 11/11/2026). disabled theo SSOT
+              lib/agent-action-availability.ts (khớp server guards pause()/resume()). */}
           <Button
             variant="outline"
             size="sm"
-            onClick={() => agentAction.mutate("pause")}
-            disabled={isPauseDisabled(agent.status, agentAction.isPending)}
+            onClick={() => agentAction.mutate(pauseToggleAction(agent.status))}
+            disabled={isPauseToggleDisabled(agent.status, agentAction.isPending)}
           >
-            <Pause className="h-3.5 w-3.5 sm:mr-1" />
-            <span className="hidden sm:inline">Pause</span>
-          </Button>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => agentAction.mutate("resume")}
-            disabled={isResumeDisabled(agent.status, agentAction.isPending)}
-          >
-            <Play className="h-3.5 w-3.5 sm:mr-1" />
-            <span className="hidden sm:inline">Resume</span>
+            {pauseToggleAction(agent.status) === "resume" ? (
+              <Play className="h-3.5 w-3.5 sm:mr-1" />
+            ) : (
+              <Pause className="h-3.5 w-3.5 sm:mr-1" />
+            )}
+            <span className="hidden sm:inline">
+              {pauseToggleAction(agent.status) === "resume" ? "Resume" : "Pause"}
+            </span>
           </Button>
           <span className="hidden sm:inline"><StatusBadge status={agent.status} /></span>
           {mobileLiveRun && (

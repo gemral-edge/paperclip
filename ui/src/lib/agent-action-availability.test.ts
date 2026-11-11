@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { isPauseDisabled, isResumeDisabled } from "./agent-action-availability";
+import {
+  isPauseDisabled,
+  isResumeDisabled,
+  isPauseToggleDisabled,
+  isRunHeartbeatDisabled,
+  pauseToggleAction,
+} from "./agent-action-availability";
 
 // Expected Pause/Resume disabled state per agent status (isMutating = false).
 // Matches server guards agents.ts pause()/resume(). GEM-622.
@@ -43,4 +49,32 @@ describe("agent action availability — Pause/Resume disabled matrix", () => {
   // 'idle', clearing the agent-level error badge. That is intentional — the
   // durable failure record lives in heartbeat_runs history, not agents.status.
   // We therefore do NOT assert error survives a pause/resume cycle here.
+});
+
+describe("pause toggle + run heartbeat (11/11/2026)", () => {
+  it("toggle picks resume only for paused agents", () => {
+    expect(pauseToggleAction("paused")).toBe("resume");
+    for (const s of ["active", "idle", "running", "error", "terminated", "pending_approval"]) {
+      expect(pauseToggleAction(s)).toBe("pause");
+    }
+  });
+
+  it("toggle is enabled for active/idle/running/error/paused, disabled for terminal states", () => {
+    for (const s of ["active", "idle", "running", "error", "paused"]) {
+      expect(isPauseToggleDisabled(s, false)).toBe(false);
+    }
+    expect(isPauseToggleDisabled("terminated", false)).toBe(true);
+    expect(isPauseToggleDisabled("pending_approval", false)).toBe(true);
+    expect(isPauseToggleDisabled("idle", true)).toBe(true);
+  });
+
+  it("run heartbeat is blocked for paused/terminated/pending_approval or while mutating", () => {
+    for (const s of ["active", "idle", "running", "error"]) {
+      expect(isRunHeartbeatDisabled(s, false)).toBe(false);
+    }
+    for (const s of ["paused", "terminated", "pending_approval"]) {
+      expect(isRunHeartbeatDisabled(s, false)).toBe(true);
+    }
+    expect(isRunHeartbeatDisabled("idle", true)).toBe(true);
+  });
 });

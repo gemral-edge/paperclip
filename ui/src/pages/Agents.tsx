@@ -33,7 +33,11 @@ import { useBreadcrumbs } from "../context/BreadcrumbContext";
 import { useSidebar } from "../context/SidebarContext";
 import { useToast } from "../context/ToastContext";
 import { queryKeys } from "../lib/queryKeys";
-import { isPauseDisabled, isResumeDisabled } from "../lib/agent-action-availability";
+import {
+  isPauseToggleDisabled,
+  isRunHeartbeatDisabled,
+  pauseToggleAction,
+} from "../lib/agent-action-availability";
 import { StatusBadge } from "../components/StatusBadge";
 import { agentStatusDot, agentStatusDotDefault } from "../lib/status-colors";
 import { EntityRow } from "../components/EntityRow";
@@ -64,6 +68,7 @@ import {
   GripVertical,
   Pause,
   Play,
+  HeartPulse,
   Loader2,
   ChevronDown,
   Check,
@@ -71,6 +76,8 @@ import {
   Cpu,
 } from "lucide-react";
 import { AGENT_ROLE_LABELS, type Agent } from "@paperclipai/shared";
+
+type AgentRowAction = "pause" | "resume" | "invoke";
 
 type SortOption = "name-asc" | "name-desc" | "status" | "recent" | "model" | "custom";
 
@@ -190,7 +197,7 @@ export function Agents() {
   const { isMobile } = useSidebar();
   const queryClient = useQueryClient();
   const { pushToast } = useToast();
-  const [pendingByAgentId, setPendingByAgentId] = useState<Record<string, "pause" | "resume">>({});
+  const [pendingByAgentId, setPendingByAgentId] = useState<Record<string, AgentRowAction>>({});
   const [updatingFieldByAgentId, setUpdatingFieldByAgentId] = useState<Record<string, "model" | "schedule">>({});
   const pathSegment = location.pathname.split("/").pop() ?? "all";
   const tab: FilterTab = (pathSegment === "all" || pathSegment === "active" || pathSegment === "paused" || pathSegment === "error") ? pathSegment : "all";
@@ -277,10 +284,26 @@ export function Agents() {
   }, [agents]);
 
   const handlePauseResume = useCallback(
-    async (agentId: string, action: "pause" | "resume") => {
+    async (agentId: string, action: AgentRowAction) => {
       if (!selectedCompanyId || pendingByAgentId[agentId]) return;
       setPendingByAgentId((prev) => ({ ...prev, [agentId]: action }));
       try {
+        if (action === "invoke") {
+          const run = await agentsApi.invoke(agentId, selectedCompanyId);
+          const skipped = !run || (typeof run === "object" && (run as { status?: string }).status === "skipped");
+          pushToast({
+            tone: skipped ? "warn" : "success",
+            title: skipped ? "Heartbeat bị bỏ qua" : "Đã chạy heartbeat",
+            body: skipped
+              ? "Agent hiện không nhận lượt chạy (đang bận hoặc không ở trạng thái chạy được)."
+              : `${agentMap.get(agentId)?.name ?? "Agent"} đang chạy lượt mới.`,
+          });
+          queryClient.invalidateQueries({ queryKey: queryKeys.heartbeats(selectedCompanyId) });
+          queryClient.invalidateQueries({ queryKey: queryKeys.liveRuns(selectedCompanyId) });
+          queryClient.invalidateQueries({ queryKey: queryKeys.agents.list(selectedCompanyId) });
+          queryClient.invalidateQueries({ queryKey: queryKeys.dashboard(selectedCompanyId) });
+          return;
+        }
         const updated =
           action === "pause"
             ? await agentsApi.pause(agentId, selectedCompanyId)
@@ -296,7 +319,12 @@ export function Agents() {
       } catch (err) {
         pushToast({
           tone: "error",
-          title: action === "pause" ? "Không thể tạm dừng agent" : "Không thể tiếp tục agent",
+          title:
+            action === "pause"
+              ? "Không thể tạm dừng agent"
+              : action === "resume"
+                ? "Không thể tiếp tục agent"
+                : "Không thể chạy heartbeat",
           body: err instanceof Error ? err.message : "Thao tác thất bại",
         });
       } finally {
@@ -307,7 +335,7 @@ export function Agents() {
         });
       }
     },
-    [selectedCompanyId, pendingByAgentId, queryClient, pushToast],
+    [selectedCompanyId, pendingByAgentId, queryClient, pushToast, agentMap],
   );
 
   const handleQuickUpdateAgent = useCallback(
@@ -636,13 +664,15 @@ function AgentPauseResumeActions({
 }: {
   agentId: string;
   status: string;
-  pendingAction?: "pause" | "resume";
-  onAction: (agentId: string, action: "pause" | "resume") => void;
+  pendingAction?: AgentRowAction;
+  onAction: (agentId: string, action: AgentRowAction) => void;
   compact?: boolean;
 }) {
   const isMutating = Boolean(pendingAction);
-  const pauseDisabled = isPauseDisabled(status, isMutating);
-  const resumeDisabled = isResumeDisabled(status, isMutating);
+  const toggleAction = pauseToggleAction(status);
+  const toggleDisabled = isPauseToggleDisabled(status, isMutating);
+  const heartbeatDisabled = isRunHeartbeatDisabled(status, isMutating);
+  const toggleLabel = toggleAction === "resume" ? "Resume" : "Pause";
 
   return (
     <div
@@ -657,39 +687,46 @@ function AgentPauseResumeActions({
         type="button"
         variant="outline"
         size="xs"
-        disabled={pauseDisabled}
-        title="Tạm dừng agent (Pause)"
+        disabled={toggleDisabled}
+        title={toggleAction === "resume" ? "Tiếp tục chạy agent (Resume)" : "Tạm dừng agent (Pause)"}
+        className="min-w-[4.75rem] justify-start"
         onClick={(e) => {
           e.preventDefault();
           e.stopPropagation();
-          onAction(agentId, "pause");
+          onAction(agentId, toggleAction);
         }}
       >
-        {pendingAction === "pause" ? (
+        {pendingAction === "pause" || pendingAction === "resume" ? (
           <Loader2 className="h-3 w-3 animate-spin" />
+        ) : toggleAction === "resume" ? (
+          <Play className="h-3 w-3" />
         ) : (
           <Pause className="h-3 w-3" />
         )}
-        <span className={compact ? "sr-only" : undefined}>Pause</span>
+        <span className={compact ? "sr-only" : undefined}>{toggleLabel}</span>
       </Button>
       <Button
         type="button"
         variant="outline"
         size="xs"
-        disabled={resumeDisabled}
-        title="Tiếp tục chạy agent (Resume)"
+        disabled={heartbeatDisabled}
+        title={
+          status === "paused"
+            ? "Agent đang tạm dừng — bấm Resume trước khi chạy heartbeat"
+            : "Chạy heartbeat ngay (Run Heartbeat)"
+        }
         onClick={(e) => {
           e.preventDefault();
           e.stopPropagation();
-          onAction(agentId, "resume");
+          onAction(agentId, "invoke");
         }}
       >
-        {pendingAction === "resume" ? (
+        {pendingAction === "invoke" ? (
           <Loader2 className="h-3 w-3 animate-spin" />
         ) : (
-          <Play className="h-3 w-3" />
+          <HeartPulse className="h-3 w-3" />
         )}
-        <span className={compact ? "sr-only" : undefined}>Resume</span>
+        <span className={compact ? "sr-only" : undefined}>Heartbeat</span>
       </Button>
     </div>
   );
@@ -1293,9 +1330,9 @@ function OrgTreeNode({
   agentMap: Map<string, Agent>;
   liveRunByAgent: Map<string, { runId: string; liveCount: number }>;
   queuedRunByAgent: Map<string, { runId: string; queuedCount: number }>;
-  pendingByAgentId: Record<string, "pause" | "resume">;
+  pendingByAgentId: Record<string, AgentRowAction>;
   updatingFieldByAgentId: Record<string, "model" | "schedule">;
-  onPauseResume: (agentId: string, action: "pause" | "resume") => void;
+  onPauseResume: (agentId: string, action: AgentRowAction) => void;
   onQuickUpdateAgent: (
     agentId: string,
     field: "model" | "schedule",
