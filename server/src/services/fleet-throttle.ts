@@ -21,6 +21,13 @@
  *     `maxRunning - timerReservedSlots` running slots, so a multi-hour engineering run
  *     can never leave a scheduled posting slot waiting (measured 14/10: 8/12 late timer
  *     runs sat behind a long non-timer run that started before them).
+ *  5. Fair order (GEM-1996): a non-timer claim yields free slots to OLDER claimable
+ *     non-timer runs of OTHER agents. Without it, an agent finishing a run drained its
+ *     own next queued run into the freed slot (startNextQueuedRunForAgent) ahead of
+ *     runs that had waited for hours — measured 11/11: an on_demand run waited 230 min
+ *     while 2 engineering agents ran back-to-back chains. "Claimable" = agent invokable
+ *     and not already running, so a busy agent's backlog never blocks the fleet; the
+ *     30 s recovery tick (oldest first) then claims the older run.
  *
  * Config (single place, read at call time so ops can change env + restart):
  *   PAPERCLIP_FLEET_MAX_RUNNING            default 3   (<=0 disables rule 1)
@@ -32,6 +39,7 @@
  *   PAPERCLIP_FLEET_TIMER_RESERVED_SLOTS   default 1   (<=0 disables the reserved slot;
  *                                                     ignored unless maxRunning > it)
  *   PAPERCLIP_HEARTBEAT_JITTER_MAX_SEC     default 30  (<=0 disables per-agent hash jitter, GEM-1500)
+ *   PAPERCLIP_FLEET_FAIR_ORDER             default 1   (<=0 disables rule 5)
  */
 
 export const FLEET_MAX_RUNNING_DEFAULT = 3;
@@ -64,6 +72,7 @@ export interface FleetThrottleConfig {
   timerPriority: boolean;
   timerReservedSlots: number;
   heartbeatJitterMaxSec: number;
+  fairOrder: boolean;
 }
 
 function readIntEnv(env: NodeJS.ProcessEnv, key: string, fallback: number) {
@@ -94,6 +103,7 @@ export function readFleetThrottleConfig(env: NodeJS.ProcessEnv = process.env): F
       0,
       readIntEnv(env, "PAPERCLIP_HEARTBEAT_JITTER_MAX_SEC", FLEET_HEARTBEAT_JITTER_MAX_SEC_DEFAULT),
     ),
+    fairOrder: readIntEnv(env, "PAPERCLIP_FLEET_FAIR_ORDER", 1) > 0,
   };
 }
 
@@ -200,16 +210,22 @@ export type FleetClaimVerdict =
   | { ok: true }
   | {
       ok: false;
-      reason: "max_running" | "start_window" | "timer_priority" | "timer_reserved";
+      reason: "max_running" | "start_window" | "timer_priority" | "timer_reserved" | "fair_order";
       running: number;
       startsInWindow: number;
       pendingTimerRuns?: number;
+      olderClaimableRuns?: number;
     };
 
 export function evaluateFleetClaim(
   config: FleetThrottleConfig,
   counts: { running: number; startsInWindow: number; runningNonTimer?: number },
-  claim?: { invocationSource: string | null | undefined; pendingTimerRuns: number },
+  claim?: {
+    invocationSource: string | null | undefined;
+    pendingTimerRuns: number;
+    /** Rule 5: queued non-timer runs of OTHER claimable agents created before this one. */
+    olderClaimableRuns?: number;
+  },
 ): FleetClaimVerdict {
   if (config.maxRunning > 0 && counts.running >= config.maxRunning) {
     return { ok: false, reason: "max_running", ...counts };
@@ -227,15 +243,20 @@ export function evaluateFleetClaim(
   ) {
     return { ok: false, reason: "timer_reserved", ...counts };
   }
+  if (!claim || claim.invocationSource === "timer") return { ok: true };
+  const free = Math.min(
+    config.maxRunning > 0 ? config.maxRunning - counts.running : Infinity,
+    config.startsPerWindow > 0 ? config.startsPerWindow - counts.startsInWindow : Infinity,
+  );
   // Rule 4: keep the free slots for claimable queued timer runs.
-  if (config.timerPriority && claim && claim.invocationSource !== "timer" && claim.pendingTimerRuns > 0) {
-    const free = Math.min(
-      config.maxRunning > 0 ? config.maxRunning - counts.running : Infinity,
-      config.startsPerWindow > 0 ? config.startsPerWindow - counts.startsInWindow : Infinity,
-    );
-    if (claim.pendingTimerRuns >= free) {
-      return { ok: false, reason: "timer_priority", ...counts, pendingTimerRuns: claim.pendingTimerRuns };
-    }
+  const pendingTimerRuns = config.timerPriority ? claim.pendingTimerRuns : 0;
+  if (pendingTimerRuns > 0 && pendingTimerRuns >= free) {
+    return { ok: false, reason: "timer_priority", ...counts, pendingTimerRuns };
+  }
+  // Rule 5: after the timers, older claimable non-timer runs of other agents go first.
+  const olderClaimableRuns = config.fairOrder ? (claim.olderClaimableRuns ?? 0) : 0;
+  if (olderClaimableRuns > 0 && pendingTimerRuns + olderClaimableRuns >= free) {
+    return { ok: false, reason: "fair_order", ...counts, pendingTimerRuns, olderClaimableRuns };
   }
   return { ok: true };
 }

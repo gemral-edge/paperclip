@@ -39,6 +39,7 @@ const FLEET_ENV_KEYS = [
   "PAPERCLIP_FLEET_TIMER_PRIORITY",
   "PAPERCLIP_FLEET_TIMER_RESERVED_SLOTS",
   "PAPERCLIP_HEARTBEAT_JITTER_MAX_SEC",
+  "PAPERCLIP_FLEET_FAIR_ORDER",
 ] as const;
 
 function setFleetEnv(values: Partial<Record<(typeof FLEET_ENV_KEYS)[number], string>>) {
@@ -106,6 +107,28 @@ describe("fleet throttle pure helpers", () => {
     expect(evaluateFleetClaim(single, { running: 0, startsInWindow: 0, runningNonTimer: 0 }, { invocationSource: "automation", pendingTimerRuns: 0 }).ok).toBe(true);
     const off = readFleetThrottleConfig({ PAPERCLIP_FLEET_TIMER_RESERVED_SLOTS: "0" });
     expect(evaluateFleetClaim(off, oneLongEngineerRun, { invocationSource: "automation", pendingTimerRuns: 0 }).ok).toBe(true);
+  });
+
+  it("GEM-1996 rule 5: a non-timer claim yields free slots to older claimable runs of other agents", () => {
+    const cfg = readFleetThrottleConfig({ PAPERCLIP_FLEET_MAX_RUNNING: "3", PAPERCLIP_FLEET_TIMER_RESERVED_SLOTS: "0" });
+    expect(cfg.fairOrder).toBe(true);
+    const twoFree = { running: 1, startsInWindow: 0, runningNonTimer: 1 };
+    // 1 older run, 2 free slots → this claim may take the other slot.
+    expect(evaluateFleetClaim(cfg, twoFree, { invocationSource: "assignment", pendingTimerRuns: 0, olderClaimableRuns: 1 }).ok).toBe(true);
+    // 2 older runs fill both free slots → hold.
+    expect(evaluateFleetClaim(cfg, twoFree, { invocationSource: "assignment", pendingTimerRuns: 0, olderClaimableRuns: 2 })).toMatchObject({
+      ok: false,
+      reason: "fair_order",
+    });
+    // Timers and older runs share the free slots.
+    expect(evaluateFleetClaim(cfg, twoFree, { invocationSource: "automation", pendingTimerRuns: 1, olderClaimableRuns: 1 })).toMatchObject({
+      ok: false,
+      reason: "fair_order",
+    });
+    // Timer claims never yield to non-timer runs.
+    expect(evaluateFleetClaim(cfg, twoFree, { invocationSource: "timer", pendingTimerRuns: 0, olderClaimableRuns: 5 }).ok).toBe(true);
+    const off = readFleetThrottleConfig({ PAPERCLIP_FLEET_MAX_RUNNING: "3", PAPERCLIP_FLEET_TIMER_RESERVED_SLOTS: "0", PAPERCLIP_FLEET_FAIR_ORDER: "0" });
+    expect(evaluateFleetClaim(off, twoFree, { invocationSource: "assignment", pendingTimerRuns: 0, olderClaimableRuns: 5 }).ok).toBe(true);
   });
 
   it("GEM-1515: a timer wake coalescing into a queued non-timer run promotes it to timer", () => {
@@ -505,6 +528,51 @@ describeEmbeddedPostgres("heartbeat fleet throttle (company-wide)", () => {
       .where(eq(heartbeatRuns.id, retryRunId));
     expect(promoted).toEqual({ status: "running", source: "timer" });
     expect(await statusCounts(companyId)).toEqual({ running: 2, queued: 0 });
+  }, 60_000);
+
+  it("GEM-1996 rule 5: an agent finishing a run cannot drain its own new run ahead of an older run of another agent", async () => {
+    setFleetEnv({
+      PAPERCLIP_FLEET_MAX_RUNNING: "1",
+      PAPERCLIP_FLEET_STARTS_PER_10MIN: "0",
+      PAPERCLIP_FLEET_TIMER_RESERVED_SLOTS: "0",
+    });
+    const companyId = await seedCompany();
+    const chain = await seedAgent(companyId, "Chain Engineer");
+    const waiter = await seedAgent(companyId, "Waiting Responder");
+    const waiterRunId = await seedQueuedRun(companyId, waiter, "on_demand", new Date(Date.now() - 120 * 60_000));
+
+    // The chain agent's own drain path (wakeup → startNextQueuedRunForAgent) must hold
+    // its brand-new run instead of taking the only free slot.
+    await svc.wakeup(chain, { source: "assignment", triggerDetail: "system" }).catch(() => undefined);
+    const afterOwnDrain = await db
+      .select({ agentId: heartbeatRuns.agentId })
+      .from(heartbeatRuns)
+      .where(eq(heartbeatRuns.status, "running"));
+    expect(afterOwnDrain.filter((r) => r.agentId === chain)).toEqual([]);
+
+    await svc.resumeQueuedRuns();
+    const running = await db.select({ id: heartbeatRuns.id }).from(heartbeatRuns).where(eq(heartbeatRuns.status, "running"));
+    expect(running.map((r) => r.id)).toEqual([waiterRunId]);
+  }, 60_000);
+
+  it("GEM-1996 rule 5: an older run of a BUSY agent does not block other agents", async () => {
+    setFleetEnv({
+      PAPERCLIP_FLEET_MAX_RUNNING: "2",
+      PAPERCLIP_FLEET_STARTS_PER_10MIN: "0",
+      PAPERCLIP_FLEET_TIMER_RESERVED_SLOTS: "0",
+    });
+    const companyId = await seedCompany();
+    const busy = await seedAgent(companyId, "Busy SEO");
+    const other = await seedAgent(companyId, "Other Agent");
+    await seedQueuedRun(companyId, busy, "assignment", new Date(Date.now() - 90 * 60_000));
+    await svc.resumeQueuedRuns();
+    expect(await statusCounts(companyId)).toEqual({ running: 1, queued: 0 });
+    // Busy agent's backlog (older) cannot run now — it must not hold the free slot.
+    await seedQueuedRun(companyId, busy, "assignment", new Date(Date.now() - 80 * 60_000));
+    const otherRunId = await seedQueuedRun(companyId, other, "assignment", new Date());
+    await svc.resumeQueuedRuns();
+    const [o] = await db.select({ status: heartbeatRuns.status }).from(heartbeatRuns).where(eq(heartbeatRuns.id, otherRunId));
+    expect(o?.status).toBe("running");
   }, 60_000);
 
   it("rule 4: a timer whose agent is paused does not block the fleet", async () => {

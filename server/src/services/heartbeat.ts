@@ -2047,6 +2047,27 @@ export function heartbeatService(db: Db) {
             );
           pendingTimerRuns = Number(pending?.count ?? 0);
         }
+        // Rule 5 (GEM-1996): older claimable non-timer runs of other agents go first, so
+        // an agent finishing a run cannot drain its own backlog into the freed slot.
+        let olderClaimableRuns = 0;
+        if (fleet.fairOrder && run.invocationSource !== "timer") {
+          const [older] = await tx
+            .select({ count: sql<number>`count(*)` })
+            .from(heartbeatRuns)
+            .innerJoin(agents, eq(agents.id, heartbeatRuns.agentId))
+            .where(
+              and(
+                eq(heartbeatRuns.companyId, run.companyId),
+                eq(heartbeatRuns.status, "queued"),
+                sql`${heartbeatRuns.invocationSource} is distinct from 'timer'`,
+                sql`${heartbeatRuns.agentId} <> ${run.agentId}`,
+                sql`${heartbeatRuns.createdAt} < ${run.createdAt.toISOString()}::timestamptz`,
+                notInArray(agents.status, [...HEARTBEAT_SKIP_STATUSES]),
+                sql`not exists (select 1 from heartbeat_runs inflight where inflight.agent_id = ${heartbeatRuns.agentId} and inflight.status = 'running')`,
+              ),
+            );
+          olderClaimableRuns = Number(older?.count ?? 0);
+        }
         const verdict = evaluateFleetClaim(
           fleet,
           {
@@ -2054,7 +2075,7 @@ export function heartbeatService(db: Db) {
             startsInWindow: Number(counts?.startsInWindow ?? 0),
             runningNonTimer: Number(counts?.runningNonTimer ?? 0),
           },
-          { invocationSource: run.invocationSource, pendingTimerRuns },
+          { invocationSource: run.invocationSource, pendingTimerRuns, olderClaimableRuns },
         );
         if (!verdict.ok) {
           if (!fleetDeferredRunIds.has(run.id)) {
