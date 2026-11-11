@@ -5012,6 +5012,7 @@ export function heartbeatService(db: Db) {
       // issue_comment_mentioned) still fire when blockers resolve, so the agent
       // is never permanently silenced — it just stops burning budget on
       // heartbeats where it has nothing it can do.
+      // Interval timers only: cron routines always fire (shouldSkipTimerForBlockedOnly).
       const agentTaskFlags = new Map<string, { hasActionable: boolean; hasBlocked: boolean }>();
       if (pendingFires.length > 0) {
         const pendingIds = pendingFires.map((p) => p.agent.id);
