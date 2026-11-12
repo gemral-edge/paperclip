@@ -694,6 +694,9 @@ export function AgentDetail() {
       }
       if (action === "invoke" && data && typeof data === "object" && "id" in data) {
         navigate(`/${companyPrefix}/agents/${canonicalAgentRef}/runs/${(data as HeartbeatRun).id}`);
+      } else if (action === "invoke") {
+        // Server trả 202 "skipped" (không có run id) khi agent bận/không chạy được -> báo rõ, đừng im lặng.
+        setActionError("Heartbeat bị bỏ qua: agent đang bận hoặc không ở trạng thái chạy được.");
       }
     },
     onError: (err) => {
@@ -845,6 +848,8 @@ export function AgentDetail() {
             size="sm"
             onClick={() => agentAction.mutate("invoke")}
             disabled={isRunHeartbeatDisabled(agent.status, agentAction.isPending)}
+            aria-label="Run Heartbeat"
+            title={agent.status === "paused" ? "Agent đang tạm dừng — bấm Resume trước khi chạy heartbeat" : "Chạy heartbeat ngay (Run Heartbeat)"}
           >
             <Play className="h-3.5 w-3.5 sm:mr-1" />
             <span className="hidden sm:inline">Run Heartbeat</span>
@@ -856,6 +861,8 @@ export function AgentDetail() {
             size="sm"
             onClick={() => agentAction.mutate(pauseToggleAction(agent.status))}
             disabled={isPauseToggleDisabled(agent.status, agentAction.isPending)}
+            aria-label={pauseToggleAction(agent.status) === "resume" ? "Resume" : "Pause"}
+            title={pauseToggleAction(agent.status) === "resume" ? "Tiếp tục chạy agent (Resume)" : "Tạm dừng agent (Pause)"}
           >
             {pauseToggleAction(agent.status) === "resume" ? (
               <Play className="h-3.5 w-3.5 sm:mr-1" />
