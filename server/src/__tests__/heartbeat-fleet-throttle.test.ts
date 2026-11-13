@@ -26,7 +26,12 @@ import {
   orderQueuedRunsForClaim,
   orderTimerCandidatesFairly,
   readFleetThrottleConfig,
+  isRestartDrainActive,
+  restartDrainFlagPath,
 } from "../services/fleet-throttle.ts";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
 
 const embeddedPostgresSupport = await getEmbeddedPostgresTestSupport();
 const describeEmbeddedPostgres = embeddedPostgresSupport.supported ? describe : describe.skip;
@@ -40,6 +45,8 @@ const FLEET_ENV_KEYS = [
   "PAPERCLIP_FLEET_TIMER_RESERVED_SLOTS",
   "PAPERCLIP_HEARTBEAT_JITTER_MAX_SEC",
   "PAPERCLIP_FLEET_FAIR_ORDER",
+  "PAPERCLIP_RESTART_DRAIN_FLAG",
+  "PAPERCLIP_RESTART_DRAIN_FLAG_TTL_SEC",
 ] as const;
 
 function setFleetEnv(values: Partial<Record<(typeof FLEET_ENV_KEYS)[number], string>>) {
@@ -48,6 +55,20 @@ function setFleetEnv(values: Partial<Record<(typeof FLEET_ENV_KEYS)[number], str
 }
 
 describe("fleet throttle pure helpers", () => {
+  it("GEM-1764: restart drain flag holds claims only while fresh", () => {
+    const env = { PAPERCLIP_RESTART_DRAIN_FLAG: "/x/drain.flag" } as NodeJS.ProcessEnv;
+    expect(restartDrainFlagPath(env)).toBe("/x/drain.flag");
+    expect(restartDrainFlagPath({} as NodeJS.ProcessEnv)).toBe(path.join(os.homedir(), ".paperclip", "restart-drain.flag"));
+    const now = 1_000_000_000;
+    const at = (mtime: number) => () => mtime;
+    expect(isRestartDrainActive(now, env, at(now - 5_000))).toBe(true);
+    expect(isRestartDrainActive(now, env, at(now - 119_000))).toBe(true);
+    expect(isRestartDrainActive(now, env, at(now - 121_000))).toBe(false); // worker died → stop holding
+    expect(isRestartDrainActive(now, env, at(now + 3_600_000))).toBe(false); // far-future mtime ignored
+    expect(isRestartDrainActive(now, env, () => { throw new Error("ENOENT"); })).toBe(false);
+    expect(isRestartDrainActive(now, { ...env, PAPERCLIP_RESTART_DRAIN_FLAG_TTL_SEC: "0" }, at(now))).toBe(false);
+  });
+
   it("defaults to 2 running / 2 starts per 10 min / 3 timer wakes per hour / 30s jitter", () => {
     const cfg = readFleetThrottleConfig({});
     expect(cfg.maxRunning).toBe(3);
@@ -340,6 +361,22 @@ describeEmbeddedPostgres("heartbeat fleet throttle (company-wide)", () => {
     await Promise.all([svc.resumeQueuedRuns(), svc.resumeQueuedRuns(), svc.resumeQueuedRuns()]);
 
     expect(await statusCounts(companyId)).toEqual({ running: 2, queued: 3 });
+  }, 60_000);
+
+  it("GEM-1764: while a restart drain flag is fresh, queued runs stay queued; removing it releases them", async () => {
+    const flag = path.join(os.tmpdir(), `paperclip-drain-${randomUUID()}.flag`);
+    setFleetEnv({ PAPERCLIP_FLEET_MAX_RUNNING: "3", PAPERCLIP_FLEET_STARTS_PER_10MIN: "0", PAPERCLIP_RESTART_DRAIN_FLAG: flag });
+    const companyId = await seedCompany();
+    for (let i = 0; i < 2; i++) await seedQueuedRun(companyId, await seedAgent(companyId, `Drain ${i}`));
+    fs.writeFileSync(flag, "{}");
+    try {
+      await svc.resumeQueuedRuns();
+      expect(await statusCounts(companyId)).toEqual({ running: 0, queued: 2 });
+    } finally {
+      fs.rmSync(flag, { force: true });
+    }
+    await svc.resumeQueuedRuns();
+    expect(await statusCounts(companyId)).toEqual({ running: 2, queued: 0 });
   }, 60_000);
 
   it("rule 2: third start inside the same 10-minute window is deferred", async () => {

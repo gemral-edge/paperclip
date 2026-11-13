@@ -28,6 +28,7 @@ import {
   evaluateFleetClaim,
   fleetWindowStart,
   isFleetClaimGateEnabled,
+  isRestartDrainActive,
   isTimerExempt,
   coalescedTimerPromotion,
   orderQueuedRunsForClaim,
@@ -2005,7 +2006,21 @@ export function heartbeatService(db: Db) {
         .then((rows) => rows[0] ?? null);
     };
     // bypassFleet: board pressed "run now" on a queued run (Dashboard) — skip rules 1-4 only.
-    if (opts.bypassFleet || !isFleetClaimGateEnabled(fleet)) return doClaim(db);
+    if (opts.bypassFleet) return doClaim(db);
+    // GEM-1764: a restart is draining — keep the run queued so it starts on the new server
+    // instead of being cut mid-run when the drain cap expires.
+    if (isRestartDrainActive()) {
+      if (!fleetDeferredRunIds.has(run.id)) {
+        if (fleetDeferredRunIds.size > 500) fleetDeferredRunIds.clear();
+        fleetDeferredRunIds.add(run.id);
+        logger.info(
+          { runId: run.id, agentId: run.agentId, reason: "restart_drain" },
+          "[fleet-throttle] run held in queue (restart drain)",
+        );
+      }
+      return null;
+    }
+    if (!isFleetClaimGateEnabled(fleet)) return doClaim(db);
 
     return withKeyedLock(`fleet-claim:${run.companyId}`, () =>
       boundedPoll(db, async (tx) => {

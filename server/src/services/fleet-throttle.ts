@@ -42,6 +42,10 @@
  *   PAPERCLIP_FLEET_FAIR_ORDER             default 1   (<=0 disables rule 5)
  */
 
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
+
 export const FLEET_MAX_RUNNING_DEFAULT = 3;
 export const FLEET_STARTS_PER_WINDOW_DEFAULT = 2;
 export const FLEET_START_WINDOW_MS = 10 * 60 * 1000;
@@ -186,6 +190,37 @@ export function computeSchedulerInitialTickDelayMs(
   const jitterMs = computeAgentHeartbeatJitterMs(instanceSeed || "paperclip-scheduler", maxJitterSec);
   const bounded = Math.max(1_000, jitterMs);
   return Math.min(Math.floor(intervalMs), bounded);
+}
+
+/**
+ * GEM-1764 (13/11): restart drain hold. `safe_restart_paperclip.py` waits for running runs
+ * to finish before `pm2 restart`, but new runs kept starting during the wait, so the
+ * 900 s cap expired and the restart cut 2-3 runs each time (11/11 11:51, 18:58; 13/11
+ * 00:54, 12:01). While the restart worker keeps this flag file fresh, no queued run is
+ * claimed: runs stay `queued` (never cancelled) and start on the new server. The worker
+ * touches the file every poll, so a stale file (worker died) stops holding after the TTL.
+ */
+export const RESTART_DRAIN_FLAG_TTL_SEC_DEFAULT = 120;
+
+export function restartDrainFlagPath(env: NodeJS.ProcessEnv = process.env): string {
+  const override = env.PAPERCLIP_RESTART_DRAIN_FLAG?.trim();
+  return override || path.join(os.homedir(), ".paperclip", "restart-drain.flag");
+}
+
+export function isRestartDrainActive(
+  nowMs: number = Date.now(),
+  env: NodeJS.ProcessEnv = process.env,
+  statMtimeMs: (file: string) => number = (file) => fs.statSync(file).mtimeMs,
+): boolean {
+  const ttlMs = readIntEnv(env, "PAPERCLIP_RESTART_DRAIN_FLAG_TTL_SEC", RESTART_DRAIN_FLAG_TTL_SEC_DEFAULT) * 1000;
+  if (ttlMs <= 0) return false;
+  try {
+    const age = nowMs - statMtimeMs(restartDrainFlagPath(env));
+    // Small negative age tolerated (clock skew between writer and server); far-future mtime is ignored.
+    return age >= -60_000 && age < ttlMs;
+  } catch {
+    return false;
+  }
 }
 
 export function isFleetClaimGateEnabled(config: FleetThrottleConfig) {
