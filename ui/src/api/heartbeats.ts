@@ -27,6 +27,19 @@ export interface LiveRunForIssue {
   issueId?: string | null;
 }
 
+/** Lượt chạy cuối ĐÃ KẾT THÚC của 1 issue (7 ngày gần nhất). */
+export interface IssueLastRun {
+  issueId: string;
+  id: string;
+  agentId: string;
+  status: "succeeded" | "failed" | "cancelled" | "timed_out" | string;
+  errorCode: string | null;
+  error: string | null;
+  startedAt: string | null;
+  finishedAt: string | null;
+  createdAt: string;
+}
+
 export const heartbeatsApi = {
   list: (companyId: string, agentId?: string, limit?: number) => {
     const searchParams = new URLSearchParams();
@@ -71,6 +84,10 @@ export const heartbeatsApi = {
     api.get<ActiveRunForIssue | null>(`/issues/${issueId}/active-run`),
   liveRunsForCompany: (companyId: string, minCount?: number) =>
     api.get<LiveRunForIssue[]>(`/companies/${companyId}/live-runs${minCount ? `?minCount=${minCount}` : ""}`),
+  issueLastRuns: (companyId: string, issueIds: string[]) =>
+    api.get<IssueLastRun[]>(
+      `/companies/${companyId}/issue-last-runs?issueIds=${encodeURIComponent(issueIds.join(","))}`,
+    ),
   listInstanceSchedulerAgents: () =>
     api.get<InstanceSchedulerHeartbeatAgent[]>("/instance/scheduler-heartbeats"),
 };

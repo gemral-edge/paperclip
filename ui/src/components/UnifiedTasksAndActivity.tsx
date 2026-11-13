@@ -2,7 +2,7 @@ import { useState, useMemo } from "react";
 import { Link } from "@/lib/router";
 import { cn } from "@/lib/utils";
 import { useQuery } from "@tanstack/react-query";
-import { heartbeatsApi, type LiveRunForIssue } from "@/api/heartbeats";
+import { heartbeatsApi, type LiveRunForIssue, type IssueLastRun } from "@/api/heartbeats";
 import { issuesApi } from "@/api/issues";
 import { queryKeys } from "@/lib/queryKeys";
 import type { Issue, ActivityEvent, Agent, Project } from "@paperclipai/shared";
@@ -289,6 +289,54 @@ function AgentIdleState({ agent, otherRun }: { agent: Agent; otherRun?: LiveRunF
   if (otherRun?.status === "queued") return <span>Agent chờ slot cho việc khác</span>;
   if (agent.status === "error") return <span className="text-red-600 dark:text-red-400">Agent lỗi</span>;
   return <span className="text-muted-foreground/70">Agent rảnh</span>;
+}
+
+const LAST_RUN_META: Record<string, { label: string; className: string; icon: typeof CheckCircle2 }> = {
+  succeeded: { label: "Thành công", className: "text-emerald-600 dark:text-emerald-400", icon: CheckCircle2 },
+  failed: { label: "Lỗi", className: "text-red-600 dark:text-red-400", icon: AlertCircle },
+  timed_out: { label: "Hết giờ", className: "text-orange-600 dark:text-orange-400", icon: AlarmClock },
+  cancelled: { label: "Đã huỷ", className: "text-muted-foreground", icon: X },
+};
+
+const RUN_ERROR_VI: Record<string, string> = {
+  process_lost: "mất tiến trình",
+  adapter_failed: "adapter lỗi",
+  timeout: "quá thời gian",
+  cancelled: "bị huỷ",
+};
+
+/** Kết quả lượt chạy cuối ĐÃ KẾT THÚC của việc này — bấm mở trang chi tiết lượt chạy. */
+function LastRunBadge({ run, loadFailed }: { run?: IssueLastRun; loadFailed: boolean }) {
+  if (!run) {
+    return (
+      <span className="text-muted-foreground/60" title={loadFailed ? "Không tải được lượt chạy cuối" : "Không có lượt chạy nào đã kết thúc trong 7 ngày"}>
+        {loadFailed ? "Lượt cuối: không tải được" : "Lượt cuối: chưa có (7 ngày)"}
+      </span>
+    );
+  }
+  const meta = LAST_RUN_META[run.status] ?? { label: run.status, className: "text-muted-foreground", icon: Activity };
+  const Icon = meta.icon;
+  const when = run.finishedAt ?? run.createdAt;
+  const reason = run.status !== "succeeded" && run.errorCode ? RUN_ERROR_VI[run.errorCode] ?? run.errorCode : null;
+  const tip = [
+    `Lượt cuối: ${meta.label}${reason ? ` (${reason})` : ""}`,
+    `Kết thúc: ${formatViDateTime(when)}`,
+    run.error ? `Lỗi: ${run.error}` : null,
+    "Bấm để xem chi tiết lượt chạy",
+  ].filter(Boolean).join("\n");
+
+  return (
+    <Link
+      to={`/agents/${run.agentId}/runs/${run.id}`}
+      className={cn("inline-flex items-center gap-1 no-underline hover:underline min-w-0 max-w-[210px]", meta.className)}
+      title={tip}
+    >
+      <Icon className="h-3 w-3 shrink-0" />
+      <span className="truncate">
+        Lượt cuối: {meta.label}{reason ? ` · ${reason}` : ""} · {formatViTimeAgo(when)}
+      </span>
+    </Link>
+  );
 }
 
 function getRuntimeScore(issueId: string, liveRunByIssueId: Map<string, LiveRunForIssue>): number {
@@ -658,6 +706,24 @@ export function UnifiedTasksAndActivity({
     agentMap,
     latestActivityByIssue,
   ]);
+
+  // Kết quả lượt chạy cuối đã kết thúc của các việc đang hiện trên trang (poll 20s — nhẹ hơn live-runs).
+  const visibleIssueIdsKey = useMemo(
+    () => filteredAndSortedIssues.map((i) => i.id).sort().join(","),
+    [filteredAndSortedIssues],
+  );
+  const { data: lastRuns, isError: lastRunsError } = useQuery({
+    queryKey: ["issueLastRuns", companyId, visibleIssueIdsKey],
+    queryFn: () => heartbeatsApi.issueLastRuns(companyId, visibleIssueIdsKey.split(",")),
+    enabled: !!companyId && visibleIssueIdsKey.length > 0 && activeTab === "tasks",
+    refetchInterval: 20000,
+    placeholderData: (prev) => prev,
+  });
+  const lastRunByIssueId = useMemo(() => {
+    const map = new Map<string, IssueLastRun>();
+    for (const r of lastRuns ?? []) map.set(r.issueId, r);
+    return map;
+  }, [lastRuns]);
 
   const filteredActivity = useMemo(() => {
     let list = activity;
@@ -1032,6 +1098,11 @@ export function UnifiedTasksAndActivity({
                                       Chờ slot
                                     </span>
                                   )}
+                                </div>
+
+                                {/* Hàng 3: kết quả lượt chạy cuối đã kết thúc của việc này */}
+                                <div className="text-[11px] font-medium">
+                                  <LastRunBadge run={lastRunByIssueId.get(issue.id)} loadFailed={lastRunsError} />
                                 </div>
                               </div>
                             );

@@ -2314,6 +2314,51 @@ export function agentRoutes(db: Db) {
     res.json(liveRuns);
   });
 
+  // Dashboard "Công việc & Hoạt động gần đây": kết quả LƯỢT CHẠY CUỐI ĐÃ KẾT THÚC của từng issue
+  // (thành công / lỗi / hết giờ / huỷ). Cửa sổ 7 ngày để dùng index (company_id, created_at DESC) —
+  // không có index theo context_snapshot->>'issueId'; đo 13/11: 50 issue ≈ 0,2s.
+  router.get("/companies/:companyId/issue-last-runs", async (req, res) => {
+    const companyId = req.params.companyId as string;
+    assertCompanyAccess(req, companyId);
+
+    const uuidRe = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    const issueIds = String(req.query.issueIds ?? "")
+      .split(",")
+      .map((s) => s.trim())
+      .filter((s) => uuidRe.test(s))
+      .slice(0, 200);
+    if (issueIds.length === 0) {
+      res.json([]);
+      return;
+    }
+
+    const issueIdExpr = sql<string>`${heartbeatRuns.contextSnapshot} ->> 'issueId'`;
+    const rows = await db
+      .selectDistinctOn([issueIdExpr], {
+        issueId: issueIdExpr.as("issueId"),
+        id: heartbeatRuns.id,
+        agentId: heartbeatRuns.agentId,
+        status: heartbeatRuns.status,
+        errorCode: heartbeatRuns.errorCode,
+        error: sql<string | null>`left(${heartbeatRuns.error}, 300)`.as("error"),
+        startedAt: heartbeatRuns.startedAt,
+        finishedAt: heartbeatRuns.finishedAt,
+        createdAt: heartbeatRuns.createdAt,
+      })
+      .from(heartbeatRuns)
+      .where(
+        and(
+          eq(heartbeatRuns.companyId, companyId),
+          sql`${heartbeatRuns.createdAt} > now() - interval '7 days'`,
+          inArray(heartbeatRuns.status, ["succeeded", "failed", "cancelled", "timed_out"]),
+          sql`${issueIdExpr} = any(${sql.param(issueIds)}::text[])`,
+        ),
+      )
+      .orderBy(issueIdExpr, desc(heartbeatRuns.createdAt));
+
+    res.json(rows);
+  });
+
   router.get("/heartbeat-runs/:runId", async (req, res) => {
     const runId = req.params.runId as string;
     const run = await heartbeat.getRun(runId);
