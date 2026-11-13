@@ -306,7 +306,10 @@ const RUN_ERROR_VI: Record<string, string> = {
 };
 
 /** Kết quả lượt chạy cuối ĐÃ KẾT THÚC của việc này — bấm mở trang chi tiết lượt chạy. */
-function LastRunBadge({ run, loadFailed }: { run?: IssueLastRun; loadFailed: boolean }) {
+function LastRunBadge({ run, loadFailed, loading = false }: { run?: IssueLastRun; loadFailed: boolean; loading?: boolean }) {
+  if (!run && loading) {
+    return <span className="text-muted-foreground/60">Lượt cuối: đang tải…</span>;
+  }
   if (!run) {
     return (
       <span className="text-muted-foreground/60" title={loadFailed ? "Không tải được lượt chạy cuối" : "Không có lượt chạy nào đã kết thúc trong 7 ngày"}>
@@ -712,7 +715,7 @@ export function UnifiedTasksAndActivity({
     () => filteredAndSortedIssues.map((i) => i.id).sort().join(","),
     [filteredAndSortedIssues],
   );
-  const { data: lastRuns, isError: lastRunsError } = useQuery({
+  const { data: lastRuns, isError: lastRunsError, isPending: lastRunsPending } = useQuery({
     queryKey: ["issueLastRuns", companyId, visibleIssueIdsKey],
     queryFn: () => heartbeatsApi.issueLastRuns(companyId, visibleIssueIdsKey.split(",")),
     enabled: !!companyId && visibleIssueIdsKey.length > 0 && activeTab === "tasks",
@@ -1102,7 +1105,7 @@ export function UnifiedTasksAndActivity({
 
                                 {/* Hàng 3: kết quả lượt chạy cuối đã kết thúc của việc này */}
                                 <div className="text-[11px] font-medium">
-                                  <LastRunBadge run={lastRunByIssueId.get(issue.id)} loadFailed={lastRunsError} />
+                                  <LastRunBadge run={lastRunByIssueId.get(issue.id)} loadFailed={lastRunsError} loading={lastRunsPending && !lastRunsError} />
                                 </div>
                               </div>
                             );
