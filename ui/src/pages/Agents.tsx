@@ -156,10 +156,12 @@ function formatSchedule(schedule: string | undefined | null): string {
 
 type FilterTab = "all" | "active" | "paused" | "error";
 
-function matchesFilter(status: string, tab: FilterTab, showTerminated: boolean): boolean {
+export function matchesFilter(status: string, tab: FilterTab, showTerminated: boolean): boolean {
   if (status === "terminated") return showTerminated;
   if (tab === "all") return true;
-  if (tab === "active") return status === "active" || status === "running" || status === "idle";
+  // Active = agent đang vận hành (chưa tạm dừng). Agent lỗi vẫn đang chạy theo lịch nên phải hiện ở đây,
+  // không thì lỗi bị giấu khỏi tab chị hay xem (chị Jennie 14/11).
+  if (tab === "active") return status === "active" || status === "running" || status === "idle" || status === "error";
   if (tab === "paused") return status === "paused";
   if (tab === "error") return status === "error";
   return true;
