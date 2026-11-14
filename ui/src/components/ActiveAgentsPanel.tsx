@@ -2,6 +2,7 @@ import { useMemo, useState } from "react";
 import { Link, useNavigate } from "@/lib/router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { AGENT_ROLE_LABELS, type Agent, type AgentRole, type Issue } from "@paperclipai/shared";
+import { ApiError } from "../api/client";
 import { agentsApi } from "../api/agents";
 import { invalidateAgentRuntimeQueries } from "../api/fleet";
 import { heartbeatsApi, type LiveRunForIssue } from "../api/heartbeats";
@@ -9,7 +10,7 @@ import { issuesApi } from "../api/issues";
 import type { TranscriptEntry } from "../adapters";
 import { queryKeys } from "../lib/queryKeys";
 import { cn, relativeTime } from "../lib/utils";
-import { ExternalLink, Pause, Play } from "lucide-react";
+import { ExternalLink, Pause, Play, X } from "lucide-react";
 import { Identity } from "./Identity";
 import { RunTranscriptView } from "./transcript/RunTranscriptView";
 import { useLiveRunTranscripts } from "./transcript/useLiveRunTranscripts";
@@ -20,6 +21,49 @@ const MIN_DASHBOARD_RUNS = 12;
 // "Live" = đang chạy thật. `queued` = đang xếp hàng chờ chỗ (fleet-throttle) — KHÔNG phải live.
 function isRunActive(run: LiveRunForIssue): boolean {
   return run.status === "running";
+}
+
+/** True when a run can still be stopped/cancelled from the dashboard card. */
+export function isRunCancellable(status: string): boolean {
+  return status === "queued" || status === "running";
+}
+
+export interface CancelRunDeps {
+  cancelRun: (runId: string) => Promise<unknown>;
+  updateIssue: (id: string, data: Record<string, unknown>) => Promise<unknown>;
+  listLiveRunsForIssue: (issueId: string) => Promise<Array<{ id: string; status: string }>>;
+}
+
+const defaultCancelRunDeps: CancelRunDeps = {
+  cancelRun: (runId) => heartbeatsApi.cancel(runId),
+  updateIssue: (id, data) => issuesApi.update(id, data),
+  listLiveRunsForIssue: (issueId) => heartbeatsApi.liveRunsForIssue(issueId),
+};
+
+/** Cancel a queued/running heartbeat run, mark its linked issue cancelled, and drain promoted wakeups. */
+export async function cancelRunAndLinkedIssue(
+  run: Pick<LiveRunForIssue, "id" | "issueId">,
+  deps: CancelRunDeps = defaultCancelRunDeps,
+): Promise<void> {
+  await deps.cancelRun(run.id);
+  if (!run.issueId) return;
+
+  try {
+    await deps.updateIssue(run.issueId, { status: "cancelled" });
+  } catch (err) {
+    if (!(err instanceof ApiError && err.status === 404)) {
+      throw err;
+    }
+  }
+
+  for (let pass = 0; pass < 5; pass += 1) {
+    const remaining = await deps.listLiveRunsForIssue(run.issueId);
+    const cancellable = remaining.filter(
+      (r) => r.id !== run.id && isRunCancellable(r.status),
+    );
+    if (cancellable.length === 0) break;
+    await Promise.all(cancellable.map((r) => deps.cancelRun(r.id)));
+  }
 }
 
 const RUN_FILTERS = [
@@ -262,6 +306,68 @@ function RunNowButton({ run, agent, companyId }: { run: LiveRunForIssue; agent: 
   );
 }
 
+/**
+ * Nút Hủy trên thẻ run khi lượt đang `queued` hoặc `running`: hủy lượt chạy và đóng issue liên kết sang `cancelled`.
+ */
+export function CancelRunButton({
+  run,
+  issue,
+  companyId,
+}: {
+  run: LiveRunForIssue;
+  issue?: Issue;
+  companyId: string;
+}) {
+  const queryClient = useQueryClient();
+  const mutation = useMutation({
+    mutationFn: () => cancelRunAndLinkedIssue(run),
+    onSuccess: () => {
+      invalidateAgentRuntimeQueries(queryClient);
+      queryClient.invalidateQueries({ queryKey: ["issues"] });
+      queryClient.invalidateQueries({ queryKey: queryKeys.sidebarBadges(companyId) });
+      queryClient.invalidateQueries({ queryKey: queryKeys.activity(companyId) });
+    },
+  });
+
+  if (!isRunCancellable(run.status)) return null;
+
+  const issueLabel = issue?.identifier ?? (run.issueId ? run.issueId.slice(0, 8) : null);
+  const label =
+    run.status === "running"
+      ? issueLabel
+        ? `Hủy lượt đang chạy và hủy issue ${issueLabel}`
+        : "Hủy lượt đang chạy"
+      : issueLabel
+        ? `Hủy lượt xếp hàng và hủy issue ${issueLabel}`
+        : "Hủy lượt xếp hàng";
+  const errorText = mutation.error instanceof Error ? mutation.error.message : "Không hủy được, bấm thử lại";
+
+  return (
+    <button
+      type="button"
+      title={mutation.isError ? errorText : label}
+      aria-label={label}
+      disabled={mutation.isPending || mutation.isSuccess}
+      onClick={(e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        mutation.mutate();
+      }}
+      className={cn(
+        "inline-flex items-center gap-1 rounded-full border px-2 py-1 text-[10px] font-medium transition-colors disabled:opacity-40",
+        mutation.isError
+          ? "border-red-500/60 bg-red-500/15 text-red-700 dark:text-red-300"
+          : mutation.isSuccess
+            ? "border-muted-foreground/30 bg-muted text-muted-foreground"
+            : "border-red-500/35 bg-red-500/[0.06] text-red-600 hover:bg-red-500/15 dark:text-red-400",
+      )}
+    >
+      <X className="h-2.5 w-2.5" />
+      <span>{mutation.isPending ? "Đang hủy…" : "Hủy"}</span>
+    </button>
+  );
+}
+
 function AgentRunCard({
   run,
   agent,
@@ -297,16 +403,16 @@ function AgentRunCard({
       <div className="border-b border-border/60 px-3 py-3">
         <div className="flex items-start justify-between gap-2">
           <div className="min-w-0">
-            <div className="flex items-center gap-2">
+            <div className="flex min-w-0 items-center gap-2">
               {isActive ? (
                 <span className="relative flex h-2.5 w-2.5 shrink-0">
                   <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-cyan-400 opacity-70" />
                   <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-cyan-500" />
                 </span>
               ) : (
-                <span className="inline-flex h-2.5 w-2.5 rounded-full bg-muted-foreground/35" />
+                <span className="inline-flex h-2.5 w-2.5 shrink-0 rounded-full bg-muted-foreground/35" />
               )}
-              <Identity name={run.agentName} size="sm" className="[&>span:last-child]:!text-[11px]" />
+              <Identity name={run.agentName} size="sm" className="min-w-0 [&>span:last-child]:!text-[11px]" />
             </div>
             <div className="mt-2 flex items-center gap-2 text-[11px] text-muted-foreground">
               <span>{isActive ? "Live now" : run.status === "queued" ? `Queued ${relativeTime(run.createdAt)}` : run.finishedAt ? `Finished ${relativeTime(run.finishedAt)}` : `Started ${relativeTime(run.createdAt)}`}</span>
@@ -326,6 +432,7 @@ function AgentRunCard({
 
           <div className="flex shrink-0 items-center gap-1">
             {agent && <RunNowButton run={run} agent={agent} companyId={companyId} />}
+            <CancelRunButton run={run} issue={issue} companyId={companyId} />
             {agent && <AgentPauseToggle agent={agent} companyId={companyId} />}
             <Link
               to={`/agents/${run.agentId}`}
