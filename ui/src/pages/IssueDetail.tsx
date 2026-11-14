@@ -967,7 +967,8 @@ export function IssueDetail() {
   );
 
   return (
-    <div className="max-w-2xl space-y-6">
+    <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_minmax(340px,420px)] xl:grid-cols-[minmax(0,1fr)_minmax(380px,480px)] gap-6 items-start">
+      <div className="min-w-0 max-w-2xl space-y-6">
       {/* Parent chain breadcrumb */}
       {ancestors.length > 0 && (
         <nav className="flex items-center gap-1 text-xs text-muted-foreground flex-wrap">
@@ -1224,103 +1225,6 @@ export function IssueDetail() {
         missingBehavior="placeholder"
       />
 
-      <IssueDocumentsSection
-        issue={issue}
-        canDeleteDocuments={Boolean(session?.user?.id)}
-        mentions={mentionOptions}
-        imageUploadHandler={async (file) => {
-          const attachment = await uploadAttachment.mutateAsync(file);
-          return attachment.contentPath;
-        }}
-        extraActions={!hasAttachments ? attachmentUploadButton : undefined}
-      />
-
-      {hasAttachments ? (
-        <Collapsible
-          className={cn(
-            "space-y-3 rounded-lg transition-colors border border-border p-3",
-          )}
-          defaultOpen={true}
-        >
-          <div
-            className="flex flex-col gap-3"
-            onDragEnter={(evt) => {
-              evt.preventDefault();
-              setAttachmentDragActive(true);
-            }}
-            onDragOver={(evt) => {
-              evt.preventDefault();
-              setAttachmentDragActive(true);
-            }}
-            onDragLeave={(evt) => {
-              if (evt.currentTarget.contains(evt.relatedTarget as Node | null)) return;
-              setAttachmentDragActive(false);
-            }}
-            onDrop={(evt) => void handleAttachmentDrop(evt)}
-          >
-            <div className="flex items-center justify-between gap-2">
-              <CollapsibleTrigger className="flex items-center gap-2 group outline-none cursor-pointer">
-                <ChevronRight className="h-4 w-4 transition-transform group-data-[state=open]:rotate-90 text-muted-foreground" />
-                <h3 className="text-sm font-medium text-muted-foreground group-hover:text-foreground transition-colors">Attachments ({attachmentList.length})</h3>
-              </CollapsibleTrigger>
-              {attachmentUploadButton}
-            </div>
-
-            {attachmentError && (
-              <p className="text-xs text-destructive">{attachmentError}</p>
-            )}
-
-            <CollapsibleContent>
-              <div className="space-y-2 mt-2">
-                {attachmentList.map((attachment) => (
-                  <div key={attachment.id} className="border border-border rounded-md p-2">
-                    <div className="flex items-center justify-between gap-2">
-                      <a
-                        href={attachment.contentPath}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="text-xs hover:underline truncate"
-                        title={attachment.originalFilename ?? attachment.id}
-                      >
-                        {attachment.originalFilename ?? attachment.id}
-                      </a>
-                      <button
-                        type="button"
-                        className="text-muted-foreground hover:text-destructive"
-                        onClick={() => deleteAttachment.mutate(attachment.id)}
-                        disabled={deleteAttachment.isPending}
-                        title="Delete attachment"
-                      >
-                        <Trash2 className="h-3.5 w-3.5" />
-                      </button>
-                    </div>
-                    <p className="text-[11px] text-muted-foreground">
-                      {attachment.contentType} · {(attachment.byteSize / 1024).toFixed(1)} KB
-                    </p>
-                    {isImageAttachment(attachment) && (
-                      <a href={attachment.contentPath} target="_blank" rel="noreferrer">
-                        <img
-                          src={attachment.contentPath}
-                          alt={attachment.originalFilename ?? "attachment"}
-                          className="mt-2 max-h-56 rounded border border-border object-contain bg-accent/10"
-                          loading="lazy"
-                        />
-                      </a>
-                    )}
-                  </div>
-                ))}
-              </div>
-            </CollapsibleContent>
-          </div>
-        </Collapsible>
-      ) : null}
-
-      <IssueWorkspaceCard
-        issue={issue}
-        project={orderedProjects.find((p) => p.id === issue.projectId) ?? null}
-        onUpdate={(data) => updateIssue.mutate(data)}
-      />
-
       <Separator />
 
       <Tabs value={detailTab} onValueChange={setDetailTab} className="space-y-3">
@@ -1505,7 +1409,107 @@ export function IssueDetail() {
           </CollapsibleContent>
         </Collapsible>
       )}
+      </div>
 
+      {/* Cột phải: Documents, Attachments, Workspace Card */}
+      <div className="min-w-0 space-y-4">
+        <IssueDocumentsSection
+          issue={issue}
+          canDeleteDocuments={Boolean(session?.user?.id)}
+          mentions={mentionOptions}
+          imageUploadHandler={async (file) => {
+            const attachment = await uploadAttachment.mutateAsync(file);
+            return attachment.contentPath;
+          }}
+          extraActions={!hasAttachments ? attachmentUploadButton : undefined}
+        />
+
+        {hasAttachments ? (
+          <Collapsible
+            className={cn(
+              "space-y-3 rounded-lg transition-colors border border-border p-3",
+            )}
+            defaultOpen={true}
+          >
+            <div
+              className="flex flex-col gap-3"
+              onDragEnter={(evt) => {
+                evt.preventDefault();
+                setAttachmentDragActive(true);
+              }}
+              onDragOver={(evt) => {
+                evt.preventDefault();
+                setAttachmentDragActive(true);
+              }}
+              onDragLeave={(evt) => {
+                if (evt.currentTarget.contains(evt.relatedTarget as Node | null)) return;
+                setAttachmentDragActive(false);
+              }}
+              onDrop={(evt) => void handleAttachmentDrop(evt)}
+            >
+              <div className="flex items-center justify-between gap-2">
+                <CollapsibleTrigger className="flex items-center gap-2 group outline-none cursor-pointer">
+                  <ChevronRight className="h-4 w-4 transition-transform group-data-[state=open]:rotate-90 text-muted-foreground" />
+                  <h3 className="text-sm font-medium text-muted-foreground group-hover:text-foreground transition-colors">Attachments ({attachmentList.length})</h3>
+                </CollapsibleTrigger>
+                {attachmentUploadButton}
+              </div>
+
+              {attachmentError && (
+                <p className="text-xs text-destructive">{attachmentError}</p>
+              )}
+
+              <CollapsibleContent>
+                <div className="space-y-2 mt-2">
+                  {attachmentList.map((attachment) => (
+                    <div key={attachment.id} className="border border-border rounded-md p-2">
+                      <div className="flex items-center justify-between gap-2">
+                        <a
+                          href={attachment.contentPath}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="text-xs hover:underline truncate"
+                          title={attachment.originalFilename ?? attachment.id}
+                        >
+                          {attachment.originalFilename ?? attachment.id}
+                        </a>
+                        <button
+                          type="button"
+                          className="text-muted-foreground hover:text-destructive"
+                          onClick={() => deleteAttachment.mutate(attachment.id)}
+                          disabled={deleteAttachment.isPending}
+                          title="Delete attachment"
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
+                        </button>
+                      </div>
+                      <p className="text-[11px] text-muted-foreground">
+                        {attachment.contentType} · {(attachment.byteSize / 1024).toFixed(1)} KB
+                      </p>
+                      {isImageAttachment(attachment) && (
+                        <a href={attachment.contentPath} target="_blank" rel="noreferrer">
+                          <img
+                            src={attachment.contentPath}
+                            alt={attachment.originalFilename ?? "attachment"}
+                            className="mt-2 max-h-56 rounded border border-border object-contain bg-accent/10"
+                            loading="lazy"
+                          />
+                        </a>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </CollapsibleContent>
+            </div>
+          </Collapsible>
+        ) : null}
+
+        <IssueWorkspaceCard
+          issue={issue}
+          project={orderedProjects.find((p) => p.id === issue.projectId) ?? null}
+          onUpdate={(data) => updateIssue.mutate(data)}
+        />
+      </div>
 
       {/* Mobile properties drawer */}
       <Sheet open={mobilePropsOpen} onOpenChange={setMobilePropsOpen}>

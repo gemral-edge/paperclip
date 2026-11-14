@@ -41,28 +41,6 @@ type DocumentConflictState = {
 
 const DOCUMENT_AUTOSAVE_DEBOUNCE_MS = 900;
 const DOCUMENT_KEY_PATTERN = /^[a-z0-9][a-z0-9_-]*$/;
-const getFoldedDocumentsStorageKey = (issueId: string) => `paperclip:issue-document-folds:${issueId}`;
-const getFoldedDocumentsInitializedKey = (issueId: string) => `paperclip:issue-document-folds-init:${issueId}`;
-
-function loadFoldedDocumentKeys(issueId: string): { keys: string[]; hasInitialized: boolean } {
-  if (typeof window === "undefined") return { keys: [], hasInitialized: false };
-  try {
-    const hasInitialized = window.localStorage.getItem(getFoldedDocumentsInitializedKey(issueId)) === "1";
-    const raw = window.localStorage.getItem(getFoldedDocumentsStorageKey(issueId));
-    if (!raw) return { keys: [], hasInitialized };
-    const parsed = JSON.parse(raw);
-    const keys = Array.isArray(parsed) ? parsed.filter((value): value is string => typeof value === "string") : [];
-    return { keys, hasInitialized };
-  } catch {
-    return { keys: [], hasInitialized: false };
-  }
-}
-
-function saveFoldedDocumentKeys(issueId: string, keys: string[]) {
-  if (typeof window === "undefined") return;
-  window.localStorage.setItem(getFoldedDocumentsInitializedKey(issueId), "1");
-  window.localStorage.setItem(getFoldedDocumentsStorageKey(issueId), JSON.stringify(keys));
-}
 
 function renderBody(body: string, className?: string) {
   return <MarkdownBody className={className}>{body}</MarkdownBody>;
@@ -125,12 +103,10 @@ export function IssueDocumentsSection({
 
   const queryClient = useQueryClient();
   const location = useLocation();
-  const [confirmDeleteKey, setConfirmDeleteKey] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [draft, setDraft] = useState<DraftState | null>(null);
   const [documentConflict, setDocumentConflict] = useState<DocumentConflictState | null>(null);
-  const [foldedDocumentsInitialized, setFoldedDocumentsInitialized] = useState<boolean>(() => loadFoldedDocumentKeys(issue.id).hasInitialized);
-  const [foldedDocumentKeys, setFoldedDocumentKeys] = useState<string[]>(() => loadFoldedDocumentKeys(issue.id).keys);
+  const [expandedDocumentKeys, setExpandedDocumentKeys] = useState<string[]>([]);
   const [autosaveDocumentKey, setAutosaveDocumentKey] = useState<string | null>(null);
   const [copiedDocumentKey, setCopiedDocumentKey] = useState<string | null>(null);
   const [highlightDocumentKey, setHighlightDocumentKey] = useState<string | null>(null);
@@ -188,9 +164,9 @@ export function IssueDocumentsSection({
 
   const deleteDocument = useMutation({
     mutationFn: (key: string) => issuesApi.deleteDocument(issue.id, key),
-    onSuccess: () => {
+    onSuccess: (_data, key) => {
       setError(null);
-      setConfirmDeleteKey(null);
+      setExpandedDocumentKeys((current) => current.filter((entry) => entry !== key));
       invalidateIssueDocuments();
     },
     onError: (err) => {
@@ -261,7 +237,7 @@ export function IssueDocumentsSection({
     const doc = sortedDocuments.find((entry) => entry.key === key);
     if (!doc) return;
     const conflictedDraft = documentConflict?.key === key ? documentConflict.localDraft : null;
-    setFoldedDocumentKeys((current) => current.filter((entry) => entry !== key));
+    setExpandedDocumentKeys((current) => current.includes(key) ? current : [...current, key]);
     resetAutosaveState();
     setDocumentConflict((current) => current?.key === key ? current : null);
     setDraft({
@@ -387,7 +363,7 @@ export function IssueDocumentsSection({
             },
             showRemote: true,
           });
-          setFoldedDocumentKeys((current) => current.filter((key) => key !== normalizedKey));
+          setExpandedDocumentKeys((current) => current.includes(normalizedKey) ? current : [...current, normalizedKey]);
           setError(null);
           resetAutosaveState();
           return false;
@@ -488,7 +464,7 @@ export function IssueDocumentsSection({
     resetAutosaveState();
     setDraft((current) => current?.key === doc.key ? null : current);
     setDocumentConflict((current) => current?.key === doc.key ? null : current);
-    setFoldedDocumentKeys((current) => current.filter((entry) => entry !== doc.key));
+    setExpandedDocumentKeys((current) => current.includes(doc.key) ? current : [...current, doc.key]);
     setSelectedRevisionIds((current) => ({ ...current, [doc.key]: selectedRevision.id }));
     setError(null);
   }, [documentConflict, draft, getDocumentRevisions, resetAutosaveState, returnToLatestRevision]);
@@ -517,37 +493,12 @@ export function IssueDocumentsSection({
   };
 
   useEffect(() => {
-    const loaded = loadFoldedDocumentKeys(issue.id);
-    setFoldedDocumentsInitialized(loaded.hasInitialized);
-    setFoldedDocumentKeys(loaded.keys);
+    setExpandedDocumentKeys([]);
   }, [issue.id]);
 
   useEffect(() => {
     hasScrolledToHashRef.current = false;
   }, [issue.id, location.hash]);
-
-  useEffect(() => {
-    const validKeys = new Set(sortedDocuments.map((doc) => doc.key));
-    setFoldedDocumentKeys((current) => {
-      // Nếu chưa khởi tạo (lần đầu vào issue), mặc định đóng TẤT CẢ document
-      if (!foldedDocumentsInitialized && sortedDocuments.length > 0) {
-        const allKeys = sortedDocuments.map((doc) => doc.key);
-        setFoldedDocumentsInitialized(true);
-        saveFoldedDocumentKeys(issue.id, allKeys);
-        return allKeys;
-      }
-      // Lần sau: chỉ lọc bỏ key đã xóa khỏi danh sách
-      const next = current.filter((key) => validKeys.has(key));
-      if (next.length !== current.length) {
-        saveFoldedDocumentKeys(issue.id, next);
-      }
-      return next;
-    });
-  }, [issue.id, sortedDocuments, foldedDocumentsInitialized]);
-
-  useEffect(() => {
-    saveFoldedDocumentKeys(issue.id, foldedDocumentKeys);
-  }, [foldedDocumentKeys, issue.id]);
 
   useEffect(() => {
     if (!documentConflict) return;
@@ -567,7 +518,7 @@ export function IssueDocumentsSection({
     const targetExists = sortedDocuments.some((doc) => doc.key === documentKey)
       || (documentKey === "plan" && Boolean(issue.legacyPlanDocument));
     if (!targetExists || hasScrolledToHashRef.current) return;
-    setFoldedDocumentKeys((current) => current.filter((key) => key !== documentKey));
+    setExpandedDocumentKeys((current) => current.includes(documentKey) ? current : [...current, documentKey]);
     const element = document.getElementById(`document-${documentKey}`);
     if (!element) return;
     hasScrolledToHashRef.current = true;
@@ -640,25 +591,31 @@ export function IssueDocumentsSection({
   const documentBodyPaddingClassName = "";
   const documentBodyContentClassName = "paperclip-edit-in-place-content min-h-[220px] text-[15px] leading-7";
   const toggleFoldedDocument = (key: string) => {
-    setFoldedDocumentKeys((current) =>
+    setExpandedDocumentKeys((current) =>
       current.includes(key)
         ? current.filter((entry) => entry !== key)
         : [...current, key],
     );
   };
 
-  const allDocumentKeys = sortedDocuments.map((doc) => doc.key);
-  const allFolded = allDocumentKeys.length > 0 && allDocumentKeys.every((key) => foldedDocumentKeys.includes(key));
+  const allDocumentKeys = useMemo(() => {
+    const keys = sortedDocuments.map((doc) => doc.key);
+    if (!hasRealPlan && issue.legacyPlanDocument) keys.unshift("plan");
+    return keys;
+  }, [sortedDocuments, hasRealPlan, issue.legacyPlanDocument]);
+  const allFolded = allDocumentKeys.length > 0 && allDocumentKeys.every((key) => !expandedDocumentKeys.includes(key));
 
   const toggleAllDocuments = () => {
     if (allFolded) {
       // Mở tất cả
-      setFoldedDocumentKeys([]);
+      setExpandedDocumentKeys(allDocumentKeys);
     } else {
       // Đóng tất cả
-      setFoldedDocumentKeys(allDocumentKeys);
+      setExpandedDocumentKeys([]);
     }
   };
+
+  const isLegacyPlanFolded = !expandedDocumentKeys.includes("plan");
 
   return (
     <div className="space-y-3">
@@ -672,7 +629,7 @@ export function IssueDocumentsSection({
           </Button>
         </div>
       ) : (
-        <div className="flex items-center justify-between gap-2 min-w-0">
+        <div className="flex flex-wrap items-center justify-between gap-2 min-w-0">
           <button
             type="button"
             className="flex items-center gap-1.5 shrink-0 group"
@@ -763,15 +720,26 @@ export function IssueDocumentsSection({
             highlightDocumentKey === "plan" && "border-primary/50 bg-primary/5",
           )}
         >
-          <div className="mb-2 flex items-center gap-2">
-            <FileText className="h-4 w-4 text-amber-600" />
+          <button
+            type="button"
+            className="flex w-full items-center gap-2 text-left cursor-pointer group"
+            onClick={() => toggleFoldedDocument("plan")}
+            aria-label={isLegacyPlanFolded ? "Expand plan document" : "Collapse plan document"}
+            aria-expanded={!isLegacyPlanFolded}
+          >
+            {isLegacyPlanFolded
+              ? <ChevronRight className="h-3.5 w-3.5 shrink-0 text-amber-600/80 group-hover:text-amber-600 transition-colors" />
+              : <ChevronDown className="h-3.5 w-3.5 shrink-0 text-amber-600/80 group-hover:text-amber-600 transition-colors" />}
+            <FileText className="h-4 w-4 text-amber-600 shrink-0" />
             <span className="rounded-full border border-amber-500/30 px-2 py-0.5 font-mono text-[10px] uppercase tracking-[0.16em] text-amber-700 dark:text-amber-300">
               PLAN
             </span>
-          </div>
-          <div className={documentBodyPaddingClassName}>
-            {renderBody(issue.legacyPlanDocument.body, documentBodyContentClassName)}
-          </div>
+          </button>
+          {!isLegacyPlanFolded ? (
+            <div className={cn("mt-3", documentBodyPaddingClassName)}>
+              {renderBody(issue.legacyPlanDocument.body, documentBodyContentClassName)}
+            </div>
+          ) : null}
         </div>
       ) : null}
 
@@ -779,7 +747,7 @@ export function IssueDocumentsSection({
         {sortedDocuments.map((doc) => {
           const activeDraft = draft?.key === doc.key && !draft.isNew ? draft : null;
           const activeConflict = documentConflict?.key === doc.key ? documentConflict : null;
-          const isFolded = foldedDocumentKeys.includes(doc.key);
+          const isFolded = !expandedDocumentKeys.includes(doc.key);
           const revisionHistory = getDocumentRevisions(doc.key);
           const selectedRevisionId = selectedRevisionIds[doc.key] ?? null;
           const selectedHistoricalRevision = selectedRevisionId
@@ -818,7 +786,7 @@ export function IssueDocumentsSection({
               )}
             >
               <div className="flex items-start justify-between gap-3">
-                <div className="min-w-0">
+                <div className="min-w-0 flex-1">
                   <div className="flex items-center gap-2 min-w-0">
                     <button
                       type="button"
@@ -829,9 +797,14 @@ export function IssueDocumentsSection({
                     >
                       {isFolded ? <ChevronRight className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
                     </button>
-                    <span className="shrink-0 rounded-full border border-border px-2 py-0.5 font-mono text-[10px] uppercase tracking-[0.16em] text-muted-foreground">
+                    <button
+                      type="button"
+                      className="shrink-0 rounded-full border border-border px-2 py-0.5 font-mono text-[10px] uppercase tracking-[0.16em] text-muted-foreground transition-colors hover:border-foreground/30 hover:text-foreground cursor-pointer"
+                      onClick={() => toggleFoldedDocument(doc.key)}
+                      aria-expanded={!isFolded}
+                    >
                       {doc.key}
-                    </span>
+                    </button>
                     <DropdownMenu
                       open={revisionMenuOpenKey === doc.key}
                       onOpenChange={(open) => setRevisionMenuOpenKey(open ? doc.key : null)}
@@ -887,19 +860,32 @@ export function IssueDocumentsSection({
                       </DropdownMenuContent>
                     </DropdownMenu>
                     <span
-                      className="truncate text-[11px] text-muted-foreground"
+                      className="truncate text-[11px] text-muted-foreground cursor-pointer hover:text-foreground transition-colors"
                       title={`Document key: ${doc.key}`}
+                      onClick={() => toggleFoldedDocument(doc.key)}
                     >
                       updated {relativeTime(displayedUpdatedAt)}
                     </span>
                   </div>
                   {/* Title luôn hiển thị bên dưới header bất kể document đang đóng hay mở */}
                   {showTitle && (
-                    <p className="mt-1.5 text-sm font-medium text-foreground leading-snug">{displayedTitle}</p>
+                    <button
+                      type="button"
+                      onClick={() => toggleFoldedDocument(doc.key)}
+                      className="mt-1.5 block w-full text-left text-sm font-medium text-foreground leading-snug hover:text-primary transition-colors cursor-pointer"
+                    >
+                      {displayedTitle}
+                    </button>
                   )}
                   {/* Preview dòng đầu body khi không có title và đang đóng */}
                   {showPreview && (
-                    <p className="mt-1 text-xs text-muted-foreground leading-snug truncate italic">{previewText}…</p>
+                    <button
+                      type="button"
+                      onClick={() => toggleFoldedDocument(doc.key)}
+                      className="mt-1 block w-full text-left text-xs text-muted-foreground leading-snug truncate italic hover:text-foreground transition-colors cursor-pointer"
+                    >
+                      {previewText}…
+                    </button>
                   )}
                 </div>
                 <div className="flex items-center gap-1 shrink-0">
@@ -930,6 +916,18 @@ export function IssueDocumentsSection({
                       <Copy className="h-3.5 w-3.5" />
                     )}
                   </Button>
+                  {canDeleteDocuments ? (
+                    <Button
+                      variant="ghost"
+                      size="icon-xs"
+                      className="text-muted-foreground transition-colors hover:text-destructive"
+                      title="Delete document"
+                      disabled={deleteDocument.isPending}
+                      onClick={() => deleteDocument.mutate(doc.key)}
+                    >
+                      <Trash2 className="h-3.5 w-3.5" />
+                    </Button>
+                  ) : null}
                   <DropdownMenu>
                     <DropdownMenuTrigger asChild>
                       <Button
@@ -952,7 +950,8 @@ export function IssueDocumentsSection({
                       {canDeleteDocuments ? (
                         <DropdownMenuItem
                           variant="destructive"
-                          onClick={() => setConfirmDeleteKey(doc.key)}
+                          disabled={deleteDocument.isPending}
+                          onClick={() => deleteDocument.mutate(doc.key)}
                         >
                           <Trash2 className="h-3.5 w-3.5" />
                           Delete document
@@ -1168,32 +1167,6 @@ export function IssueDocumentsSection({
                   </div>
                 </div>
               ) : null}
-
-              {confirmDeleteKey === doc.key && (
-                <div className="mt-3 flex items-center justify-between gap-3 rounded-md border border-destructive/20 bg-destructive/5 px-4 py-3">
-                  <p className="text-sm text-destructive font-medium">
-                    Delete this document? This cannot be undone.
-                  </p>
-                  <div className="flex items-center gap-2 shrink-0">
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => setConfirmDeleteKey(null)}
-                      disabled={deleteDocument.isPending}
-                    >
-                      Cancel
-                    </Button>
-                    <Button
-                      variant="destructive"
-                      size="sm"
-                      onClick={() => deleteDocument.mutate(doc.key)}
-                      disabled={deleteDocument.isPending}
-                    >
-                      {deleteDocument.isPending ? "Deleting..." : "Delete"}
-                    </Button>
-                  </div>
-                </div>
-              )}
             </div>
           );
         })}
