@@ -78,6 +78,14 @@ function isSafeMarkdownLinkUrl(url: string | null | undefined): boolean {
   return !/^(javascript|data|vbscript):/i.test(trimmed);
 }
 
+function resolveEditorLinkHref(url: string): string {
+  const parsed = parseMentionChipHref(url);
+  if (!parsed) return url;
+  return parsed.kind === "project"
+    ? `/projects/${parsed.projectId}`
+    : `/agents/${parsed.agentId}`;
+}
+
 /* ---- Mention detection helpers ---- */
 
 interface MentionState {
@@ -285,7 +293,17 @@ export const MarkdownEditor = forwardRef<MarkdownEditorRef, MarkdownEditorProps>
       quotePlugin(),
       tablePlugin(),
       linkPlugin({ validateUrl: isSafeMarkdownLinkUrl }),
-      linkDialogPlugin(),
+      linkDialogPlugin({
+        onClickLinkCallback: (url) => {
+          const trimmed = url?.trim();
+          if (!trimmed || !isSafeMarkdownLinkUrl(trimmed)) return;
+          if (trimmed.startsWith("#")) {
+            window.location.hash = trimmed;
+            return;
+          }
+          window.open(resolveEditorLinkHref(trimmed), "_blank", "noopener,noreferrer");
+        },
+      }),
       mentionDeletionPlugin(),
       thematicBreakPlugin(),
       codeBlockPlugin({
@@ -476,6 +494,16 @@ export const MarkdownEditor = forwardRef<MarkdownEditorRef, MarkdownEditorProps>
         isDragOver && "ring-1 ring-primary/60 bg-accent/20",
         className,
       )}
+      onClickCapture={(e) => {
+        if (!(e.metaKey || e.ctrlKey)) return;
+        const target = e.target instanceof Element ? e.target.closest("a") : null;
+        if (!target) return;
+        const rawHref = target.getAttribute("href")?.trim();
+        if (!rawHref || !isSafeMarkdownLinkUrl(rawHref) || rawHref.startsWith("#")) return;
+        e.preventDefault();
+        e.stopPropagation();
+        window.open(resolveEditorLinkHref(rawHref), "_blank", "noopener,noreferrer");
+      }}
       onKeyDownCapture={(e) => {
         // Cmd/Ctrl+Enter to submit
         if (onSubmit && e.key === "Enter" && (e.metaKey || e.ctrlKey)) {

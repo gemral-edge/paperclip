@@ -105,12 +105,14 @@ export function LiveRunWidget({ issueId, companyId }: LiveRunWidgetProps) {
             <section key={run.id} className="px-4 py-4">
               <div className="mb-3 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                 <div className="min-w-0">
-                  <Link to={`/agents/${run.agentId}`} className="inline-flex hover:underline">
+                  <Link to={`/agents/${run.agentId}`} target="_blank" rel="noopener noreferrer" className="inline-flex hover:underline">
                     <Identity name={run.agentName} size="sm" />
                   </Link>
                   <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
                     <Link
                       to={`/agents/${run.agentId}/runs/${run.id}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
                       className="inline-flex items-center rounded-full border border-border/70 bg-background/70 px-2 py-1 font-mono hover:border-cyan-500/30 hover:text-foreground"
                     >
                       {run.id.slice(0, 8)}
@@ -133,6 +135,8 @@ export function LiveRunWidget({ issueId, companyId }: LiveRunWidgetProps) {
                   )}
                   <Link
                     to={`/agents/${run.agentId}/runs/${run.id}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
                     className="inline-flex items-center gap-1 rounded-full border border-border/70 bg-background/70 px-2.5 py-1 text-[11px] font-medium text-cyan-700 transition-colors hover:border-cyan-500/30 hover:text-cyan-600 dark:text-cyan-300"
                   >
                     Open run

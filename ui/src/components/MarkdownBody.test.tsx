@@ -46,4 +46,20 @@ describe("MarkdownBody", () => {
     expect(html).toContain('data-mention-kind="project"');
     expect(html).toContain("--paperclip-mention-project-color:#336699");
   });
+
+  it("opens markdown links in a new tab except in-page hash links", () => {
+    const html = renderToStaticMarkup(
+      <ThemeProvider>
+        <MarkdownBody>
+          {"See [Docs](https://example.com), GEM-2184, and [Section](#document-plan)."}
+        </MarkdownBody>
+      </ThemeProvider>,
+    );
+
+    expect(html).toContain('<a href="https://example.com" target="_blank" rel="noopener noreferrer">Docs</a>');
+    expect(html).toContain('href="/issues/GEM-2184"');
+    expect(html).toMatch(/<a href="\/issues\/GEM-2184"[^>]*target="_blank"[^>]*rel="noopener noreferrer"/);
+    expect(html).toContain('<a href="#document-plan">Section</a>');
+    expect(html).not.toContain('<a href="#document-plan" target="_blank"');
+  });
 });

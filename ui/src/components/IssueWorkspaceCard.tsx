@@ -354,6 +354,8 @@ export function IssueWorkspaceCard({ issue, project, onUpdate }: IssueWorkspaceC
               {selectedReusableWorkspaceLink ? (
                 <Link
                   to={selectedReusableWorkspaceLink}
+                  target="_blank"
+                  rel="noopener noreferrer"
                   className="hover:text-foreground hover:underline"
                 >
                   <BreakablePath text={selectedReusableExecutionWorkspace.name} />
@@ -367,6 +369,8 @@ export function IssueWorkspaceCard({ issue, project, onUpdate }: IssueWorkspaceC
             <div className="pt-0.5">
               <Link
                 to={currentWorkspaceLink}
+                target="_blank"
+                rel="noopener noreferrer"
                 className="text-[11px] text-muted-foreground hover:text-foreground hover:underline"
               >
                 View workspace details →
@@ -426,6 +430,8 @@ export function IssueWorkspaceCard({ issue, project, onUpdate }: IssueWorkspaceC
                 {currentWorkspaceLink ? (
                   <Link
                     to={currentWorkspaceLink}
+                    target="_blank"
+                    rel="noopener noreferrer"
                     className="hover:text-foreground hover:underline"
                   >
                     <BreakablePath text={workspace.name} />

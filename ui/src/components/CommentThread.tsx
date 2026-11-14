@@ -1,5 +1,5 @@
 import { memo, useEffect, useMemo, useRef, useState, type ChangeEvent } from "react";
-import { Link, useLocation } from "react-router-dom";
+import { Link, useLocation } from "@/lib/router";
 import type { IssueComment, Agent } from "@paperclipai/shared";
 import { Button } from "@/components/ui/button";
 import { Check, Copy, Paperclip, ArrowUpDown, Filter, ListFilter } from "lucide-react";
@@ -216,7 +216,7 @@ function CommentCard({
     >
       <div className="flex items-center justify-between mb-1">
         {comment.authorAgentId ? (
-          <Link to={`/agents/${comment.authorAgentId}`} className="hover:underline">
+          <Link to={`/agents/${comment.authorAgentId}`} target="_blank" rel="noopener noreferrer" className="hover:underline">
             <Identity
               name={agentMap?.get(comment.authorAgentId)?.name ?? comment.authorAgentId.slice(0, 8)}
               size="sm"
@@ -296,6 +296,8 @@ function CommentCard({
           {comment.runAgentId ? (
             <Link
               to={`/agents/${comment.runAgentId}/runs/${comment.runId}`}
+              target="_blank"
+              rel="noopener noreferrer"
               className="inline-flex items-center rounded-md border border-border bg-accent/30 px-2 py-1 text-[10px] font-mono text-muted-foreground hover:text-foreground hover:bg-accent/50 transition-colors"
             >
               run {comment.runId.slice(0, 8)}
@@ -352,7 +354,7 @@ const TimelineList = memo(function TimelineList({
                   return (
                     <div key={`run:${run.runId}`} className="border border-border bg-accent/20 p-3 overflow-hidden min-w-0 rounded-sm">
                       <div className="flex items-center justify-between mb-2">
-                        <Link to={`/agents/${run.agentId}`} className="hover:underline">
+                        <Link to={`/agents/${run.agentId}`} target="_blank" rel="noopener noreferrer" className="hover:underline">
                           <Identity
                             name={agentMap?.get(run.agentId)?.name ?? run.agentId.slice(0, 8)}
                             size="sm"
@@ -366,6 +368,8 @@ const TimelineList = memo(function TimelineList({
                         <span className="text-muted-foreground">Run</span>
                         <Link
                           to={`/agents/${run.agentId}/runs/${run.runId}`}
+                          target="_blank"
+                          rel="noopener noreferrer"
                           className="inline-flex items-center rounded-md border border-border bg-accent/40 px-2 py-1 font-mono text-muted-foreground hover:text-foreground hover:bg-accent/60 transition-colors"
                         >
                           {run.runId.slice(0, 8)}
@@ -500,9 +504,9 @@ export function CommentComposer({
         mentions={mentions}
         onSubmit={handleSubmit}
         imageUploadHandler={imageUploadHandler}
-        contentClassName="min-h-[60px] text-sm"
+        contentClassName="min-h-[40px] text-sm"
       />
-      <div className="flex items-center justify-end gap-3 mt-2">
+      <div className="flex items-center justify-end gap-3 mt-1.5">
         {(imageUploadHandler || onAttachImage) && (
           <div className="mr-auto flex items-center gap-3">
             <input
@@ -823,7 +827,7 @@ export function CommentThread({
         </div>
       )}
 
-      <div className="sticky bottom-0 z-10 p-4 mt-6 border-t border-border/40 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/80 shadow-[0_-10px_20px_-10px_rgba(0,0,0,0.05)]">
+      <div className="sticky bottom-0 md:-bottom-6 z-10 -mx-1 px-3 pt-2.5 pb-2.5 mt-4 border-t border-border/60 bg-background shadow-[0_-6px_16px_-8px_rgba(0,0,0,0.08)]">
         <CommentComposer
           onAdd={onAdd}
           draftKey={draftKey}

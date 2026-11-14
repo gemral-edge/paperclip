@@ -1025,6 +1025,8 @@ export function IssueDetail() {
               <Link
                 to={createIssueDetailPath(ancestor.identifier ?? ancestor.id, location.state, location.search, companyPrefix)}
                 state={location.state}
+                target="_blank"
+                rel="noopener noreferrer"
                 className="hover:text-foreground transition-colors truncate max-w-[200px]"
                 title={ancestor.title}
               >
@@ -1069,6 +1071,8 @@ export function IssueDetail() {
           {issue.originKind === "routine_execution" && issue.originId && (
             <Link
               to={`/routines/${issue.originId}`}
+              target="_blank"
+              rel="noopener noreferrer"
               className="inline-flex items-center gap-1 rounded-full bg-violet-500/10 border border-violet-500/30 px-2 py-0.5 text-[10px] font-medium text-violet-600 dark:text-violet-400 shrink-0 hover:bg-violet-500/20 transition-colors"
             >
               <Repeat className="h-3 w-3" />
@@ -1079,6 +1083,8 @@ export function IssueDetail() {
           {issue.projectId ? (
             <Link
               to={`/projects/${issue.projectId}`}
+              target="_blank"
+              rel="noopener noreferrer"
               className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors rounded px-1 -mx-1 py-0.5 min-w-0"
             >
               <Hexagon className="h-3 w-3 shrink-0" />
@@ -1457,6 +1463,8 @@ export function IssueDetail() {
                   key={child.id}
                   to={createIssueDetailPath(child.identifier ?? child.id, location.state, location.search, companyPrefix)}
                   state={location.state}
+                  target="_blank"
+                  rel="noopener noreferrer"
                   className="flex items-center justify-between px-3 py-2 text-sm hover:bg-accent/20 transition-colors"
                 >
                   <div className="flex items-center gap-2 min-w-0">
@@ -1555,6 +1563,8 @@ export function IssueDetail() {
                 <Link
                   key={approval.id}
                   to={`/approvals/${approval.id}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
                   className="flex items-center justify-between px-3 py-2 text-xs hover:bg-accent/20 transition-colors"
                 >
                   <div className="flex items-center gap-2">

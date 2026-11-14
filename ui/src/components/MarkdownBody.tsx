@@ -165,6 +165,8 @@ export function MarkdownBody({ children, className, resolveImageSrc }: MarkdownB
         return (
           <a
             href={targetHref}
+            target="_blank"
+            rel="noopener noreferrer"
             className={cn(
               "paperclip-mention-chip",
               `paperclip-mention-chip--${parsed.kind}`,
@@ -179,8 +181,15 @@ export function MarkdownBody({ children, className, resolveImageSrc }: MarkdownB
           </a>
         );
       }
+      const isHashLink = typeof href === "string" && href.startsWith("#");
       return (
-        <a href={href} rel="noreferrer" className={className} {...props}>
+        <a
+          href={href}
+          target={isHashLink ? undefined : "_blank"}
+          rel={isHashLink ? undefined : "noopener noreferrer"}
+          className={className}
+          {...props}
+        >
           {linkChildren}
         </a>
       );

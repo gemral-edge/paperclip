@@ -613,6 +613,8 @@ export function IssueProperties({
           extra={issue.assigneeAgentId ? (
             <Link
               to={`/agents/${issue.assigneeAgentId}`}
+              target="_blank"
+              rel="noopener noreferrer"
               className="inline-flex items-center justify-center h-5 w-5 rounded hover:bg-accent/50 transition-colors text-muted-foreground hover:text-foreground"
               onClick={(e) => e.stopPropagation()}
             >
@@ -634,6 +636,8 @@ export function IssueProperties({
           extra={issue.projectId ? (
             <Link
               to={projectLink(issue.projectId)!}
+              target="_blank"
+              rel="noopener noreferrer"
               className="inline-flex items-center justify-center h-5 w-5 rounded hover:bg-accent/50 transition-colors text-muted-foreground hover:text-foreground"
               onClick={(e) => e.stopPropagation()}
             >
@@ -648,6 +652,8 @@ export function IssueProperties({
           <PropertyRow label="Parent">
             <Link
               to={`/issues/${issue.ancestors?.[0]?.identifier ?? issue.parentId}`}
+              target="_blank"
+              rel="noopener noreferrer"
               className="text-sm hover:underline"
             >
               {issue.ancestors?.[0]?.title ?? issue.parentId.slice(0, 8)}
@@ -670,6 +676,8 @@ export function IssueProperties({
             {issue.createdByAgentId ? (
               <Link
                 to={`/agents/${issue.createdByAgentId}`}
+                target="_blank"
+                rel="noopener noreferrer"
                 className="hover:underline"
               >
                 <Identity name={agentName(issue.createdByAgentId) ?? issue.createdByAgentId.slice(0, 8)} size="sm" />
