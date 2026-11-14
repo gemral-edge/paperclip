@@ -40,6 +40,7 @@
  *                                                     ignored unless maxRunning > it)
  *   PAPERCLIP_HEARTBEAT_JITTER_MAX_SEC     default 30  (<=0 disables per-agent hash jitter, GEM-1500)
  *   PAPERCLIP_FLEET_FAIR_ORDER             default 1   (<=0 disables rule 5)
+ *   PAPERCLIP_FLEET_FAIR_WAIT_MAX_MIN      default 60  (<=0 disables starvation ceiling override, GEM-2211)
  */
 
 import fs from "node:fs";
@@ -53,6 +54,8 @@ export const FLEET_TIMER_WAKES_PER_HOUR_DEFAULT = 3;
 export const FLEET_TIMER_RESERVED_SLOTS_DEFAULT = 1;
 export const FLEET_TIMER_WINDOW_MS = 60 * 60 * 1000;
 export const FLEET_HEARTBEAT_JITTER_MAX_SEC_DEFAULT = 30;
+/** GEM-2211: trần chờ tối đa (phút) cho lượt non-timer khi agent đích rảnh trước khi được ưu tiên chống đói. */
+export const FLEET_FAIR_WAIT_MAX_MIN_DEFAULT = 60;
 export const FLEET_POST_RESTART_JITTER_WINDOW_MS = 60 * 60 * 1000;
 /** Stagger offsets (ms) between the 4 scheduler tick jobs inside each interval so they do not hit PgBouncer on the same millisecond. */
 export const SCHEDULER_TICK_JOB_STAGGER_MS: Readonly<
@@ -77,6 +80,7 @@ export interface FleetThrottleConfig {
   timerReservedSlots: number;
   heartbeatJitterMaxSec: number;
   fairOrder: boolean;
+  fairWaitMaxMin: number;
 }
 
 function readIntEnv(env: NodeJS.ProcessEnv, key: string, fallback: number) {
@@ -108,6 +112,10 @@ export function readFleetThrottleConfig(env: NodeJS.ProcessEnv = process.env): F
       readIntEnv(env, "PAPERCLIP_HEARTBEAT_JITTER_MAX_SEC", FLEET_HEARTBEAT_JITTER_MAX_SEC_DEFAULT),
     ),
     fairOrder: readIntEnv(env, "PAPERCLIP_FLEET_FAIR_ORDER", 1) > 0,
+    fairWaitMaxMin: Math.max(
+      0,
+      readIntEnv(env, "PAPERCLIP_FLEET_FAIR_WAIT_MAX_MIN", FLEET_FAIR_WAIT_MAX_MIN_DEFAULT),
+    ),
   };
 }
 
@@ -312,19 +320,86 @@ export function coalescedTimerPromotion(
   return { invocationSource: "timer" };
 }
 
-/** Claim order for queued runs: timer runs first (rule 4), then oldest first. */
-export function orderQueuedRunsForClaim<T extends { invocationSource: string | null; createdAt: Date }>(
-  config: FleetThrottleConfig,
+export interface QueuedRunFairCandidate {
+  invocationSource: string | null;
+  createdAt: Date | string;
+  agentLastStartedAt?: Date | string | null;
+  agentLastFinishedAt?: Date | string | null;
+}
+
+function toTimestampMs(value: Date | string | null | undefined, fallback: number): number {
+  if (value == null) return fallback;
+  const ms = value instanceof Date ? value.getTime() : Date.parse(value);
+  return Number.isFinite(ms) ? ms : fallback;
+}
+
+/**
+ * GEM-2211: Thời điểm xếp hàng hiệu dụng của một lượt chạy non-timer.
+ * Khi 1 agent nhận 1 chùm (batch) N lượt lúc t1..tN và vừa chạy lượt 1 tới `finishedAt`
+ * (hoặc bắt đầu lúc `startedAt`), các lượt 2..N chỉ thực sự chờ rảnh từ
+ * `max(createdAt, agentLastStartedAt, agentLastFinishedAt)`. Nhờ vậy agent vừa chạy xong
+ * phải nhường slot cho agent khác đã chờ trước khi lượt vừa rồi bắt đầu/kết thúc (round-robin).
+ */
+export function effectiveQueuedRunTimestampMs(run: Pick<QueuedRunFairCandidate, "createdAt" | "agentLastStartedAt" | "agentLastFinishedAt">): number {
+  const createdMs = toTimestampMs(run.createdAt, 0);
+  const lastStartedMs = toTimestampMs(run.agentLastStartedAt, -Infinity);
+  const lastFinishedMs = toTimestampMs(run.agentLastFinishedAt, -Infinity);
+  return Math.max(createdMs, lastStartedMs, lastFinishedMs);
+}
+
+export function isQueuedRunStarved(
+  run: Pick<QueuedRunFairCandidate, "createdAt" | "agentLastStartedAt" | "agentLastFinishedAt">,
+  config: Pick<FleetThrottleConfig, "fairWaitMaxMin">,
+  nowMs: number = Date.now(),
+): boolean {
+  if (config.fairWaitMaxMin <= 0) return false;
+  const ceilingMs = config.fairWaitMaxMin * 60_000;
+  return nowMs - effectiveQueuedRunTimestampMs(run) >= ceilingMs;
+}
+
+/** Claim order for queued runs: timer runs first (rule 4), then fair round-robin + starvation ceiling (rule 5 / GEM-2211). */
+export function orderQueuedRunsForClaim<T extends QueuedRunFairCandidate>(
+  config: Pick<FleetThrottleConfig, "timerPriority" | "fairOrder" | "fairWaitMaxMin">,
   runs: T[],
+  nowMs: number = Date.now(),
 ): T[] {
   const rank = (run: T) => (config.timerPriority && run.invocationSource === "timer" ? 0 : 1);
   return runs
     .map((run, index) => ({ run, index }))
-    .sort((a, b) =>
-      rank(a.run) - rank(b.run) ||
-      a.run.createdAt.getTime() - b.run.createdAt.getTime() ||
-      a.index - b.index,
-    )
+    .sort((a, b) => {
+      const rankDiff = rank(a.run) - rank(b.run);
+      if (rankDiff !== 0) return rankDiff;
+
+      const aIsTimer = rank(a.run) === 0;
+      if (!config.fairOrder || aIsTimer) {
+        return (
+          toTimestampMs(a.run.createdAt, 0) - toTimestampMs(b.run.createdAt, 0) ||
+          a.index - b.index
+        );
+      }
+
+      const aStarved = isQueuedRunStarved(a.run, config, nowMs);
+      const bStarved = isQueuedRunStarved(b.run, config, nowMs);
+      if (aStarved !== bStarved) return aStarved ? -1 : 1;
+
+      const aEffective = effectiveQueuedRunTimestampMs(a.run);
+      const bEffective = effectiveQueuedRunTimestampMs(b.run);
+      const aLastStarted = toTimestampMs(a.run.agentLastStartedAt, -Infinity);
+      const bLastStarted = toTimestampMs(b.run.agentLastStartedAt, -Infinity);
+
+      if (aStarved && bStarved) {
+        if (aLastStarted !== bLastStarted) return aLastStarted - bLastStarted;
+        if (aEffective !== bEffective) return aEffective - bEffective;
+      } else {
+        if (aEffective !== bEffective) return aEffective - bEffective;
+        if (aLastStarted !== bLastStarted) return aLastStarted - bLastStarted;
+      }
+
+      return (
+        toTimestampMs(a.run.createdAt, 0) - toTimestampMs(b.run.createdAt, 0) ||
+        a.index - b.index
+      );
+    })
     .map((entry) => entry.run);
 }
 

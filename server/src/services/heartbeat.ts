@@ -25,6 +25,7 @@ import { HEARTBEAT_SKIP_STATUSES, isHeartbeatSkipped } from "./heartbeat-eligibi
 import {
   computeAgentHeartbeatJitterMs,
   computeJitteredDueAtMs,
+  effectiveQueuedRunTimestampMs,
   evaluateFleetClaim,
   fleetWindowStart,
   isFleetClaimGateEnabled,
@@ -2027,7 +2028,8 @@ export function heartbeatService(db: Db) {
         await tx.execute(
           sql`select pg_advisory_xact_lock(hashtext(${`paperclip:fleet-claim:${run.companyId}`}))`,
         );
-        const windowStart = fleetWindowStart(new Date(), fleet.startWindowMs);
+        const now = new Date();
+        const windowStart = fleetWindowStart(now, fleet.startWindowMs);
         const [counts] = await tx
           .select({
             running: sql<number>`count(*) filter (where ${heartbeatRuns.status} = 'running')`,
@@ -2062,12 +2064,94 @@ export function heartbeatService(db: Db) {
             );
           pendingTimerRuns = Number(pending?.count ?? 0);
         }
-        // Rule 5 (GEM-1996): older claimable non-timer runs of other agents go first, so
-        // an agent finishing a run cannot drain its own backlog into the freed slot.
+        // Rule 5 (GEM-1996 + GEM-2211): older claimable non-timer runs of other agents go first,
+        // measured from max(createdAt, agentLastStartedAt, agentLastFinishedAt) so an agent
+        // draining a batch of N assignments yields after each run instead of monopolizing slots
+        // behind its early batch createdAt; runs exceeding fairWaitMaxMin yield by lastStartedAt.
         let olderClaimableRuns = 0;
         if (fleet.fairOrder && run.invocationSource !== "timer") {
+          const [claimingHistory] = await tx
+            .select({
+              lastStartedAt: sql<Date | string | null>`max(${heartbeatRuns.startedAt})`,
+              lastFinishedAt: sql<Date | string | null>`max(coalesce(${heartbeatRuns.finishedAt}, ${heartbeatRuns.startedAt}))`,
+            })
+            .from(heartbeatRuns)
+            .where(
+              and(
+                eq(heartbeatRuns.companyId, run.companyId),
+                eq(heartbeatRuns.agentId, run.agentId),
+                sql`${heartbeatRuns.startedAt} is not null`,
+              ),
+            );
+          const claimingLastStartedMs = claimingHistory?.lastStartedAt
+            ? new Date(claimingHistory.lastStartedAt).getTime()
+            : null;
+          const claimingEffectiveCreatedAt = new Date(
+            effectiveQueuedRunTimestampMs({
+              createdAt: run.createdAt,
+              agentLastStartedAt: claimingHistory?.lastStartedAt ?? null,
+              agentLastFinishedAt: claimingHistory?.lastFinishedAt ?? null,
+            }),
+          );
+          const claimingEffectiveIso = claimingEffectiveCreatedAt.toISOString();
+          const starvationCutoff =
+            fleet.fairWaitMaxMin > 0
+              ? new Date(now.getTime() - fleet.fairWaitMaxMin * 60_000)
+              : null;
+          const claimingIsStarved =
+            starvationCutoff !== null &&
+            claimingEffectiveCreatedAt.getTime() <= starvationCutoff.getTime();
+          const claimingLastStartedIso =
+            claimingLastStartedMs !== null && Number.isFinite(claimingLastStartedMs)
+              ? new Date(claimingLastStartedMs).toISOString()
+              : null;
+
+          const otherEffectiveCreatedAtSql = sql`greatest(
+            ${heartbeatRuns.createdAt},
+            coalesce((
+              select max(coalesce(prev.finished_at, prev.started_at))
+              from heartbeat_runs prev
+              where prev.company_id = ${heartbeatRuns.companyId}
+                and prev.agent_id = ${heartbeatRuns.agentId}
+                and prev.started_at is not null
+            ), ${heartbeatRuns.createdAt})
+          )`;
+          const otherLastStartedAtSql = sql`(
+            select max(prev.started_at)
+            from heartbeat_runs prev
+            where prev.company_id = ${heartbeatRuns.companyId}
+              and prev.agent_id = ${heartbeatRuns.agentId}
+              and prev.started_at is not null
+          )`;
+
+          let priorityPredicate;
+          if (claimingIsStarved && starvationCutoff) {
+            const cutoffIso = starvationCutoff.toISOString();
+            const earlierStartPredicate = claimingLastStartedIso
+              ? sql`(${otherLastStartedAtSql} is null or ${otherLastStartedAtSql} < ${claimingLastStartedIso}::timestamptz)`
+              : sql`false`;
+            const tieLastStartedPredicate = claimingLastStartedIso
+              ? sql`${otherLastStartedAtSql} = ${claimingLastStartedIso}::timestamptz`
+              : sql`${otherLastStartedAtSql} is null`;
+            priorityPredicate = sql`(
+              ${otherEffectiveCreatedAtSql} <= ${cutoffIso}::timestamptz
+              and (
+                ${earlierStartPredicate}
+                or (${tieLastStartedPredicate} and ${otherEffectiveCreatedAtSql} < ${claimingEffectiveIso}::timestamptz)
+              )
+            )`;
+          } else {
+            const tieLastStartedPredicate = claimingLastStartedIso
+              ? sql`(${otherLastStartedAtSql} is null or ${otherLastStartedAtSql} < ${claimingLastStartedIso}::timestamptz)`
+              : sql`false`;
+            priorityPredicate = sql`(
+              ${otherEffectiveCreatedAtSql} < ${claimingEffectiveIso}::timestamptz
+              or (${otherEffectiveCreatedAtSql} = ${claimingEffectiveIso}::timestamptz and ${tieLastStartedPredicate})
+            )`;
+          }
+
           const [older] = await tx
-            .select({ count: sql<number>`count(*)` })
+            .select({ count: sql<number>`count(distinct ${heartbeatRuns.agentId})` })
             .from(heartbeatRuns)
             .innerJoin(agents, eq(agents.id, heartbeatRuns.agentId))
             .where(
@@ -2076,7 +2160,7 @@ export function heartbeatService(db: Db) {
                 eq(heartbeatRuns.status, "queued"),
                 sql`${heartbeatRuns.invocationSource} is distinct from 'timer'`,
                 sql`${heartbeatRuns.agentId} <> ${run.agentId}`,
-                sql`${heartbeatRuns.createdAt} < ${run.createdAt.toISOString()}::timestamptz`,
+                priorityPredicate,
                 notInArray(agents.status, [...HEARTBEAT_SKIP_STATUSES]),
                 sql`not exists (select 1 from heartbeat_runs inflight where inflight.agent_id = ${heartbeatRuns.agentId} and inflight.status = 'running')`,
               ),
@@ -2600,14 +2684,28 @@ export function heartbeatService(db: Db) {
           agentId: heartbeatRuns.agentId,
           invocationSource: heartbeatRuns.invocationSource,
           createdAt: heartbeatRuns.createdAt,
+          agentLastStartedAt: sql<Date | string | null>`(
+            select max(prev.started_at)
+            from heartbeat_runs prev
+            where prev.company_id = ${heartbeatRuns.companyId}
+              and prev.agent_id = ${heartbeatRuns.agentId}
+              and prev.started_at is not null
+          )`,
+          agentLastFinishedAt: sql<Date | string | null>`(
+            select max(coalesce(prev.finished_at, prev.started_at))
+            from heartbeat_runs prev
+            where prev.company_id = ${heartbeatRuns.companyId}
+              and prev.agent_id = ${heartbeatRuns.agentId}
+              and prev.started_at is not null
+          )`,
         })
         .from(heartbeatRuns)
         .where(eq(heartbeatRuns.status, "queued"))
-        // Fleet throttle fairness: the agent whose run has waited longest goes first.
+        // Fleet throttle fairness: orderQueuedRunsForClaim re-ranks by timerPriority + effective round-robin + fairWaitMaxMin.
         .orderBy(asc(heartbeatRuns.createdAt)),
     );
 
-    // Rule 4 (GEM-1413): agents holding a queued timer run are drained before backlogs.
+    // Rule 4 (GEM-1413) + Rule 5 (GEM-2211): timer runs first, then round-robin by effective wait & lastStartedAt.
     const ordered = orderQueuedRunsForClaim(readFleetThrottleConfig(), queuedRuns);
     const agentIds = [...new Set(ordered.map((r) => r.agentId))];
     let spawnedPrevious = false;

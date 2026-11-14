@@ -21,8 +21,10 @@ import {
   computeJitteredDueAtMs,
   coalescedTimerPromotion,
   computeSchedulerInitialTickDelayMs,
+  effectiveQueuedRunTimestampMs,
   evaluateFleetClaim,
   fleetWindowStart,
+  isQueuedRunStarved,
   orderQueuedRunsForClaim,
   orderTimerCandidatesFairly,
   readFleetThrottleConfig,
@@ -45,6 +47,7 @@ const FLEET_ENV_KEYS = [
   "PAPERCLIP_FLEET_TIMER_RESERVED_SLOTS",
   "PAPERCLIP_HEARTBEAT_JITTER_MAX_SEC",
   "PAPERCLIP_FLEET_FAIR_ORDER",
+  "PAPERCLIP_FLEET_FAIR_WAIT_MAX_MIN",
   "PAPERCLIP_RESTART_DRAIN_FLAG",
   "PAPERCLIP_RESTART_DRAIN_FLAG_TTL_SEC",
 ] as const;
@@ -69,13 +72,82 @@ describe("fleet throttle pure helpers", () => {
     expect(isRestartDrainActive(now, { ...env, PAPERCLIP_RESTART_DRAIN_FLAG_TTL_SEC: "0" }, at(now))).toBe(false);
   });
 
-  it("defaults to 2 running / 2 starts per 10 min / 3 timer wakes per hour / 30s jitter", () => {
+  it("defaults to 3 running / 2 starts per 10 min / 3 timer wakes per hour / 30s jitter / 60m fairWaitMaxMin", () => {
     const cfg = readFleetThrottleConfig({});
     expect(cfg.maxRunning).toBe(3);
     expect(cfg.startsPerWindow).toBe(2);
     expect(cfg.timerWakesPerHour).toBe(3);
     expect(cfg.timerExemptAgents.size).toBe(0);
     expect(cfg.heartbeatJitterMaxSec).toBe(30);
+    expect(cfg.fairWaitMaxMin).toBe(60);
+    expect(readFleetThrottleConfig({ PAPERCLIP_FLEET_FAIR_WAIT_MAX_MIN: "45" }).fairWaitMaxMin).toBe(45);
+    expect(readFleetThrottleConfig({ PAPERCLIP_FLEET_FAIR_WAIT_MAX_MIN: "0" }).fairWaitMaxMin).toBe(0);
+  });
+
+  it("GEM-2211: effectiveQueuedRunTimestampMs and orderQueuedRunsForClaim yield batch backlogs after agent finish", () => {
+    const cfg = readFleetThrottleConfig({});
+    const nowMs = Date.parse("2026-11-14T10:30:00Z");
+
+    // Agent A received 5 assignments in a batch (08:27Z..09:33Z) and finished run 1 at 10:15Z.
+    // Agent B received an assignment at 09:55Z and has not started since 07:00Z.
+    const runs = [
+      {
+        id: "batch-a2",
+        invocationSource: "assignment",
+        createdAt: new Date("2026-11-14T08:40:00Z"),
+        agentLastStartedAt: new Date("2026-11-14T09:50:00Z"),
+        agentLastFinishedAt: new Date("2026-11-14T10:15:00Z"),
+      },
+      {
+        id: "batch-a3",
+        invocationSource: "assignment",
+        createdAt: new Date("2026-11-14T09:33:00Z"),
+        agentLastStartedAt: new Date("2026-11-14T09:50:00Z"),
+        agentLastFinishedAt: new Date("2026-11-14T10:15:00Z"),
+      },
+      {
+        id: "other-b1",
+        invocationSource: "assignment",
+        createdAt: new Date("2026-11-14T09:55:00Z"),
+        agentLastStartedAt: new Date("2026-11-14T07:00:00Z"),
+        agentLastFinishedAt: new Date("2026-11-14T07:20:00Z"),
+      },
+    ];
+
+    expect(effectiveQueuedRunTimestampMs(runs[0]!)).toBe(Date.parse("2026-11-14T10:15:00Z"));
+    expect(effectiveQueuedRunTimestampMs(runs[2]!)).toBe(Date.parse("2026-11-14T09:55:00Z"));
+    expect(isQueuedRunStarved(runs[2]!, cfg, Date.parse("2026-11-14T11:00:00Z"))).toBe(true);
+    expect(isQueuedRunStarved(runs[0]!, cfg, Date.parse("2026-11-14T11:00:00Z"))).toBe(false);
+
+    // Agent B must go ahead of Agent A's remaining batch runs, not behind A2 (08:40Z) and A3 (09:33Z).
+    expect(orderQueuedRunsForClaim(cfg, runs, nowMs).map((r) => r.id)).toEqual([
+      "other-b1",
+      "batch-a2",
+      "batch-a3",
+    ]);
+
+    // When both are starved (>= 60m idle wait), agent whose lastStartedAt is oldest (or null) goes first.
+    const lateNowMs = Date.parse("2026-11-14T12:00:00Z");
+    const starvedTie = [
+      {
+        id: "recent-start-earlier-finish",
+        invocationSource: "automation",
+        createdAt: new Date("2026-11-14T09:40:00Z"),
+        agentLastStartedAt: new Date("2026-11-14T09:30:00Z"),
+        agentLastFinishedAt: new Date("2026-11-14T09:40:00Z"),
+      },
+      {
+        id: "never-started-later-queue",
+        invocationSource: "assignment",
+        createdAt: new Date("2026-11-14T10:00:00Z"),
+        agentLastStartedAt: null,
+        agentLastFinishedAt: null,
+      },
+    ];
+    expect(orderQueuedRunsForClaim(cfg, starvedTie, lateNowMs).map((r) => r.id)).toEqual([
+      "never-started-later-queue",
+      "recent-start-earlier-finish",
+    ]);
   });
 
   it("aligns windows to Asia/Ho_Chi_Minh wall clock", () => {
@@ -590,6 +662,106 @@ describeEmbeddedPostgres("heartbeat fleet throttle (company-wide)", () => {
     await svc.resumeQueuedRuns();
     const running = await db.select({ id: heartbeatRuns.id }).from(heartbeatRuns).where(eq(heartbeatRuns.status, "running"));
     expect(running.map((r) => r.id)).toEqual([waiterRunId]);
+  }, 60_000);
+
+  it("GEM-2211 rule 5: agent with a 5-assignment batch yields slot after finishing run 1 instead of starving later agent", async () => {
+    setFleetEnv({
+      PAPERCLIP_FLEET_MAX_RUNNING: "1",
+      PAPERCLIP_FLEET_STARTS_PER_10MIN: "0",
+      PAPERCLIP_FLEET_TIMER_RESERVED_SLOTS: "0",
+      PAPERCLIP_FLEET_FAIR_WAIT_MAX_MIN: "60",
+    });
+    const companyId = await seedCompany();
+    const batchAgent = await seedAgent(companyId, "Batch Engineer");
+    const otherAgent = await seedAgent(companyId, "Pinterest Pin Officer");
+
+    const nowMs = Date.now();
+    // Run 1 of the batch ran from now-30m to now-2m (succeeded).
+    await db.insert(heartbeatRuns).values({
+      id: randomUUID(),
+      companyId,
+      agentId: batchAgent,
+      invocationSource: "assignment",
+      triggerDetail: "system",
+      status: "succeeded",
+      createdAt: new Date(nowMs - 100 * 60_000),
+      startedAt: new Date(nowMs - 30 * 60_000),
+      finishedAt: new Date(nowMs - 2 * 60_000),
+      contextSnapshot: {},
+    });
+    // Remaining 4 batch runs were created early (now-95m..now-50m), BEFORE otherAgent's assignment (now-25m).
+    for (const minsAgo of [95, 80, 65, 50]) {
+      await seedQueuedRun(companyId, batchAgent, "assignment", new Date(nowMs - minsAgo * 60_000));
+    }
+    const otherRunId = await seedQueuedRun(companyId, otherAgent, "assignment", new Date(nowMs - 25 * 60_000));
+
+    // Direct self-drain on batchAgent (wakeup → startNextQueuedRunForAgent) must yield to otherAgent,
+    // because batchAgent just finished at now-2m while otherAgent has been idle-waiting since now-25m.
+    await svc.wakeup(batchAgent, { source: "assignment", triggerDetail: "system" }).catch(() => undefined);
+    const afterSelfDrain = await db
+      .select({ id: heartbeatRuns.id, agentId: heartbeatRuns.agentId })
+      .from(heartbeatRuns)
+      .where(eq(heartbeatRuns.status, "running"));
+    expect(afterSelfDrain.filter((r) => r.agentId === batchAgent)).toEqual([]);
+
+    // Recovery / queue resume must claim otherAgent's run into the free slot first.
+    await svc.resumeQueuedRuns();
+    const afterResume = await db
+      .select({ id: heartbeatRuns.id })
+      .from(heartbeatRuns)
+      .where(eq(heartbeatRuns.status, "running"));
+    expect(afterResume.map((r) => r.id)).toEqual([otherRunId]);
+
+    // Starvation ceiling tie-break: when two idle agents have waited >= fairWaitMaxMin (60m),
+    // the never-started (or oldest-started) agent claims ahead of an agent that started more recently
+    // even if the more-recently-started agent's effective timestamp is slightly earlier.
+    await svc.cancelRun(otherRunId).catch(() => undefined);
+    runningProcesses.clear();
+    const recentlyStartedAgent = await seedAgent(companyId, "Recent Starved");
+    const neverStartedAgent = await seedAgent(companyId, "Never Started Starved");
+    await db.insert(heartbeatRuns).values({
+      id: randomUUID(),
+      companyId,
+      agentId: recentlyStartedAgent,
+      invocationSource: "assignment",
+      triggerDetail: "system",
+      status: "succeeded",
+      createdAt: new Date(nowMs - 120 * 60_000),
+      startedAt: new Date(nowMs - 90 * 60_000),
+      finishedAt: new Date(nowMs - 80 * 60_000),
+      contextSnapshot: {},
+    });
+    const recentStarvedRunId = await seedQueuedRun(
+      companyId,
+      recentlyStartedAgent,
+      "assignment",
+      new Date(nowMs - 110 * 60_000),
+    );
+    const neverStartedRunId = await seedQueuedRun(
+      companyId,
+      neverStartedAgent,
+      "assignment",
+      new Date(nowMs - 70 * 60_000),
+    );
+    // Pause batchAgent & otherAgent so only the two starved candidates compete here.
+    await db.update(agents).set({ status: "paused" }).where(eq(agents.id, batchAgent));
+    await db.update(agents).set({ status: "paused" }).where(eq(agents.id, otherAgent));
+
+    // Self-drain on recentlyStartedAgent must yield to neverStartedAgent under fairWaitMaxMin ceiling.
+    await svc.wakeup(recentlyStartedAgent, { source: "assignment", triggerDetail: "system" }).catch(() => undefined);
+    const runningAfterRecentWake = await db
+      .select({ id: heartbeatRuns.id, agentId: heartbeatRuns.agentId })
+      .from(heartbeatRuns)
+      .where(eq(heartbeatRuns.status, "running"));
+    expect(runningAfterRecentWake.filter((r) => r.agentId === recentlyStartedAgent)).toEqual([]);
+
+    await svc.resumeQueuedRuns();
+    const winner = await db
+      .select({ id: heartbeatRuns.id })
+      .from(heartbeatRuns)
+      .where(eq(heartbeatRuns.status, "running"));
+    expect(winner.map((r) => r.id)).toEqual([neverStartedRunId]);
+    expect(recentStarvedRunId).not.toBe(neverStartedRunId);
   }, 60_000);
 
   it("GEM-1996 rule 5: an older run of a BUSY agent does not block other agents", async () => {
