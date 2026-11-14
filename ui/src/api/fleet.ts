@@ -9,6 +9,8 @@ export interface FleetStatus {
   queued: number;
   oldestQueuedAt: string | null;
   maxRunning: number;
+  /** Issues whose run the pause cancelled and that resume will hand back. */
+  pendingRequeue: number;
 }
 
 export const fleetApi = {
@@ -16,7 +18,7 @@ export const fleetApi = {
   pause: (companyId: string) =>
     api.post<{ paused: number; cancelledRuns: number; status: FleetStatus }>(`/companies/${companyId}/fleet/pause`, {}),
   resume: (companyId: string) =>
-    api.post<{ resumed: number; status: FleetStatus }>(`/companies/${companyId}/fleet/resume`, {}),
+    api.post<{ resumed: number; requeued: number; status: FleetStatus }>(`/companies/${companyId}/fleet/resume`, {}),
 };
 
 /** Pause/resume/cancel touches agents, runs and dashboard counts — refresh every view that shows them. */

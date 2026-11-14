@@ -51,6 +51,9 @@ import { redactCurrentUserValue } from "../log-redaction.js";
 import { renderOrgChartSvg, renderOrgChartPng, type OrgNode, type OrgChartStyle, ORG_CHART_STYLES } from "./org-chart-svg.js";
 import { instanceSettingsService } from "../services/instance-settings.js";
 import { fleetPauseService } from "../services/fleet-pause.js";
+import { logger } from "../middleware/logger.js";
+
+const FLEET_WAKE_SOURCES = ["timer", "assignment", "on_demand", "automation"] as const;
 import { runClaudeLogin } from "@paperclipai/adapter-claude-local/server";
 import {
   DEFAULT_CODEX_LOCAL_BYPASS_APPROVALS_AND_SANDBOX,
@@ -1995,7 +1998,26 @@ export function agentRoutes(db: Db) {
     const companyId = req.params.companyId as string;
     assertCompanyAccess(req, companyId);
     const ids = await fleetPause.fleetPausedAgentIds(companyId);
+    // Pick the work the pause cut off BEFORE resume clears pausedAt (the window anchor).
+    const toRequeue = await fleetPause.runsToRequeue(companyId);
     for (const id of ids) await svc.resume(id);
+    let requeued = 0;
+    for (const run of toRequeue) {
+      try {
+        await heartbeat.wakeup(run.agentId, {
+          source: FLEET_WAKE_SOURCES.find((s) => s === run.invocationSource) ?? "assignment",
+          triggerDetail: "system",
+          reason: "fleet_resume_requeue",
+          contextSnapshot: { ...(run.contextSnapshot ?? {}), fleetResumeOfRunId: run.id },
+          idempotencyKey: `fleet-resume:${run.id}`,
+          requestedByActorType: "user",
+          requestedByActorId: req.actor.userId ?? "board",
+        });
+        requeued += 1;
+      } catch (err) {
+        logger.warn({ err, runId: run.id, agentId: run.agentId }, "fleet resume: requeue cancelled run failed");
+      }
+    }
     await logActivity(db, {
       companyId,
       actorType: "user",
@@ -2003,9 +2025,9 @@ export function agentRoutes(db: Db) {
       action: "fleet.resumed",
       entityType: "company",
       entityId: companyId,
-      details: { agentCount: ids.length },
+      details: { agentCount: ids.length, requeued, requeueCandidates: toRequeue.length },
     });
-    res.json({ resumed: ids.length, status: await fleetPause.status(companyId) });
+    res.json({ resumed: ids.length, requeued, status: await fleetPause.status(companyId) });
   });
 
   router.post("/agents/:id/terminate", async (req, res) => {

@@ -158,7 +158,12 @@ export function FleetControlBar({ companyId }: { companyId: string }) {
               )}
             </>
           ) : (
-            <p>{status.fleetPaused} agent bị nút này dừng sẽ chạy lại theo lịch kế tiếp (không chạy bù lượt đã lỡ).</p>
+            <>
+              <p>{status.fleetPaused} agent bị nút này dừng sẽ chạy lại theo lịch kế tiếp.</p>
+              {(status.pendingRequeue ?? 0) > 0 && (
+                <p>{status.pendingRequeue} việc bị huỷ lúc dừng sẽ được tự giao lại đúng agent cũ (việc đã xong hoặc đã đổi người làm thì bỏ qua).</p>
+              )}
+            </>
           )}
           {status.otherPaused > 0 && (
             <p className="text-xs text-muted-foreground">
