@@ -85,18 +85,21 @@ function documentHasUnsavedChanges(doc: IssueDocument, draft: DraftState | null)
  * @archetype form
  */
 export function IssueDocumentsSection({
-
   issue,
   canDeleteDocuments,
   mentions,
   imageUploadHandler,
   extraActions,
+  focusDocumentRequest,
+  newDocumentRequest,
 }: {
   issue: Issue;
   canDeleteDocuments: boolean;
   mentions?: MentionOption[];
   imageUploadHandler?: (file: File) => Promise<string>;
   extraActions?: ReactNode;
+  focusDocumentRequest?: { key: string; seq: number } | null;
+  newDocumentRequest?: number;
 }) {
   const [errors, setErrors] = useState({});
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -528,6 +531,47 @@ export function IssueDocumentsSection({
     return () => clearTimeout(timer);
   }, [issue.legacyPlanDocument, location.hash, sortedDocuments]);
 
+  const focusHighlightTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const lastFocusedSeqRef = useRef(0);
+  useEffect(() => {
+    if (!focusDocumentRequest) {
+      lastFocusedSeqRef.current = 0;
+      return;
+    }
+    if (focusDocumentRequest.seq === lastFocusedSeqRef.current) return;
+    const targetKey = focusDocumentRequest.key;
+    const targetExists = sortedDocuments.some((doc) => doc.key === targetKey)
+      || (targetKey === "plan" && Boolean(issue.legacyPlanDocument));
+    if (!targetExists) return;
+    lastFocusedSeqRef.current = focusDocumentRequest.seq;
+    setExpandedDocumentKeys((current) =>
+      current.includes(targetKey) ? current : [...current, targetKey],
+    );
+    setHighlightDocumentKey(targetKey);
+    requestAnimationFrame(() => {
+      const element = document.getElementById(`document-${targetKey}`);
+      element?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+    });
+    if (focusHighlightTimerRef.current) {
+      clearTimeout(focusHighlightTimerRef.current);
+    }
+    focusHighlightTimerRef.current = setTimeout(() => {
+      focusHighlightTimerRef.current = null;
+      setHighlightDocumentKey((current) => (current === targetKey ? null : current));
+    }, 3000);
+  }, [focusDocumentRequest, issue.legacyPlanDocument, sortedDocuments]);
+
+  const lastHandledNewDocumentRequestRef = useRef(0);
+  useEffect(() => {
+    if (!newDocumentRequest) {
+      lastHandledNewDocumentRequestRef.current = 0;
+      return;
+    }
+    if (newDocumentRequest <= lastHandledNewDocumentRequestRef.current) return;
+    lastHandledNewDocumentRequestRef.current = newDocumentRequest;
+    beginNewDocument();
+  }, [newDocumentRequest]); // eslint-disable-line react-hooks/exhaustive-deps
+
   useEffect(() => {
     return () => {
       if (autosaveDebounceRef.current) {
@@ -535,6 +579,9 @@ export function IssueDocumentsSection({
       }
       if (copiedDocumentTimerRef.current) {
         clearTimeout(copiedDocumentTimerRef.current);
+      }
+      if (focusHighlightTimerRef.current) {
+        clearTimeout(focusHighlightTimerRef.current);
       }
     };
   }, []);

@@ -19,7 +19,7 @@ import { formatDate, cn, projectUrl } from "../lib/utils";
 import { timeAgo } from "../lib/timeAgo";
 import { Separator } from "@/components/ui/separator";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { User, Hexagon, ArrowUpRight, Tag, Plus, Trash2, AlarmClock, X } from "lucide-react";
+import { User, Hexagon, ArrowUpRight, Tag, Plus, Trash2, AlarmClock, X, FileText } from "lucide-react";
 
 // datetime-local expects "YYYY-MM-DDTHH:mm" in the user's local timezone.
 function toDatetimeLocalValue(date: Date) {
@@ -50,6 +50,8 @@ interface IssuePropertiesProps {
   issue: Issue;
   onUpdate: (data: Record<string, unknown>) => void;
   inline?: boolean;
+  onOpenDocument?: (key: string) => void;
+  onNewDocument?: () => void;
 }
 
 function PropertyRow({ label, children }: { label: string; children: React.ReactNode }) {
@@ -123,7 +125,13 @@ function PropertyPicker({
   );
 }
 
-export function IssueProperties({ issue, onUpdate, inline }: IssuePropertiesProps) {
+export function IssueProperties({
+  issue,
+  onUpdate,
+  inline,
+  onOpenDocument,
+  onNewDocument,
+}: IssuePropertiesProps) {
   const { selectedCompanyId } = useCompany();
   const queryClient = useQueryClient();
   const companyId = issue.companyId ?? selectedCompanyId;
@@ -168,6 +176,37 @@ export function IssueProperties({ issue, onUpdate, inline }: IssuePropertiesProp
     queryKey: queryKeys.issues.labels(companyId!),
     queryFn: () => issuesApi.listLabels(companyId!),
     enabled: !!companyId,
+  });
+
+  const { data: documents } = useQuery({
+    queryKey: queryKeys.issues.documents(issue.id),
+    queryFn: () => issuesApi.listDocuments(issue.id),
+  });
+
+  const sortedDocuments = useMemo(() => {
+    const docs = [...(documents ?? [])];
+    docs.sort((a, b) => {
+      if (a.key === "plan" && b.key !== "plan") return -1;
+      if (a.key !== "plan" && b.key === "plan") return 1;
+      return new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime();
+    });
+    return docs;
+  }, [documents]);
+
+  const hasLegacyPlan = Boolean(
+    issue.legacyPlanDocument && !sortedDocuments.some((doc) => doc.key === "plan"),
+  );
+  const documentCount = sortedDocuments.length + (hasLegacyPlan ? 1 : 0);
+
+  const deleteDocument = useMutation({
+    mutationFn: (key: string) => issuesApi.deleteDocument(issue.id, key),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.issues.detail(issue.id) });
+      if (issue.identifier && issue.identifier !== issue.id) {
+        queryClient.invalidateQueries({ queryKey: queryKeys.issues.detail(issue.identifier) });
+      }
+      queryClient.invalidateQueries({ queryKey: queryKeys.issues.documents(issue.id) });
+    },
   });
 
   const createLabel = useMutation({
@@ -659,6 +698,81 @@ export function IssueProperties({ issue, onUpdate, inline }: IssuePropertiesProp
         <PropertyRow label="Updated">
           <span className="text-sm">{timeAgo(issue.updatedAt)}</span>
         </PropertyRow>
+      </div>
+
+      <Separator />
+
+      <div className="space-y-2">
+        <div className="flex items-center justify-between gap-2">
+          <span className="text-xs font-medium text-muted-foreground">
+            Documents{documentCount > 0 ? ` (${documentCount})` : ""}
+          </span>
+          {onNewDocument && (
+            <button
+              type="button"
+              onClick={onNewDocument}
+              className="inline-flex h-6 w-6 items-center justify-center rounded text-muted-foreground hover:bg-accent/60 hover:text-foreground transition-colors"
+              title="New document"
+              aria-label="New document"
+            >
+              <Plus className="h-3.5 w-3.5" />
+            </button>
+          )}
+        </div>
+
+        {documentCount === 0 ? (
+          <p className="text-xs text-muted-foreground">No documents</p>
+        ) : (
+          <div className="space-y-1">
+            {hasLegacyPlan && (
+              <div className="flex items-center gap-1.5 rounded px-1.5 py-1 hover:bg-accent/50 transition-colors">
+                <button
+                  type="button"
+                  onClick={() => onOpenDocument?.("plan")}
+                  className="flex min-w-0 flex-1 items-center gap-1.5 text-left text-xs text-foreground"
+                  title="plan"
+                >
+                  <FileText className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                  <span className="font-mono text-[10px] uppercase tracking-wider text-muted-foreground shrink-0">
+                    PLAN
+                  </span>
+                  <span className="truncate">Legacy plan</span>
+                </button>
+              </div>
+            )}
+            {sortedDocuments.map((doc) => {
+              const label = doc.title?.trim() || doc.key;
+              return (
+                <div
+                  key={doc.id}
+                  className="group flex items-center gap-1 rounded px-1.5 py-1 hover:bg-accent/50 transition-colors"
+                >
+                  <button
+                    type="button"
+                    onClick={() => onOpenDocument?.(doc.key)}
+                    className="flex min-w-0 flex-1 items-center gap-1.5 text-left text-xs text-foreground"
+                    title={doc.title ? `${doc.title} (${doc.key})` : doc.key}
+                  >
+                    <FileText className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                    <span className="truncate">{label}</span>
+                  </button>
+                  {Boolean(currentUserId) && (
+                    <button
+                      type="button"
+                      onClick={() => deleteDocument.mutate(doc.key)}
+                      disabled={deleteDocument.isPending}
+                      className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded text-muted-foreground hover:bg-destructive/10 hover:text-destructive transition-colors disabled:opacity-50"
+                      title={`Delete ${label}`}
+                      aria-label={`Delete ${label}`}
+                    >
+                      <Trash2 className="h-3.5 w-3.5" />
+                    </button>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        )}
       </div>
     </div>
   );

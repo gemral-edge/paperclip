@@ -55,6 +55,7 @@ import {
   ChevronUp,
   Copy,
   EyeOff,
+  FileText,
   Hexagon,
   ListTree,
   MessageSquare,
@@ -222,6 +223,8 @@ export function IssueDetail() {
   const [copied, setCopied] = useState(false);
   const [mobilePropsOpen, setMobilePropsOpen] = useState(false);
   const [detailTab, setDetailTab] = useState("comments");
+  const [focusDocumentRequest, setFocusDocumentRequest] = useState<{ key: string; seq: number } | null>(null);
+  const [newDocumentRequest, setNewDocumentRequest] = useState(0);
   const [secondaryOpen, setSecondaryOpen] = useState({
     approvals: false,
   });
@@ -300,6 +303,20 @@ export function IssueDetail() {
     queryFn: () => issuesApi.listAttachments(issueId!),
     enabled: !!issueId,
   });
+
+  const { data: issueDocuments } = useQuery({
+    queryKey: queryKeys.issues.documents(issue?.id ?? ""),
+    queryFn: () => issuesApi.listDocuments(issue!.id),
+    enabled: Boolean(issue?.id),
+  });
+
+  const issueDocumentCount = useMemo(() => {
+    const docs = issueDocuments ?? issue?.documentSummaries ?? [];
+    const hasLegacyPlan = Boolean(
+      issue?.legacyPlanDocument && !docs.some((doc) => doc.key === "plan"),
+    );
+    return docs.length + (hasLegacyPlan ? 1 : 0);
+  }, [issue?.documentSummaries, issue?.legacyPlanDocument, issueDocuments]);
 
   const { data: liveRuns } = useQuery({
     queryKey: queryKeys.issues.liveRuns(issueId!),
@@ -569,6 +586,9 @@ export function IssueDetail() {
     queryClient.invalidateQueries({ queryKey: queryKeys.issues.approvals(issueId!) });
     queryClient.invalidateQueries({ queryKey: queryKeys.issues.attachments(issueId!) });
     queryClient.invalidateQueries({ queryKey: queryKeys.issues.documents(issueId!) });
+    if (issue?.id && issue.id !== issueId) {
+      queryClient.invalidateQueries({ queryKey: queryKeys.issues.documents(issue.id) });
+    }
     queryClient.invalidateQueries({ queryKey: queryKeys.issues.liveRuns(issueId!) });
     queryClient.invalidateQueries({ queryKey: queryKeys.issues.activeRun(issueId!) });
     if (selectedCompanyId) {
@@ -872,10 +892,40 @@ export function IssueDetail() {
     markIssueRead.mutate(issue.id);
   }, [issue?.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  const handleOpenDocument = (key: string) => {
+    setDetailTab("documents");
+    setFocusDocumentRequest((current) => ({
+      key,
+      seq: (current?.seq ?? 0) + 1,
+    }));
+  };
+
+  const handleNewDocument = () => {
+    setDetailTab("documents");
+    setNewDocumentRequest((current) => current + 1);
+  };
+
+  useEffect(() => {
+    setFocusDocumentRequest(null);
+    setNewDocumentRequest(0);
+    setDetailTab(location.hash.startsWith("#document-") ? "documents" : "comments");
+  }, [issueId]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    if (location.hash.startsWith("#document-")) {
+      setDetailTab("documents");
+    }
+  }, [location.hash]);
+
   useEffect(() => {
     if (issue) {
       openPanel(
-        <IssueProperties issue={issue} onUpdate={(data) => updateIssue.mutate(data)} />
+        <IssueProperties
+          issue={issue}
+          onUpdate={(data) => updateIssue.mutate(data)}
+          onOpenDocument={handleOpenDocument}
+          onNewDocument={handleNewDocument}
+        />
       );
     }
     return () => closePanel();
@@ -936,7 +986,28 @@ export function IssueDetail() {
   const attachmentList = attachments ?? [];
   const hasAttachments = attachmentList.length > 0;
   const attachmentUploadButton = (
-    <>
+    <Button
+      variant="outline"
+      size="sm"
+      onClick={() => fileInputRef.current?.click()}
+      disabled={uploadAttachment.isPending || importMarkdownDocument.isPending}
+      className={cn(
+        "shadow-none",
+        attachmentDragActive && "border-primary bg-primary/5",
+      )}
+    >
+      <Paperclip className="h-3.5 w-3.5 mr-1.5" />
+      {uploadAttachment.isPending || importMarkdownDocument.isPending ? "Uploading..." : (
+        <>
+          <span className="hidden sm:inline">Upload attachment</span>
+          <span className="sm:hidden">Upload</span>
+        </>
+      )}
+    </Button>
+  );
+
+  return (
+    <div className="w-full max-w-3xl space-y-6">
       <input
         ref={fileInputRef}
         type="file"
@@ -945,30 +1016,6 @@ export function IssueDetail() {
         onChange={handleFilePicked}
         multiple
       />
-      <Button
-        variant="outline"
-        size="sm"
-        onClick={() => fileInputRef.current?.click()}
-        disabled={uploadAttachment.isPending || importMarkdownDocument.isPending}
-        className={cn(
-          "shadow-none",
-          attachmentDragActive && "border-primary bg-primary/5",
-        )}
-      >
-        <Paperclip className="h-3.5 w-3.5 mr-1.5" />
-        {uploadAttachment.isPending || importMarkdownDocument.isPending ? "Uploading..." : (
-          <>
-            <span className="hidden sm:inline">Upload attachment</span>
-            <span className="sm:hidden">Upload</span>
-          </>
-        )}
-      </Button>
-    </>
-  );
-
-  return (
-    <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_minmax(340px,420px)] xl:grid-cols-[minmax(0,1fr)_minmax(380px,480px)] gap-6 items-start">
-      <div className="min-w-0 max-w-2xl space-y-6">
       {/* Parent chain breadcrumb */}
       {ancestors.length > 0 && (
         <nav className="flex items-center gap-1 text-xs text-muted-foreground flex-wrap">
@@ -1225,17 +1272,117 @@ export function IssueDetail() {
         missingBehavior="placeholder"
       />
 
+      {hasAttachments ? (
+        <Collapsible
+          className={cn(
+            "space-y-3 rounded-lg transition-colors border border-border p-3",
+          )}
+          defaultOpen={true}
+        >
+          <div
+            className="flex flex-col gap-3"
+            onDragEnter={(evt) => {
+              evt.preventDefault();
+              setAttachmentDragActive(true);
+            }}
+            onDragOver={(evt) => {
+              evt.preventDefault();
+              setAttachmentDragActive(true);
+            }}
+            onDragLeave={(evt) => {
+              if (evt.currentTarget.contains(evt.relatedTarget as Node | null)) return;
+              setAttachmentDragActive(false);
+            }}
+            onDrop={(evt) => void handleAttachmentDrop(evt)}
+          >
+            <div className="flex items-center justify-between gap-2">
+              <CollapsibleTrigger className="flex items-center gap-2 group outline-none cursor-pointer">
+                <ChevronRight className="h-4 w-4 transition-transform group-data-[state=open]:rotate-90 text-muted-foreground" />
+                <h3 className="text-sm font-medium text-muted-foreground group-hover:text-foreground transition-colors">Attachments ({attachmentList.length})</h3>
+              </CollapsibleTrigger>
+              {attachmentUploadButton}
+            </div>
+
+            {attachmentError && (
+              <p className="text-xs text-destructive">{attachmentError}</p>
+            )}
+
+            <CollapsibleContent>
+              <div className="space-y-2 mt-2">
+                {attachmentList.map((attachment) => (
+                  <div key={attachment.id} className="border border-border rounded-md p-2">
+                    <div className="flex items-center justify-between gap-2">
+                      <a
+                        href={attachment.contentPath}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="text-xs hover:underline truncate"
+                        title={attachment.originalFilename ?? attachment.id}
+                      >
+                        {attachment.originalFilename ?? attachment.id}
+                      </a>
+                      <button
+                        type="button"
+                        className="text-muted-foreground hover:text-destructive"
+                        onClick={() => deleteAttachment.mutate(attachment.id)}
+                        disabled={deleteAttachment.isPending}
+                        title="Delete attachment"
+                      >
+                        <Trash2 className="h-3.5 w-3.5" />
+                      </button>
+                    </div>
+                    <p className="text-[11px] text-muted-foreground">
+                      {attachment.contentType} · {(attachment.byteSize / 1024).toFixed(1)} KB
+                    </p>
+                    {isImageAttachment(attachment) && (
+                      <a href={attachment.contentPath} target="_blank" rel="noreferrer">
+                        <img
+                          src={attachment.contentPath}
+                          alt={attachment.originalFilename ?? "attachment"}
+                          className="mt-2 max-h-56 rounded border border-border object-contain bg-accent/10"
+                          loading="lazy"
+                        />
+                      </a>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </CollapsibleContent>
+          </div>
+        </Collapsible>
+      ) : null}
+
+      <IssueWorkspaceCard
+        issue={issue}
+        project={orderedProjects.find((p) => p.id === issue.projectId) ?? null}
+        onUpdate={(data) => updateIssue.mutate(data)}
+      />
+
       <Separator />
 
-      <Tabs value={detailTab} onValueChange={setDetailTab} className="space-y-3">
+      <Tabs
+        value={detailTab}
+        onValueChange={(value) => {
+          setDetailTab(value);
+          if (value !== "documents") {
+            setFocusDocumentRequest(null);
+            setNewDocumentRequest(0);
+          }
+        }}
+        className="space-y-3"
+      >
         <TabsList variant="line" className="w-full justify-start gap-1">
           <TabsTrigger value="comments" className="gap-1.5">
             <MessageSquare className="h-3.5 w-3.5" />
             Comments
           </TabsTrigger>
+          <TabsTrigger value="documents" className="gap-1.5">
+            <FileText className="h-3.5 w-3.5" />
+            {issueDocumentCount > 0 ? `Documents (${issueDocumentCount})` : "Documents"}
+          </TabsTrigger>
           <TabsTrigger value="subissues" className="gap-1.5">
             <ListTree className="h-3.5 w-3.5" />
-            Sub-issues
+            {childIssues.length > 0 ? `Sub-issues (${childIssues.length})` : "Sub-issues"}
           </TabsTrigger>
           <TabsTrigger value="activity" className="gap-1.5">
             <ActivityIcon className="h-3.5 w-3.5" />
@@ -1282,6 +1429,21 @@ export function IssueDetail() {
               await uploadAttachment.mutateAsync(file);
             }}
             liveRunSlot={<LiveRunWidget issueId={issueId!} companyId={issue.companyId} />}
+          />
+        </TabsContent>
+
+        <TabsContent value="documents">
+          <IssueDocumentsSection
+            issue={issue}
+            canDeleteDocuments={Boolean(session?.user?.id)}
+            mentions={mentionOptions}
+            imageUploadHandler={async (file) => {
+              const attachment = await uploadAttachment.mutateAsync(file);
+              return attachment.contentPath;
+            }}
+            extraActions={!hasAttachments ? attachmentUploadButton : undefined}
+            focusDocumentRequest={focusDocumentRequest}
+            newDocumentRequest={newDocumentRequest}
           />
         </TabsContent>
 
@@ -1409,107 +1571,6 @@ export function IssueDetail() {
           </CollapsibleContent>
         </Collapsible>
       )}
-      </div>
-
-      {/* Cột phải: Documents, Attachments, Workspace Card */}
-      <div className="min-w-0 space-y-4">
-        <IssueDocumentsSection
-          issue={issue}
-          canDeleteDocuments={Boolean(session?.user?.id)}
-          mentions={mentionOptions}
-          imageUploadHandler={async (file) => {
-            const attachment = await uploadAttachment.mutateAsync(file);
-            return attachment.contentPath;
-          }}
-          extraActions={!hasAttachments ? attachmentUploadButton : undefined}
-        />
-
-        {hasAttachments ? (
-          <Collapsible
-            className={cn(
-              "space-y-3 rounded-lg transition-colors border border-border p-3",
-            )}
-            defaultOpen={true}
-          >
-            <div
-              className="flex flex-col gap-3"
-              onDragEnter={(evt) => {
-                evt.preventDefault();
-                setAttachmentDragActive(true);
-              }}
-              onDragOver={(evt) => {
-                evt.preventDefault();
-                setAttachmentDragActive(true);
-              }}
-              onDragLeave={(evt) => {
-                if (evt.currentTarget.contains(evt.relatedTarget as Node | null)) return;
-                setAttachmentDragActive(false);
-              }}
-              onDrop={(evt) => void handleAttachmentDrop(evt)}
-            >
-              <div className="flex items-center justify-between gap-2">
-                <CollapsibleTrigger className="flex items-center gap-2 group outline-none cursor-pointer">
-                  <ChevronRight className="h-4 w-4 transition-transform group-data-[state=open]:rotate-90 text-muted-foreground" />
-                  <h3 className="text-sm font-medium text-muted-foreground group-hover:text-foreground transition-colors">Attachments ({attachmentList.length})</h3>
-                </CollapsibleTrigger>
-                {attachmentUploadButton}
-              </div>
-
-              {attachmentError && (
-                <p className="text-xs text-destructive">{attachmentError}</p>
-              )}
-
-              <CollapsibleContent>
-                <div className="space-y-2 mt-2">
-                  {attachmentList.map((attachment) => (
-                    <div key={attachment.id} className="border border-border rounded-md p-2">
-                      <div className="flex items-center justify-between gap-2">
-                        <a
-                          href={attachment.contentPath}
-                          target="_blank"
-                          rel="noreferrer"
-                          className="text-xs hover:underline truncate"
-                          title={attachment.originalFilename ?? attachment.id}
-                        >
-                          {attachment.originalFilename ?? attachment.id}
-                        </a>
-                        <button
-                          type="button"
-                          className="text-muted-foreground hover:text-destructive"
-                          onClick={() => deleteAttachment.mutate(attachment.id)}
-                          disabled={deleteAttachment.isPending}
-                          title="Delete attachment"
-                        >
-                          <Trash2 className="h-3.5 w-3.5" />
-                        </button>
-                      </div>
-                      <p className="text-[11px] text-muted-foreground">
-                        {attachment.contentType} · {(attachment.byteSize / 1024).toFixed(1)} KB
-                      </p>
-                      {isImageAttachment(attachment) && (
-                        <a href={attachment.contentPath} target="_blank" rel="noreferrer">
-                          <img
-                            src={attachment.contentPath}
-                            alt={attachment.originalFilename ?? "attachment"}
-                            className="mt-2 max-h-56 rounded border border-border object-contain bg-accent/10"
-                            loading="lazy"
-                          />
-                        </a>
-                      )}
-                    </div>
-                  ))}
-                </div>
-              </CollapsibleContent>
-            </div>
-          </Collapsible>
-        ) : null}
-
-        <IssueWorkspaceCard
-          issue={issue}
-          project={orderedProjects.find((p) => p.id === issue.projectId) ?? null}
-          onUpdate={(data) => updateIssue.mutate(data)}
-        />
-      </div>
 
       {/* Mobile properties drawer */}
       <Sheet open={mobilePropsOpen} onOpenChange={setMobilePropsOpen}>
@@ -1519,7 +1580,19 @@ export function IssueDetail() {
           </SheetHeader>
           <ScrollArea className="flex-1 overflow-y-auto">
             <div className="px-4 pb-4">
-              <IssueProperties issue={issue} onUpdate={(data) => updateIssue.mutate(data)} inline />
+              <IssueProperties
+                issue={issue}
+                onUpdate={(data) => updateIssue.mutate(data)}
+                inline
+                onOpenDocument={(key) => {
+                  setMobilePropsOpen(false);
+                  handleOpenDocument(key);
+                }}
+                onNewDocument={() => {
+                  setMobilePropsOpen(false);
+                  handleNewDocument();
+                }}
+              />
             </div>
           </ScrollArea>
         </SheetContent>
