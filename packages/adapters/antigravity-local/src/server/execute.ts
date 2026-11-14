@@ -504,6 +504,24 @@ export async function runAntigravityLogin(input: {
   return { success: true };
 }
 
+const CONVERSATION_NOT_FOUND_RE = /conversation\s+["']?[^"'\s]{3,}["']?\s+not found/i;
+
+export function resolveInitialAntigravityConversationId(opts: {
+  configuredConversationId?: string | null;
+  configuredBrainExists?: boolean;
+  canResumeSession: boolean;
+  runtimeSessionId?: string | null;
+}): string {
+  const configured = typeof opts.configuredConversationId === "string" ? opts.configuredConversationId.trim() : "";
+  if (opts.configuredBrainExists && configured.length > 0) return configured;
+  if (opts.canResumeSession && typeof opts.runtimeSessionId === "string" && opts.runtimeSessionId.trim().length > 0) {
+    return opts.runtimeSessionId.trim();
+  }
+  // GEM-2194: do NOT fall back to `runId` — agy treats `--conversation <unknown-uuid>` as missing
+  // history and prints `warning: conversation "<runId>" not found` on stderr line 1.
+  return "";
+}
+
 export async function execute(ctx: AdapterExecutionContext): Promise<AdapterExecutionResult> {
   const { runId, agent, runtime, config, context, onLog, onMeta, onSpawn, authToken } = ctx;
 
@@ -1188,7 +1206,9 @@ export async function execute(ctx: AdapterExecutionContext): Promise<AdapterExec
     if (detected.found && detected.brainId && detected.brainId !== conversationId) {
       await onLog(
         "stdout",
-        `[paperclip] Antigravity used auto-created brain "${detected.brainId}" (passed id "${conversationId}" ignored). Persisting the real id for resume.\n`,
+        conversationId
+          ? `[paperclip] Antigravity used auto-created brain "${detected.brainId}" (passed id "${conversationId}" ignored). Persisting the real id for resume.\n`
+          : `[paperclip] Antigravity created fresh brain "${detected.brainId}". Persisting id for next resume.\n`,
       );
     }
 
@@ -1289,14 +1309,17 @@ export async function execute(ctx: AdapterExecutionContext): Promise<AdapterExec
 
     // Persist the REAL brain id (agy's auto-created or resumed id) so the next
     // heartbeat resumes the SAME brain (+ personaHash for invalidation).
-    const sessionParams: Record<string, unknown> = {
-      sessionId: realBrainId,
-      cwd,
-      ...(currentPersonaHash ? { personaHash: currentPersonaHash } : {}),
-      ...(workspaceId ? { workspaceId } : {}),
-      ...(workspaceRepoUrl ? { repoUrl: workspaceRepoUrl } : {}),
-      ...(workspaceRepoRef ? { repoRef: workspaceRepoRef } : {}),
-    };
+    const persistedSessionId = realBrainId || null;
+    const sessionParams: Record<string, unknown> | null = persistedSessionId
+      ? {
+          sessionId: persistedSessionId,
+          cwd,
+          ...(currentPersonaHash ? { personaHash: currentPersonaHash } : {}),
+          ...(workspaceId ? { workspaceId } : {}),
+          ...(workspaceRepoUrl ? { repoUrl: workspaceRepoUrl } : {}),
+          ...(workspaceRepoRef ? { repoRef: workspaceRepoRef } : {}),
+        }
+      : null;
 
     return {
       exitCode: attempt.proc.exitCode,
@@ -1306,9 +1329,9 @@ export async function execute(ctx: AdapterExecutionContext): Promise<AdapterExec
       errorCode,
       ...(errorMeta ? { errorMeta } : {}),
       usage,
-      sessionId: realBrainId,
+      sessionId: persistedSessionId,
       sessionParams,
-      sessionDisplayId: realBrainId,
+      sessionDisplayId: persistedSessionId,
       provider: "google",
       biller: "google",
       model: usedModel,
@@ -1331,23 +1354,25 @@ export async function execute(ctx: AdapterExecutionContext): Promise<AdapterExec
   };
 
   // Conversation id resolution. agy RESUMES the passed id only if that brain
-  // EXISTS; for an unknown id it IGNORES it and auto-creates its own brain (which
-  // toResult then detects via turnMarker and persists). Priority:
+  // EXISTS; for an unknown id it emits `warning: conversation "<id>" not found` on
+  // stderr line 1 and auto-creates its own brain. Priority:
   //   1. config.conversationId — but ONLY if its brain dir exists (a genuinely
-  //      pre-seeded brain). A configured-but-missing id would otherwise force a
-  //      fresh auto-create EVERY run → no continuity → so we ignore it when absent.
+  //      pre-seeded brain).
   //   2. resumable persisted runtime session (the REAL brain id we persisted last
   //      run) — gives cross-heartbeat continuity.
-  //   3. runId — first run with no brain; agy ignores it + auto-creates; we detect
-  //      and persist the real id so run #2 resumes it.
+  //   3. "" (omit --conversation) — first run or invalidated persona; agy creates
+  //      a fresh brain cleanly without stderr warning, then toResult detects & persists it.
   // Quota/credits wall → model-chain fallback below (GEM-1241), same conversation id.
   const configuredConversationId = asString(config.conversationId, "").trim();
   const configuredBrainExists =
     configuredConversationId.length > 0 &&
     existsSync(path.join(os.homedir(), ".gemini", "antigravity-cli", "brain", configuredConversationId));
-  let conversationId =
-    (configuredBrainExists ? configuredConversationId : "") ||
-    (canResumeSession ? runtimeSessionId : runId);
+  let conversationId = resolveInitialAntigravityConversationId({
+    configuredConversationId,
+    configuredBrainExists,
+    canResumeSession,
+    runtimeSessionId,
+  });
   // Live transcript: agy is TTY-blind, so nothing streams via the process stdout while
   // it works → the run-detail page (which refetches every ~2s while a run is live) and
   // the live WS widget would stay empty until the run ends. Match the Claude/Gemini live
@@ -1424,17 +1449,17 @@ export async function execute(ctx: AdapterExecutionContext): Promise<AdapterExec
         lastActiveAccountEmail = attemptAccountEmail;
         let attempt = await runAttempt(conversationId, attemptModel);
         // GEM-1452: race (brain deleted between the existsSync check and agy start) ->
-        // retry ONCE on a fresh conversation (runId) instead of failing the whole run.
+        // retry ONCE on a fresh conversation (omit --conversation) instead of failing the whole run.
         if (
-          conversationId !== runId &&
+          conversationId.length > 0 &&
           (attempt.proc.exitCode ?? 0) !== 0 &&
-          /conversation\s+"?[0-9a-f-]{8,}"?\s+not found/i.test(attempt.proc.stderr ?? "")
+          CONVERSATION_NOT_FOUND_RE.test(attempt.proc.stderr ?? "")
         ) {
           await onLog(
             "stderr",
             `[paperclip] agy: conversation "${conversationId}" not found -> retrying once with a fresh conversation.\n`,
           );
-          conversationId = runId;
+          conversationId = "";
           attempt = await runAttempt(conversationId, attemptModel);
         }
 
@@ -1492,7 +1517,7 @@ export async function execute(ctx: AdapterExecutionContext): Promise<AdapterExec
             if (sw.ok) {
               attemptAccountEmail = ultra.email;
               lastActiveAccountEmail = ultra.email;
-              conversationId = runId; // hội thoại cũ thuộc tài khoản trước
+              conversationId = ""; // hội thoại cũ thuộc tài khoản trước
               attempt = await runAttempt(conversationId, attemptModel);
             }
           }
@@ -1525,15 +1550,15 @@ export async function execute(ctx: AdapterExecutionContext): Promise<AdapterExec
           );
           attempt = await runAttempt(conversationId, attemptModel);
           if (
-            conversationId !== runId &&
+            conversationId.length > 0 &&
             (attempt.proc.exitCode ?? 0) !== 0 &&
-            /conversation\s+"?[0-9a-f-]{8,}"?\s+not found/i.test(attempt.proc.stderr ?? "")
+            CONVERSATION_NOT_FOUND_RE.test(attempt.proc.stderr ?? "")
           ) {
             await onLog(
               "stderr",
               `[paperclip] agy: conversation "${conversationId}" thuộc tài khoản trước → tạo hội thoại mới với đầy đủ bối cảnh.\n`,
             );
-            conversationId = runId;
+            conversationId = "";
             attempt = await runAttempt(conversationId, attemptModel);
           }
         }

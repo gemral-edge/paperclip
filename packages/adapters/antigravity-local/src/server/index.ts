@@ -1,4 +1,5 @@
-export { execute, runAntigravityLogin } from "./execute.js";
+export { execute, resolveInitialAntigravityConversationId, runAntigravityLogin } from "./execute.js";
+export { firstNonEmptyLine } from "./utils.js";
 export { listAntigravitySkills, syncAntigravitySkills } from "./skills.js";
 export { testEnvironment } from "./test.js";
 export {
