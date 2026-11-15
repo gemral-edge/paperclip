@@ -345,8 +345,8 @@ export function CancelRunButton({
   return (
     <button
       type="button"
-      title={mutation.isError ? errorText : label}
-      aria-label={label}
+      title={mutation.isPending ? "Đang hủy…" : mutation.isError ? errorText : label}
+      aria-label={mutation.isPending ? "Đang hủy…" : label}
       disabled={mutation.isPending || mutation.isSuccess}
       onClick={(e) => {
         e.preventDefault();
@@ -354,7 +354,8 @@ export function CancelRunButton({
         mutation.mutate();
       }}
       className={cn(
-        "inline-flex items-center gap-1 rounded-full border px-2 py-1 text-[10px] font-medium transition-colors disabled:opacity-40",
+        "inline-flex items-center rounded-full border px-2 py-1 text-[10px] transition-colors disabled:opacity-40",
+        mutation.isPending && "animate-pulse",
         mutation.isError
           ? "border-red-500/60 bg-red-500/15 text-red-700 dark:text-red-300"
           : mutation.isSuccess
@@ -363,7 +364,6 @@ export function CancelRunButton({
       )}
     >
       <X className="h-2.5 w-2.5" />
-      <span>{mutation.isPending ? "Đang hủy…" : "Hủy"}</span>
     </button>
   );
 }

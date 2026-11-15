@@ -123,7 +123,7 @@ describe("ActiveAgentsPanel cancel support", () => {
     expect(listUnused).not.toHaveBeenCalled();
   });
 
-  it("renders Hủy button only for queued and running runs with proper Vietnamese labels", () => {
+  it("renders icon-only X cancel button only for queued and running runs with Vietnamese aria-label", () => {
     const queryClient = new QueryClient();
     const issue = makeIssue();
 
@@ -132,16 +132,18 @@ describe("ActiveAgentsPanel cancel support", () => {
         <CancelRunButton run={makeRun({ status: "queued" })} issue={issue} companyId="company-1" />
       </QueryClientProvider>,
     );
-    expect(queuedHtml).toContain("Hủy");
+    expect(queuedHtml).toContain("<svg");
     expect(queuedHtml).toContain('aria-label="Hủy lượt xếp hàng và hủy issue GEM-2200"');
+    expect(queuedHtml).not.toContain(">Hủy<");
 
     const runningHtml = renderToStaticMarkup(
       <QueryClientProvider client={queryClient}>
         <CancelRunButton run={makeRun({ status: "running" })} companyId="company-1" />
       </QueryClientProvider>,
     );
-    expect(runningHtml).toContain("Hủy");
+    expect(runningHtml).toContain("<svg");
     expect(runningHtml).toContain('aria-label="Hủy lượt đang chạy và hủy issue issue-12"');
+    expect(runningHtml).not.toContain(">Hủy<");
 
     for (const status of ["succeeded", "failed", "cancelled", "timed_out"]) {
       const doneHtml = renderToStaticMarkup(
