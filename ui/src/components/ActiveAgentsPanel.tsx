@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Link, useNavigate } from "@/lib/router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { AGENT_ROLE_LABELS, type Agent, type AgentRole, type Issue } from "@paperclipai/shared";
@@ -15,8 +15,8 @@ import { Identity } from "./Identity";
 import { RunTranscriptView } from "./transcript/RunTranscriptView";
 import { useLiveRunTranscripts } from "./transcript/useLiveRunTranscripts";
 
-// Server caps minCount at 20; 12 keeps enough finished runs for the Lỗi / Xong filters.
-const MIN_DASHBOARD_RUNS = 12;
+// Server caps minCount at 20; 16 matches UnifiedTasksAndActivity on the shared ["liveRuns", companyId, "dashboard"] cache key.
+const MIN_DASHBOARD_RUNS = 16;
 
 // "Live" = đang chạy thật. `queued` = đang xếp hàng chờ chỗ (fleet-throttle) — KHÔNG phải live.
 function isRunActive(run: LiveRunForIssue): boolean {
@@ -91,11 +91,15 @@ export function ActiveAgentsPanel({ companyId }: ActiveAgentsPanelProps) {
   const { data: liveRuns } = useQuery({
     queryKey: [...queryKeys.liveRuns(companyId), "dashboard"],
     queryFn: () => heartbeatsApi.liveRunsForCompany(companyId, MIN_DASHBOARD_RUNS),
+    refetchInterval: 5_000,
+    refetchOnWindowFocus: true,
   });
 
   const { data: agents } = useQuery({
     queryKey: queryKeys.agents.list(companyId),
     queryFn: () => agentsApi.list(companyId),
+    refetchInterval: 15_000,
+    refetchOnWindowFocus: true,
   });
   const agentById = useMemo(() => new Map((agents ?? []).map((a) => [a.id, a])), [agents]);
 
@@ -249,28 +253,130 @@ function AgentPauseToggle({ agent, companyId }: { agent: Agent; companyId: strin
   );
 }
 
+export interface RunNowDeps {
+  startNow: (runId: string) => Promise<unknown>;
+  wakeupAgent: (
+    agentId: string,
+    data: {
+      source?: "timer" | "assignment" | "on_demand" | "automation";
+      triggerDetail?: "manual" | "ping" | "callback" | "system";
+      reason?: string | null;
+      payload?: Record<string, unknown> | null;
+    },
+    companyId?: string,
+  ) => Promise<{ id?: string; status?: string } | { status: "skipped" }>;
+  invokeAgent: (agentId: string, companyId?: string) => Promise<{ id?: string; status?: string }>;
+  listLiveRunsForIssue: (issueId: string) => Promise<Array<{ id: string; status: string; agentId: string }>>;
+  listLiveRunsForCompany: (
+    companyId: string,
+    minCount?: number,
+  ) => Promise<Array<{ id: string; status: string; agentId: string; issueId?: string | null }>>;
+}
+
+const defaultRunNowDeps: RunNowDeps = {
+  startNow: (runId) => heartbeatsApi.startNow(runId),
+  wakeupAgent: (targetAgentId, data, targetCompanyId) =>
+    agentsApi.wakeup(targetAgentId, data, targetCompanyId),
+  invokeAgent: (targetAgentId, targetCompanyId) =>
+    agentsApi.invoke(targetAgentId, targetCompanyId),
+  listLiveRunsForIssue: (issueId) => heartbeatsApi.liveRunsForIssue(issueId),
+  listLiveRunsForCompany: (targetCompanyId, minCount) =>
+    heartbeatsApi.liveRunsForCompany(targetCompanyId, minCount),
+};
+
+function isStaleQueuedRunError(err: unknown): boolean {
+  if (!(err instanceof ApiError)) return false;
+  if (err.status === 404) return true;
+  if (err.status === 409) {
+    const body = err.body as { reason?: string } | null;
+    return body?.reason === "not_queued";
+  }
+  return false;
+}
+
+/**
+ * Start a dashboard run card immediately, recovering gracefully when a stale tab
+ * holds an old queued runId or when wakeup/invoke queues behind the fleet throttle.
+ */
+export async function runCardNow(
+  run: Pick<LiveRunForIssue, "id" | "status" | "issueId">,
+  agentId: string,
+  companyId: string,
+  deps: RunNowDeps = defaultRunNowDeps,
+) {
+  if (run.status === "queued") {
+    try {
+      return await deps.startNow(run.id);
+    } catch (err) {
+      if (!isStaleQueuedRunError(err)) {
+        throw err;
+      }
+      // Thẻ trên UI đã cũ sau khi treo tab > 5 phút: kiểm tra run mới nhất của issue/agent
+      const freshRuns = run.issueId
+        ? await deps.listLiveRunsForIssue(run.issueId).catch(() => [])
+        : await deps.listLiveRunsForCompany(companyId, MIN_DASHBOARD_RUNS).catch(() => []);
+      const matchingRuns = run.issueId
+        ? freshRuns
+        : freshRuns.filter((candidate) => candidate.agentId === agentId);
+      const alreadyRunning = matchingRuns.find((candidate) => candidate.status === "running");
+      if (alreadyRunning) {
+        return alreadyRunning;
+      }
+      const freshQueued = matchingRuns.find(
+        (candidate) => candidate.status === "queued" && candidate.id !== run.id,
+      );
+      if (freshQueued) {
+        return await deps.startNow(freshQueued.id);
+      }
+      // Không còn run queued/running nào trên server -> chuyển thẳng sang wakeup/invoke bên dưới
+    }
+  }
+
+  if (run.issueId) {
+    const result = await deps.wakeupAgent(
+      agentId,
+      {
+        source: "on_demand",
+        triggerDetail: "manual",
+        reason: "rerun_from_dashboard",
+        payload: { issueId: run.issueId },
+      },
+      companyId,
+    );
+    if (!result || !("id" in result) || !result.id) {
+      throw new Error("Agent chưa nhận lượt mới (đang bận hoặc không gọi được)");
+    }
+    if (result.status === "queued") {
+      return await deps.startNow(result.id);
+    }
+    return result;
+  }
+
+  const result = await deps.invokeAgent(agentId, companyId);
+  if (!result || !("id" in result) || !result.id) {
+    throw new Error("Agent chưa nhận lượt mới (đang bận hoặc không gọi được)");
+  }
+  if (result.status === "queued") {
+    return await deps.startNow(result.id);
+  }
+  return result;
+}
+
 /**
  * ▶ on a run card. Queued → start now (past the fleet throttle). Finished → run the same
  * issue again, or a fresh heartbeat when the run had no issue. Hidden while running.
  */
-function RunNowButton({ run, agent, companyId }: { run: LiveRunForIssue; agent: Agent; companyId: string }) {
+export function RunNowButton({ run, agent, companyId }: { run: LiveRunForIssue; agent: Agent; companyId: string }) {
   const queryClient = useQueryClient();
   const mutation = useMutation({
-    mutationFn: async (): Promise<unknown> => {
-      if (run.status === "queued") return heartbeatsApi.startNow(run.id);
-      if (run.issueId) {
-        const result = await agentsApi.wakeup(
-          agent.id,
-          { source: "on_demand", triggerDetail: "manual", reason: "rerun_from_dashboard", payload: { issueId: run.issueId } },
-          companyId,
-        );
-        if (!("id" in result)) throw new Error("Agent chưa nhận lượt mới (đang bận hoặc không gọi được)");
-        return result;
-      }
-      return agentsApi.invoke(agent.id, companyId);
-    },
-    onSuccess: () => invalidateAgentRuntimeQueries(queryClient),
+    mutationFn: () => runCardNow(run, agent.id, companyId),
+    onSettled: () => invalidateAgentRuntimeQueries(queryClient),
   });
+  const resetMutation = mutation.reset;
+
+  useEffect(() => {
+    resetMutation();
+  }, [run.id, run.status, resetMutation]);
 
   if (run.status === "running") return null;
   const paused = agent.status === "paused";
@@ -287,7 +393,7 @@ function RunNowButton({ run, agent, companyId }: { run: LiveRunForIssue; agent: 
       type="button"
       title={mutation.isError ? errorText : label}
       aria-label={label}
-      disabled={paused || mutation.isPending || mutation.isSuccess}
+      disabled={paused || mutation.isPending}
       onClick={(e) => {
         e.stopPropagation();
         mutation.mutate();
@@ -296,9 +402,7 @@ function RunNowButton({ run, agent, companyId }: { run: LiveRunForIssue; agent: 
         "inline-flex items-center rounded-full border px-2 py-1 text-[10px] transition-colors disabled:opacity-40",
         mutation.isError
           ? "border-red-500/40 text-red-600 dark:text-red-400"
-          : mutation.isSuccess
-            ? "border-green-500/40 text-green-600 dark:text-green-400"
-            : "border-cyan-500/40 text-cyan-700 hover:bg-cyan-500/10 dark:text-cyan-300",
+          : "border-cyan-500/40 text-cyan-700 hover:bg-cyan-500/10 dark:text-cyan-300",
       )}
     >
       <Play className="h-2.5 w-2.5" />
