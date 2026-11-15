@@ -88,7 +88,13 @@ export function ActiveAgentsPanel({ companyId }: ActiveAgentsPanelProps) {
   const [filter, setFilter] = useState<RunFilterId>("all");
   const [groupByRole, setGroupByRole] = useState(false);
 
-  const { data: liveRuns } = useQuery({
+  const {
+    data: liveRuns,
+    isLoading: isRunsLoading,
+    isError: isRunsError,
+    error: runsError,
+    refetch: refetchRuns,
+  } = useQuery({
     queryKey: [...queryKeys.liveRuns(companyId), "dashboard"],
     queryFn: () => heartbeatsApi.liveRunsForCompany(companyId, MIN_DASHBOARD_RUNS),
     refetchInterval: 5_000,
@@ -181,10 +187,27 @@ export function ActiveAgentsPanel({ companyId }: ActiveAgentsPanelProps) {
           </button>
         </div>
       </div>
-      {runs.length === 0 ? (
+      {isRunsLoading ? (
+        <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 sm:gap-4 xl:grid-cols-4" aria-busy="true">
+          {[1, 2, 3, 4].map((n) => (
+            <div key={n} className="h-[320px] animate-pulse rounded-xl border border-border bg-background/50" />
+          ))}
+        </div>
+      ) : isRunsError ? (
+        <div role="alert" className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-destructive/40 bg-destructive/5 p-4 text-sm text-destructive">
+          <span>{runsError instanceof Error ? runsError.message : "Không tải được danh sách lượt chạy agent."}</span>
+          <button
+            type="button"
+            onClick={() => void refetchRuns()}
+            className="rounded-md border border-destructive/40 px-3 py-1 text-xs font-medium hover:bg-destructive/10 transition-colors"
+          >
+            Thử lại
+          </button>
+        </div>
+      ) : runs.length === 0 ? (
         <div className="rounded-xl border border-border p-4">
           <p className="text-sm text-muted-foreground">
-            {allRuns.length === 0 ? "No recent agent runs." : `Không có lượt nào ở mục "${activeFilter.label}".`}
+            {allRuns.length === 0 ? "Chưa có lượt chạy agent gần đây." : `Không có lượt nào ở mục "${activeFilter.label}".`}
           </p>
         </div>
       ) : (
@@ -540,6 +563,8 @@ function AgentRunCard({
             {agent && <AgentPauseToggle agent={agent} companyId={companyId} />}
             <Link
               to={`/agents/${run.agentId}`}
+              title={`Mở trang ${run.agentName}`}
+              aria-label={`Mở trang ${run.agentName}`}
               onClick={(e) => e.stopPropagation()}
               className="inline-flex items-center gap-1 rounded-full border border-border/70 bg-background/70 px-2 py-1 text-[10px] text-muted-foreground transition-colors hover:text-foreground"
             >

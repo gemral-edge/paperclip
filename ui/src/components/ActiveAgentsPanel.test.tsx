@@ -1,12 +1,15 @@
-// @vitest-environment node
+// @vitest-environment jsdom
 
+import { act } from "react";
+import { createRoot } from "react-dom/client";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { renderToStaticMarkup } from "react-dom/server";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Agent, Issue } from "@paperclipai/shared";
 import { ApiError } from "../api/client";
 import type { LiveRunForIssue } from "../api/heartbeats";
 import {
+  ActiveAgentsPanel,
   CancelRunButton,
   RunNowButton,
   cancelRunAndLinkedIssue,
@@ -14,6 +17,44 @@ import {
   runCardNow,
   type RunNowDeps,
 } from "./ActiveAgentsPanel";
+
+const liveRunsPanelMock = vi.fn();
+const listAgentsPanelMock = vi.fn();
+const listIssuesPanelMock = vi.fn();
+
+vi.mock("../lib/router", () => ({
+  Link: ({ children, ...props }: React.ComponentProps<"a">) => <a {...props}>{children}</a>,
+  useNavigate: () => vi.fn(),
+}));
+
+vi.mock("../api/heartbeats", () => ({
+  heartbeatsApi: {
+    liveRunsForCompany: (...args: unknown[]) => liveRunsPanelMock(...args),
+    cancel: vi.fn(),
+    events: vi.fn(),
+    listForAgent: vi.fn(),
+    startNow: vi.fn(),
+  },
+}));
+
+vi.mock("../api/agents", () => ({
+  agentsApi: {
+    list: (...args: unknown[]) => listAgentsPanelMock(...args),
+    invoke: vi.fn(),
+    pause: vi.fn(),
+    resume: vi.fn(),
+  },
+}));
+
+vi.mock("../api/issues", () => ({
+  issuesApi: {
+    list: (...args: unknown[]) => listIssuesPanelMock(...args),
+    update: vi.fn(),
+  },
+}));
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+(globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;
 
 function makeRun(overrides: Partial<LiveRunForIssue> = {}): LiveRunForIssue {
   return {
@@ -397,5 +438,110 @@ describe("ActiveAgentsPanel runCardNow and RunNowButton", () => {
       </QueryClientProvider>,
     );
     expect(runningHtml).toBe("");
+  });
+});
+
+describe("ActiveAgentsPanel render states", () => {
+  let container: HTMLDivElement;
+
+  beforeEach(() => {
+    container = document.createElement("div");
+    document.body.appendChild(container);
+    liveRunsPanelMock.mockReset();
+    listAgentsPanelMock.mockReset();
+    listIssuesPanelMock.mockReset();
+    listAgentsPanelMock.mockResolvedValue([makeAgent()]);
+    listIssuesPanelMock.mockResolvedValue([]);
+  });
+
+  afterEach(() => {
+    container.remove();
+  });
+
+  it("renders loading skeleton, error state with retry, and Vietnamese empty state", async () => {
+    let resolveRuns!: (runs: LiveRunForIssue[]) => void;
+    liveRunsPanelMock.mockImplementationOnce(
+      () =>
+        new Promise<LiveRunForIssue[]>((resolve) => {
+          resolveRuns = resolve;
+        }),
+    );
+
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+    const root = createRoot(container);
+
+    act(() => {
+      root.render(
+        <QueryClientProvider client={queryClient}>
+          <ActiveAgentsPanel companyId="company-1" />
+        </QueryClientProvider>,
+      );
+    });
+
+    expect(container.querySelector('[aria-busy="true"]')).not.toBeNull();
+
+    await act(async () => {
+      resolveRuns([]);
+      await new Promise((r) => setTimeout(r, 20));
+    });
+
+    expect(container.textContent).toContain("Chưa có lượt chạy agent gần đây.");
+
+    act(() => {
+      root.unmount();
+    });
+    queryClient.clear();
+
+    const errContainer = document.createElement("div");
+    document.body.appendChild(errContainer);
+    const errRoot = createRoot(errContainer);
+    const errClient = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+
+    liveRunsPanelMock.mockRejectedValueOnce(new Error("Runs endpoint failed"));
+    act(() => {
+      errRoot.render(
+        <QueryClientProvider client={errClient}>
+          <ActiveAgentsPanel companyId="company-1" />
+        </QueryClientProvider>,
+      );
+    });
+    for (let i = 0; i < 3; i += 1) {
+      await act(async () => {
+        await new Promise((r) => setTimeout(r, 10));
+      });
+    }
+
+    const alert = errContainer.querySelector('[role="alert"]');
+    expect(alert?.textContent).toContain("Runs endpoint failed");
+    const retryBtn = Array.from(alert?.querySelectorAll("button") ?? []).find((b) =>
+      b.textContent?.includes("Thử lại"),
+    );
+    expect(retryBtn).toBeDefined();
+
+    liveRunsPanelMock.mockResolvedValueOnce([
+      makeRun({ id: "run-nav-1", status: "queued", issueId: null }),
+    ]);
+    act(() => {
+      retryBtn?.click();
+    });
+    for (let i = 0; i < 3; i += 1) {
+      await act(async () => {
+        await new Promise((r) => setTimeout(r, 10));
+      });
+    }
+
+    const navLink = errContainer.querySelector('a[aria-label="Mở trang Yinyang SEO Officer"]');
+    expect(navLink).not.toBeNull();
+    expect(navLink?.getAttribute("title")).toBe("Mở trang Yinyang SEO Officer");
+
+    act(() => {
+      errRoot.unmount();
+    });
+    errContainer.remove();
+    errClient.clear();
   });
 });
