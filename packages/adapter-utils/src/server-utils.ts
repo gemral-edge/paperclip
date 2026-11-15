@@ -213,8 +213,14 @@ export function parseJson(value: string): Record<string, unknown> | null {
 }
 
 export function appendWithCap(prev: string, chunk: string, cap = MAX_CAPTURE_BYTES) {
-  const combined = prev + chunk;
-  return combined.length > cap ? combined.slice(combined.length - cap) : combined;
+  if (chunk.length >= cap) {
+    return chunk.slice(chunk.length - cap);
+  }
+  if (prev.length + chunk.length <= cap) {
+    return prev + chunk;
+  }
+  const keepPrev = cap - chunk.length;
+  return (keepPrev > 0 ? prev.slice(prev.length - keepPrev) : "") + chunk;
 }
 
 export function resolvePathValue(obj: Record<string, unknown>, dottedPath: string) {

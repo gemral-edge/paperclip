@@ -27,6 +27,7 @@ import {
   computeJitteredDueAtMs,
   effectiveQueuedRunTimestampMs,
   evaluateFleetClaim,
+  type FleetClaimVerdict,
   fleetWindowStart,
   isFleetClaimGateEnabled,
   isRestartDrainActive,
@@ -2043,6 +2044,31 @@ export function heartbeatService(db: Db) {
               sql`(${heartbeatRuns.status} = 'running' or ${heartbeatRuns.startedAt} >= ${windowStart.toISOString()}::timestamptz)`,
             ),
           );
+        const baseCounts = {
+          running: Number(counts?.running ?? 0),
+          startsInWindow: Number(counts?.startsInWindow ?? 0),
+          runningNonTimer: Number(counts?.runningNonTimer ?? 0),
+        };
+        const recordFleetDeferred = (verdict: Exclude<FleetClaimVerdict, { ok: true }>) => {
+          if (!fleetDeferredRunIds.has(run.id)) {
+            if (fleetDeferredRunIds.size > 500) fleetDeferredRunIds.clear();
+            fleetDeferredRunIds.add(run.id);
+            logger.info(
+              { runId: run.id, agentId: run.agentId, ...verdict, maxRunning: fleet.maxRunning, startsPerWindow: fleet.startsPerWindow },
+              "[fleet-throttle] run held in queue (company-wide limit)",
+            );
+          }
+          return null;
+        };
+        // Fast-path exit while holding only [counts] before running 3 heavy subqueries (GEM-2212).
+        const earlyVerdict = evaluateFleetClaim(fleet, baseCounts, {
+          invocationSource: run.invocationSource,
+          pendingTimerRuns: 0,
+          olderClaimableRuns: 0,
+        });
+        if (!earlyVerdict.ok) {
+          return recordFleetDeferred(earlyVerdict);
+        }
         // Rule 4: claimable queued timer runs (agent invokable + no run in flight) that a
         // non-timer claim must not crowd out. Unclaimable timers are ignored so they can
         // never block the fleet.
@@ -2169,23 +2195,11 @@ export function heartbeatService(db: Db) {
         }
         const verdict = evaluateFleetClaim(
           fleet,
-          {
-            running: Number(counts?.running ?? 0),
-            startsInWindow: Number(counts?.startsInWindow ?? 0),
-            runningNonTimer: Number(counts?.runningNonTimer ?? 0),
-          },
+          baseCounts,
           { invocationSource: run.invocationSource, pendingTimerRuns, olderClaimableRuns },
         );
         if (!verdict.ok) {
-          if (!fleetDeferredRunIds.has(run.id)) {
-            if (fleetDeferredRunIds.size > 500) fleetDeferredRunIds.clear();
-            fleetDeferredRunIds.add(run.id);
-            logger.info(
-              { runId: run.id, agentId: run.agentId, ...verdict, maxRunning: fleet.maxRunning, startsPerWindow: fleet.startsPerWindow },
-              "[fleet-throttle] run held in queue (company-wide limit)",
-            );
-          }
-          return null;
+          return recordFleetDeferred(verdict);
         }
         fleetDeferredRunIds.delete(run.id);
         return doClaim(tx as unknown as Db);
@@ -2677,10 +2691,12 @@ export function heartbeatService(db: Db) {
   }
 
   async function resumeQueuedRuns() {
+    if (isRestartDrainActive()) return;
     // F2: quét queued bounded 15s (SET LOCAL). Vòng claim/spawn per-agent bên dưới dùng db thường.
     const queuedRuns = await boundedPoll(db, (tx) =>
       tx
         .select({
+          companyId: heartbeatRuns.companyId,
           agentId: heartbeatRuns.agentId,
           invocationSource: heartbeatRuns.invocationSource,
           createdAt: heartbeatRuns.createdAt,
@@ -2704,10 +2720,54 @@ export function heartbeatService(db: Db) {
         // Fleet throttle fairness: orderQueuedRunsForClaim re-ranks by timerPriority + effective round-robin + fairWaitMaxMin.
         .orderBy(asc(heartbeatRuns.createdAt)),
     );
+    if (queuedRuns.length === 0) return;
+
+    const fleet = readFleetThrottleConfig();
+    const saturatedCompanies = new Set<string>();
+    if (isFleetClaimGateEnabled(fleet)) {
+      const companyIds = [...new Set(queuedRuns.map((r) => r.companyId))];
+      const windowStart = fleetWindowStart(new Date(), fleet.startWindowMs);
+      const countRows = await boundedPoll(db, (tx) =>
+        tx
+          .select({
+            companyId: heartbeatRuns.companyId,
+            running: sql<number>`count(*) filter (where ${heartbeatRuns.status} = 'running')`,
+            startsInWindow: sql<number>`count(*) filter (where ${heartbeatRuns.startedAt} >= ${windowStart.toISOString()}::timestamptz)`,
+          })
+          .from(heartbeatRuns)
+          .where(
+            and(
+              uuidAny(heartbeatRuns.companyId, companyIds),
+              sql`(${heartbeatRuns.status} = 'running' or ${heartbeatRuns.startedAt} >= ${windowStart.toISOString()}::timestamptz)`,
+            ),
+          )
+          .groupBy(heartbeatRuns.companyId),
+      );
+      for (const row of countRows) {
+        const running = Number(row.running ?? 0);
+        const startsInWindow = Number(row.startsInWindow ?? 0);
+        if (
+          (fleet.maxRunning > 0 && running >= fleet.maxRunning) ||
+          (fleet.startsPerWindow > 0 && startsInWindow >= fleet.startsPerWindow)
+        ) {
+          saturatedCompanies.add(row.companyId);
+        }
+      }
+      if (saturatedCompanies.size === companyIds.length) {
+        return;
+      }
+    }
 
     // Rule 4 (GEM-1413) + Rule 5 (GEM-2211): timer runs first, then round-robin by effective wait & lastStartedAt.
-    const ordered = orderQueuedRunsForClaim(readFleetThrottleConfig(), queuedRuns);
-    const agentIds = [...new Set(ordered.map((r) => r.agentId))];
+    const ordered = orderQueuedRunsForClaim(fleet, queuedRuns);
+    const agentCompanyMap = new Map<string, string>();
+    for (const r of ordered) {
+      if (!agentCompanyMap.has(r.agentId)) agentCompanyMap.set(r.agentId, r.companyId);
+    }
+    const agentIds = [...new Set(ordered.map((r) => r.agentId))].filter((id) => {
+      const cid = agentCompanyMap.get(id);
+      return !cid || !saturatedCompanies.has(cid);
+    });
     let spawnedPrevious = false;
     for (let i = 0; i < agentIds.length; i++) {
       // GEMRAL FIX 2026-05-10: Stagger subprocess spawning across agents.

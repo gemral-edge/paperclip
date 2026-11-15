@@ -17,6 +17,7 @@ import type { Db } from "@paperclipai/db";
 import { agents, heartbeatRuns, issues } from "@paperclipai/db";
 import { parseObject, asBoolean, asNumber, asString } from "../adapters/utils.js";
 import { readFleetThrottleConfig } from "./fleet-throttle.js";
+import { uuidAny } from "./sql-any.js";
 
 type AgentRow = typeof agents.$inferSelect;
 
@@ -155,7 +156,7 @@ export function fleetPauseService(db: Db) {
       .from(heartbeatRuns)
       .where(
         and(
-          inArray(heartbeatRuns.agentId, agentIds),
+          uuidAny(heartbeatRuns.agentId, agentIds),
           eq(heartbeatRuns.status, "cancelled"),
           eq(heartbeatRuns.error, FLEET_PAUSE_CANCEL_REASON),
         ),
@@ -165,11 +166,11 @@ export function fleetPauseService(db: Db) {
     const issueRows = await db
       .select({ id: issues.id, status: issues.status, assigneeAgentId: issues.assigneeAgentId })
       .from(issues)
-      .where(inArray(issues.id, issueIds));
+      .where(uuidAny(issues.id, issueIds));
     const live = await db
       .select({ contextSnapshot: heartbeatRuns.contextSnapshot })
       .from(heartbeatRuns)
-      .where(and(inArray(heartbeatRuns.agentId, agentIds), inArray(heartbeatRuns.status, ["queued", "running"])));
+      .where(and(uuidAny(heartbeatRuns.agentId, agentIds), inArray(heartbeatRuns.status, ["queued", "running"])));
     const busy = new Set(live.map(runIssueId).filter((id): id is string => id !== null));
     return selectRunsToRequeue(
       runs,
