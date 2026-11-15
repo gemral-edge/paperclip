@@ -10,6 +10,62 @@ import { SimpleModal } from "@/pages/crm/components/SimpleModal";
 
 const POLL_MS = 15_000;
 
+export function FleetQueueList({
+  isLoading,
+  isError,
+  errorMessage,
+  queuedRuns,
+  onRetry,
+  cancellingRunId,
+  onCancel,
+}: {
+  isLoading: boolean;
+  isError: boolean;
+  errorMessage?: string;
+  queuedRuns: Array<{ id: string; agentName: string; createdAt: string | Date; invocationSource: string }>;
+  onRetry: () => void;
+  cancellingRunId: string | null;
+  onCancel: (runId: string) => void;
+}) {
+  if (isLoading) {
+    return <p className="text-xs text-muted-foreground">Đang tải hàng chờ…</p>;
+  }
+  if (isError) {
+    return (
+      <div role="alert" className="flex flex-wrap items-center justify-between gap-2 text-xs text-destructive">
+        <span>{errorMessage || "Không tải được danh sách hàng chờ"}</span>
+        <Button variant="outline" size="xs" onClick={onRetry}>
+          Thử lại
+        </Button>
+      </div>
+    );
+  }
+  if (queuedRuns.length === 0) {
+    return <p className="text-xs text-muted-foreground">Không có lượt nào đang chờ.</p>;
+  }
+  return (
+    <ul className="space-y-1.5">
+      {queuedRuns.map((run) => (
+        <li key={run.id} className="flex items-center justify-between gap-3 text-sm">
+          <span className="min-w-0 truncate">
+            <span className="font-medium">{run.agentName}</span>
+            <span className="text-xs text-muted-foreground"> · chờ {relativeTime(run.createdAt)} · {run.invocationSource}</span>
+          </span>
+          <Button
+            variant="ghost"
+            size="xs"
+            className="shrink-0"
+            disabled={cancellingRunId === run.id}
+            onClick={() => onCancel(run.id)}
+          >
+            <X /> Huỷ lượt chờ
+          </Button>
+        </li>
+      ))}
+    </ul>
+  );
+}
+
 /**
  * Fleet controls on top of the Dashboard: pause/resume every heartbeat agent at once
  * + the run queue (how many runs wait, how long, free slots, cancel a waiting run).
@@ -26,7 +82,13 @@ export function FleetControlBar({ companyId }: { companyId: string }) {
     refetchInterval: POLL_MS,
   });
 
-  const { data: liveRuns } = useQuery({
+  const {
+    data: liveRuns,
+    isLoading: isQueueLoading,
+    isError: isQueueError,
+    error: queueError,
+    refetch: refetchQueue,
+  } = useQuery({
     queryKey: [...queryKeys.liveRuns(companyId), "queue"],
     queryFn: () => heartbeatsApi.liveRunsForCompany(companyId),
     enabled: queueOpen,
@@ -91,7 +153,10 @@ export function FleetControlBar({ companyId }: { companyId: string }) {
             size="sm"
             variant={mode === "pause" ? "destructive" : "default"}
             disabled={!canAct || fleetMutation.isPending}
-            onClick={() => setConfirm(mode)}
+            onClick={() => {
+              setError(null);
+              setConfirm(mode);
+            }}
           >
             {mode === "pause" ? <Pause className="h-3.5 w-3.5" /> : <Play className="h-3.5 w-3.5" />}
             {mode === "pause" ? "Tạm dừng toàn đội" : "Chạy lại toàn đội"}
@@ -99,42 +164,43 @@ export function FleetControlBar({ companyId }: { companyId: string }) {
         </div>
       </div>
 
-      {error && <p className="border-t px-4 py-2 text-xs text-destructive">{error}</p>}
+      {error && confirm === null && (
+        <p role="alert" className="border-t px-4 py-2 text-xs text-destructive">{error}</p>
+      )}
 
       {queueOpen && (
         <div className="border-t px-4 py-3">
-          {queuedRuns.length === 0 ? (
-            <p className="text-xs text-muted-foreground">Không có lượt nào đang chờ.</p>
-          ) : (
-            <ul className="space-y-1.5">
-              {queuedRuns.map((run) => (
-                <li key={run.id} className="flex items-center justify-between gap-3 text-sm">
-                  <span className="min-w-0 truncate">
-                    <span className="font-medium">{run.agentName}</span>
-                    <span className="text-xs text-muted-foreground"> · chờ {relativeTime(run.createdAt)} · {run.invocationSource}</span>
-                  </span>
-                  <Button
-                    variant="ghost"
-                    size="xs"
-                    disabled={cancelMutation.isPending && cancelMutation.variables === run.id}
-                    onClick={() => cancelMutation.mutate(run.id)}
-                  >
-                    <X /> Huỷ lượt chờ
-                  </Button>
-                </li>
-              ))}
-            </ul>
-          )}
+          <FleetQueueList
+            isLoading={isQueueLoading}
+            isError={isQueueError}
+            errorMessage={queueError instanceof Error ? queueError.message : undefined}
+            queuedRuns={queuedRuns}
+            onRetry={() => void refetchQueue()}
+            cancellingRunId={cancelMutation.isPending ? cancelMutation.variables ?? null : null}
+            onCancel={(runId) => cancelMutation.mutate(runId)}
+          />
         </div>
       )}
 
       <SimpleModal
         open={confirm !== null}
-        onClose={() => setConfirm(null)}
+        onClose={() => {
+          setConfirm(null);
+          setError(null);
+        }}
         title={confirm === "pause" ? "Tạm dừng toàn đội?" : "Chạy lại toàn đội?"}
         footer={
           <>
-            <Button variant="outline" size="sm" onClick={() => setConfirm(null)}>Thôi</Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => {
+                setConfirm(null);
+                setError(null);
+              }}
+            >
+              Thôi
+            </Button>
             <Button
               size="sm"
               variant={confirm === "pause" ? "destructive" : "default"}
@@ -168,6 +234,11 @@ export function FleetControlBar({ companyId }: { companyId: string }) {
           {status.otherPaused > 0 && (
             <p className="text-xs text-muted-foreground">
               {status.otherPaused} agent đang dừng vì lý do khác (hết quota, ngân sách, tự tay dừng) được giữ nguyên.
+            </p>
+          )}
+          {error && (
+            <p role="alert" className="rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-xs text-destructive">
+              {error}
             </p>
           )}
         </div>
