@@ -1226,7 +1226,7 @@ export function issueRoutes(db: Db, storage: StorageService) {
         entityId: issue.id,
         details: {
           commentId: comment.id,
-          bodySnippet: comment.body.slice(0, 120),
+          bodySnippet: Array.from(comment.body).slice(0, 120).join(""),
           identifier: issue.identifier,
           issueTitle: issue.title,
           ...(reopened ? { reopened: true, reopenedFrom: reopenFromStatus, source: "comment" } : {}),
@@ -1702,7 +1702,7 @@ export function issueRoutes(db: Db, storage: StorageService) {
       entityId: currentIssue.id,
       details: {
         commentId: comment.id,
-        bodySnippet: comment.body.slice(0, 120),
+        bodySnippet: Array.from(comment.body).slice(0, 120).join(""),
         identifier: currentIssue.identifier,
         issueTitle: currentIssue.title,
         ...(reopened ? { reopened: true, reopenedFrom: reopenFromStatus, source: "comment" } : {}),
@@ -2006,8 +2006,8 @@ export function issueRoutes(db: Db, storage: StorageService) {
   router.patch("/internal/lesson-queue/:id", async (req, res) => {
     const id = String(req.params.id || "").trim();
     const newStatus = String(req.body?.status || "").trim();
-    const errorMsg = req.body?.error_message ? String(req.body.error_message).slice(0, 1000) : null;
-    const lessonPreview = req.body?.lesson_summary ? String(req.body.lesson_summary).slice(0, 500) : null;
+    const errorMsg = req.body?.error_message ? Array.from(String(req.body.error_message)).slice(0, 1000).join("") : null;
+    const lessonPreview = req.body?.lesson_summary ? Array.from(String(req.body.lesson_summary)).slice(0, 500).join("") : null;
     if (!id || !["pending", "processing", "done", "failed", "skipped"].includes(newStatus)) {
       res.status(400).json({ error: "id + valid status required" });
       return;

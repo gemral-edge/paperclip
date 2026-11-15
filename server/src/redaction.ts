@@ -3,6 +3,13 @@ const SECRET_PAYLOAD_KEY_RE =
 const JWT_VALUE_RE = /^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+(?:\.[A-Za-z0-9_-]+)?$/;
 export const REDACTED_EVENT_VALUE = "***REDACTED***";
 
+const LONE_SURROGATE_RE = /[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/g;
+
+/** Strip unpaired UTF-16 surrogates so JSONB writes never fail with Postgres 22P02. */
+export function stripLoneSurrogates(value: string): string {
+  return value.replace(LONE_SURROGATE_RE, "");
+}
+
 function isPlainObject(value: unknown): value is Record<string, unknown> {
   if (typeof value !== "object" || value === null || Array.isArray(value)) return false;
   const proto = Object.getPrototypeOf(value);
@@ -11,6 +18,7 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
 
 function sanitizeValue(value: unknown): unknown {
   if (value === null || value === undefined) return value;
+  if (typeof value === "string") return stripLoneSurrogates(value);
   if (Array.isArray(value)) return value.map(sanitizeValue);
   if (isSecretRefBinding(value)) return value;
   if (isPlainBinding(value)) return { type: "plain", value: sanitizeValue(value.value) };
