@@ -233,6 +233,28 @@ export async function markAntigravityAccountHealthy(
   }
 }
 
+/**
+ * GEM-2265: đánh dấu tài khoản bị Google khoá (`status=banned`) qua `agy_account_switcher.py mark-banned`.
+ * Switcher lấy tài khoản CLI thật (WinCred), báo chị Telegram 1 lần, KHÔNG xoay sang tài khoản khác.
+ */
+export async function markAntigravityAccountBanned(
+  email: string | null | undefined,
+  opts: { cwd?: string; timeoutMs?: number; runId?: string | null; reason?: string | null } = {},
+): Promise<{ ok: boolean; exitCode: number | null; stdout: string }> {
+  const scriptPath = resolveAgyAccountSwitcherScript(opts.cwd);
+  if (!scriptPath) return { ok: false, exitCode: null, stdout: "" };
+  const args = [scriptPath, "mark-banned", "--json"];
+  if (email && email.trim().length > 0) args.push("--email", email.trim());
+  if (opts.runId) args.push("--run-id", opts.runId);
+  if (opts.reason) args.push("--reason", opts.reason.slice(0, 300));
+  try {
+    const { exitCode, stdout } = await defaultPythonRunner("python", args, opts.timeoutMs ?? 30_000);
+    return { ok: exitCode === 0 && /"ok"\s*:\s*true/.test(stdout), exitCode, stdout };
+  } catch {
+    return { ok: false, exitCode: null, stdout: "" };
+  }
+}
+
 // ── GEM-1763: model theo gói tài khoản (ULTRA-only model trên tài khoản PRO) ────────────────
 
 export interface AntigravityPoolAccount {
@@ -263,7 +285,10 @@ export function readAntigravityPoolAccounts(homeDir: string = os.homedir()): Ant
 }
 
 function isPoolAccountReady(acc: AntigravityPoolAccount, nowMs: number): boolean {
-  if (!acc.cooldownUntil) return acc.status !== "disabled";
+  // GEM-2265: tài khoản Google khoá (banned) không có giờ hồi → trước đây bị coi là "sẵn sàng" và nhánh
+  // chuyển ULTRA (GEM-1763) có thể chọn đúng tài khoản đã bị khoá.
+  if (acc.status === "disabled" || acc.status === "banned") return false;
+  if (!acc.cooldownUntil) return true;
   const until = Date.parse(acc.cooldownUntil);
   return !Number.isFinite(until) || until <= nowMs;
 }

@@ -725,8 +725,28 @@ export function detectAntigravityZeroTokenBudget(input: { stderr: string }): { z
   return { zeroBudget };
 }
 
+// GEM-2265 (15/11/2026): Google khoá tài khoản — `PERMISSION_DENIED (code 403): This service has been
+// disabled in this account for violation of Terms of Service. Please submit an appeal…`. Đo 15/11: 44 lượt
+// của 14 agent (08:56→13:05) trên jesspham9378@, bị ghi `adapter_failed` chung chung. KHÁC hết quota: không
+// có giờ hồi, chạy lại vô ích, xoay hàng loạt sang tài khoản khác có rủi ro khoá dây chuyền.
+const ACCOUNT_DISABLED_RE =
+  /(?:service has been disabled in this account|violation of terms of service|submit an appeal to continue)/i;
+
+/** STDERR-only: tài khoản Google đang dùng bị khoá vì vi phạm Điều khoản dịch vụ. */
+export function detectAntigravityAccountDisabled(input: { stderr?: string | null }): {
+  disabled: boolean;
+  line: string | null;
+} {
+  const line =
+    scanLines("", input.stderr ?? "")
+      .filter((l) => !l.startsWith("[paperclip]"))
+      .find((l) => ACCOUNT_DISABLED_RE.test(l)) ?? null;
+  return { disabled: line !== null, line };
+}
+
 /** Lượt chạy hỏng vì hết credits/quota (stderr) và KHÔNG phải lỗi đăng nhập → đáng thử model kế. */
 export function shouldAntigravityFallback(input: { stdout?: string; stderr: string }): boolean {
+  if (detectAntigravityAccountDisabled({ stderr: input.stderr }).disabled) return false;
   if (!detectAntigravityQuotaExhausted({ stdout: "", stderr: input.stderr }).exhausted) return false;
   return !detectAntigravityAuthRequired({ stdout: "", stderr: input.stderr }).requiresAuth;
 }

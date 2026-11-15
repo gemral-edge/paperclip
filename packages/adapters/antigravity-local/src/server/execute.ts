@@ -47,6 +47,7 @@ import {
   countAntigravityMutationCalls,
   isAntigravityUnfinishedPromise,
   detectAntigravityModelNotAvailable,
+  detectAntigravityAccountDisabled,
   ANTIGRAVITY_IDLE_AFTER_ANSWER_DEFAULT_SEC,
   shouldReapAntigravityIdleAfterAnswer,
   normalizeProcessExitCode,
@@ -58,6 +59,7 @@ import {
   findReadyAntigravityAccountByPlan,
   getActiveAntigravityAccountEmail,
   getAntigravityPoolAccountCount,
+  markAntigravityAccountBanned,
   markAntigravityAccountHealthy,
   planForAntigravityAccount,
   readAntigravityPoolAccounts,
@@ -1237,7 +1239,15 @@ export async function execute(ctx: AdapterExecutionContext): Promise<AdapterExec
     let errorMessage: string | null = null;
     let errorMeta: Record<string, unknown> | undefined;
     const modelGap = !exitOk ? detectAntigravityModelNotAvailable({ stderr: attempt.proc.stderr }) : null;
-    if (modelGap?.notAvailable) {
+    const accountDisabled = !exitOk ? detectAntigravityAccountDisabled({ stderr: attempt.proc.stderr }) : null;
+    if (accountDisabled?.disabled) {
+      // GEM-2265: lỗi tài khoản, không phải lỗi của agent — mã riêng để CEO/máy chấm không tính cho agent
+      // và quota-retry KHÔNG hẹn chạy lại (mã này không nằm trong danh sách retry).
+      errorCode = "antigravity_account_disabled";
+      errorMessage =
+        `Tài khoản Google Antigravity "${lastActiveAccountEmail ?? "active"}" bị khoá (vi phạm Điều khoản dịch vụ) — ` +
+        `cần kháng cáo hoặc chuyển tài khoản. ${accountDisabled.line ?? ""}`.trim();
+    } else if (modelGap?.notAvailable) {
       // GEM-1763: model bị từ chối. Tài khoản đang dùng KHÔNG phải ULTRA ⇒ model có thật nhưng
       // mọi tài khoản ULTRA đang hết quota (nhánh chuyển ULTRA ở trên không tìm được) ⇒ đây là
       // tường quota theo thời gian → quota-retry hẹn chạy lại CÙNG model lúc ULTRA hồi quota.
@@ -1461,6 +1471,24 @@ export async function execute(ctx: AdapterExecutionContext): Promise<AdapterExec
           );
           conversationId = "";
           attempt = await runAttempt(conversationId, attemptModel);
+        }
+
+        // GEM-2265 (15/11/2026): Google khoá tài khoản (Terms of Service) → đánh dấu `banned` trong kho,
+        // KHÔNG chạy lại (vô ích, không có giờ hồi) và KHÔNG xoay sang tài khoản khác (rủi ro khoá dây chuyền —
+        // chị quyết kháng cáo/chuyển). Đặt TRƯỚC nhánh đăng nhập để không tốn thêm 1 lượt agy 15s.
+        const accountDisabled = detectAntigravityAccountDisabled({ stderr: attempt.proc.stderr });
+        if ((attempt.proc.exitCode ?? 0) !== 0 && accountDisabled.disabled) {
+          const mb = await markAntigravityAccountBanned(attemptAccountEmail, {
+            cwd,
+            runId,
+            reason: accountDisabled.line,
+          });
+          await onLog(
+            "stderr",
+            `[paperclip] Tài khoản Google "${attemptAccountEmail ?? "active"}" bị khoá (vi phạm Điều khoản dịch vụ) → ${mb.ok ? "đã đánh dấu banned trong kho" : "đánh dấu banned LỖI (exit " + String(mb.exitCode) + ")"}. KHÔNG chạy lại, KHÔNG tự xoay tài khoản.
+`,
+          );
+          return attempt;
         }
 
         // AGY-AUTH-001 (30/10/2026): "Authentication required" KHÔNG phải hết quota. Đo run 00671030
