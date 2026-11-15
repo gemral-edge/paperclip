@@ -127,7 +127,13 @@ export function IssueDocumentsSection({
     runSave,
   } = useAutosaveIndicator();
 
-  const { data: documents } = useQuery({
+  const {
+    data: documents,
+    isLoading: isDocumentsLoading,
+    isError: isDocumentsError,
+    error: documentsError,
+    refetch: refetchDocuments,
+  } = useQuery({
     queryKey: queryKeys.issues.documents(issue.id),
     queryFn: () => issuesApi.listDocuments(issue.id),
   });
@@ -202,7 +208,7 @@ export function IssueDocumentsSection({
   }, [documents]);
 
   const hasRealPlan = sortedDocuments.some((doc) => doc.key === "plan");
-  const isEmpty = sortedDocuments.length === 0 && !issue.legacyPlanDocument;
+  const isEmpty = !isDocumentsLoading && !isDocumentsError && sortedDocuments.length === 0 && !issue.legacyPlanDocument;
   const newDocumentKeyError =
     draft?.isNew && draft.key.trim().length > 0 && !DOCUMENT_KEY_PATTERN.test(draft.key.trim())
       ? "Use lowercase letters, numbers, -, or _, and start with a letter or number."
@@ -704,6 +710,21 @@ export function IssueDocumentsSection({
 
       {error && <p className="text-xs text-destructive">{error}</p>}
 
+      {isDocumentsLoading && (
+        <div className="space-y-2" aria-busy="true">
+          <div className="h-12 animate-pulse rounded-lg border border-border bg-accent/20" />
+        </div>
+      )}
+
+      {isDocumentsError && !isDocumentsLoading && (
+        <div role="alert" className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-destructive/40 bg-destructive/5 px-3 py-2 text-xs text-destructive">
+          <span>{documentsError instanceof Error ? documentsError.message : "Failed to load documents."}</span>
+          <Button variant="outline" size="xs" onClick={() => void refetchDocuments()}>
+            Retry
+          </Button>
+        </div>
+      )}
+
       {draft?.isNew && (
         <div
           className="space-y-3 rounded-lg border border-border bg-accent/10 p-3"
@@ -942,6 +963,7 @@ export function IssueDocumentsSection({
                       size="icon-xs"
                       className="text-muted-foreground transition-colors hover:text-foreground"
                       title="Edit document"
+                      aria-label="Edit document"
                       onClick={() => beginEditAndFocus(doc.key)}
                     >
                       <Pencil className="h-3.5 w-3.5" />
@@ -955,6 +977,7 @@ export function IssueDocumentsSection({
                       copiedDocumentKey === doc.key && "text-foreground",
                     )}
                     title={copiedDocumentKey === doc.key ? "Copied" : "Copy document"}
+                    aria-label={copiedDocumentKey === doc.key ? "Copied" : "Copy document"}
                     onClick={() => void copyDocumentBody(doc.key, displayedBody)}
                   >
                     {copiedDocumentKey === doc.key ? (
@@ -969,6 +992,7 @@ export function IssueDocumentsSection({
                       size="icon-xs"
                       className="text-muted-foreground transition-colors hover:text-destructive"
                       title="Delete document"
+                      aria-label="Delete document"
                       disabled={deleteDocument.isPending}
                       onClick={() => deleteDocument.mutate(doc.key)}
                     >
@@ -982,6 +1006,7 @@ export function IssueDocumentsSection({
                         size="icon-xs"
                         className="text-muted-foreground"
                         title="Document actions"
+                        aria-label="Document actions"
                       >
                         <MoreHorizontal className="h-3.5 w-3.5" />
                       </Button>
