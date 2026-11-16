@@ -98,7 +98,7 @@ export function TicketListPage() {
     staleTime: 60_000,
   });
 
-  const { data, isLoading, error } = useQuery({
+  const { data, isLoading, error, refetch } = useQuery({
     queryKey: ['crm', 'tickets', { search, statusFilter, prioFilter, page }],
     queryFn: () => crmApi.getTickets({
       ...(search && { search }), ...(statusFilter && { status: statusFilter }),
@@ -138,6 +138,14 @@ export function TicketListPage() {
     mutationFn: (id: string) => crmApi.resolveTicket(id),
     onSuccess: inv,
   });
+  const bulkStatusMut = useMutation({
+    mutationFn: ({ ids, status }: { ids: string[]; status: string }) =>
+      Promise.all(ids.map((id) => crmApi.updateTicket(id, { status }))),
+    onSuccess: () => {
+      setSelected(new Set());
+      inv();
+    },
+  });
   const deleteMut = useMutation({
     mutationFn: async (id: string) => readJsonOrThrow(await fetch(`/api/channels/crm/tickets/${id}`, { method: 'DELETE' }), 'Xóa phiếu thất bại'),
     onSuccess: () => { inv(); setModal(null); },
@@ -146,6 +154,14 @@ export function TicketListPage() {
   const agentList = (agents || []) as Array<{ slug: string; name: string }>;
   const customerList = customersData?.data || [];
   const tickets = data?.data || [];
+  const hasFilters = Boolean(search.trim() || statusFilter || prioFilter);
+  const isEmpty = !isLoading && !error && tickets.length === 0;
+  const resetFilters = () => {
+    setSearch('');
+    setStatusFilter('');
+    setPrioFilter('');
+    setPage(1);
+  };
 
   const openEdit = (t: any) => {
     setActiveTicket(t);
@@ -168,16 +184,17 @@ export function TicketListPage() {
     <div className="space-y-4 p-6">
       {toast && <Toast msg={toast} onDone={() => setToast(null)} />}
       {resolveMut.isError && <p role="alert" className="rounded-md bg-red-500/10 px-3 py-2 text-sm text-red-600">{(resolveMut.error as Error).message}</p>}
+      {bulkStatusMut.isError && <p role="alert" className="rounded-md bg-red-500/10 px-3 py-2 text-sm text-red-600">Đổi trạng thái hàng loạt thất bại: {(bulkStatusMut.error as Error).message}</p>}
       {updateMut.isError && modal !== 'edit' && <p role="alert" className="rounded-md bg-red-500/10 px-3 py-2 text-sm text-red-600">{(updateMut.error as Error).message}</p>}
 
       <div className="flex items-center justify-between">
         <h1 className="text-2xl font-bold">Phiếu hỗ trợ</h1>
         <div className="flex gap-2">
           <div className="flex rounded-md border border-input">
-            <button onClick={() => setView('list')} className={`px-2.5 py-1.5 text-sm ${view === 'list' ? 'bg-primary text-primary-foreground' : 'hover:bg-muted'}`} aria-label="Danh sách">
+            <button type="button" onClick={() => setView('list')} className={`px-2.5 py-1.5 text-sm ${view === 'list' ? 'bg-primary text-primary-foreground' : 'hover:bg-muted'}`} aria-label="Danh sách" aria-pressed={view === 'list'}>
               <List className="h-4 w-4" />
             </button>
-            <button onClick={() => setView('kanban')} className={`px-2.5 py-1.5 text-sm border-l border-input ${view === 'kanban' ? 'bg-primary text-primary-foreground' : 'hover:bg-muted'}`} aria-label="Kanban">
+            <button type="button" onClick={() => setView('kanban')} className={`px-2.5 py-1.5 text-sm border-l border-input ${view === 'kanban' ? 'bg-primary text-primary-foreground' : 'hover:bg-muted'}`} aria-label="Kanban" aria-pressed={view === 'kanban'}>
               <Kanban className="h-4 w-4" />
             </button>
           </div>
@@ -199,16 +216,16 @@ export function TicketListPage() {
       <div className="flex flex-wrap items-center gap-3">
         <div className="relative flex-1 min-w-[200px] max-w-sm">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-          <Input placeholder="Tìm theo tiêu đề, mã phiếu..." className="pl-9" value={search} onChange={e => setSearch(e.target.value)} />
+          <Input placeholder="Tìm theo tiêu đề, mã phiếu..." className="pl-9" aria-label="Tìm phiếu hỗ trợ" value={search} onChange={e => { setSearch(e.target.value); setPage(1); }} />
         </div>
-        <select value={statusFilter} onChange={e => { setStatusFilter(e.target.value); setPage(1); }} className="rounded-md border border-input bg-background px-3 py-2 text-sm">
+        <select aria-label="Lọc theo trạng thái" value={statusFilter} onChange={e => { setStatusFilter(e.target.value); setPage(1); }} className="rounded-md border border-input bg-background px-3 py-2 text-sm">
           <option value="">Tất cả trạng thái</option>
           <option value="open">Mới</option>
           <option value="assigned,in_progress">Đang xử lý</option>
           <option value="escalated">Escalated</option>
           <option value="resolved,closed">Đã giải quyết</option>
         </select>
-        <select value={prioFilter} onChange={e => { setPrioFilter(e.target.value); setPage(1); }} className="rounded-md border border-input bg-background px-3 py-2 text-sm">
+        <select aria-label="Lọc theo mức ưu tiên" value={prioFilter} onChange={e => { setPrioFilter(e.target.value); setPage(1); }} className="rounded-md border border-input bg-background px-3 py-2 text-sm">
           <option value="">Tất cả ưu tiên</option>
           <option value="critical">Nghiêm trọng</option>
           <option value="urgent">Khẩn cấp</option>
@@ -222,21 +239,24 @@ export function TicketListPage() {
       {selected.size > 0 && (
         <div className="flex items-center gap-2 p-3 rounded-lg bg-primary/5 border border-primary/20 mb-3">
           <span className="text-sm font-medium">{selected.size} phiếu đã chọn</span>
-          <select onChange={e => {
-            if (!e.target.value) return;
-            const newStatus = e.target.value;
-            selected.forEach(id => fetch(`/api/channels/crm/tickets/${id}`, { method: 'PUT', headers: {'Content-Type':'application/json'}, body: JSON.stringify({status: newStatus}) }));
-            setSelected(new Set());
-            e.target.value = '';
-            setTimeout(inv, 500);
-          }} className="rounded-md border border-input bg-background px-2 py-1 text-sm">
-            <option value="">Đổi trạng thái...</option>
+          <select
+            aria-label="Đổi trạng thái hàng loạt"
+            disabled={bulkStatusMut.isPending}
+            onChange={e => {
+              const newStatus = e.target.value;
+              if (!newStatus) return;
+              bulkStatusMut.mutate({ ids: Array.from(selected), status: newStatus });
+              e.target.value = '';
+            }}
+            className="rounded-md border border-input bg-background px-2 py-1 text-sm disabled:opacity-50"
+          >
+            <option value="">{bulkStatusMut.isPending ? 'Đang cập nhật...' : 'Đổi trạng thái...'}</option>
             <option value="assigned">Assigned</option>
             <option value="in_progress">In Progress</option>
             <option value="resolved">Resolved</option>
             <option value="closed">Closed</option>
           </select>
-          <Button size="sm" variant="outline" onClick={() => setSelected(new Set())}>Bỏ chọn</Button>
+          <Button size="sm" variant="outline" onClick={() => setSelected(new Set())} disabled={bulkStatusMut.isPending}>Bỏ chọn</Button>
         </div>
       )}
 
@@ -245,19 +265,31 @@ export function TicketListPage() {
         {isLoading ? (
           <div className="p-4 space-y-3">{Array.from({ length: 5 }).map((_, i) => <Skeleton key={i} className="h-12 w-full" />)}</div>
         ) : error ? (
-          <div className="p-8 text-center text-sm text-destructive">Lỗi: {(error as Error).message}</div>
-        ) : !data?.data?.length ? (
-          <div className="flex flex-col items-center gap-3 p-12">
+          <div className="p-8 text-center space-y-3">
+            <p role="alert" className="text-sm text-destructive">Lỗi tải phiếu hỗ trợ: {(error as Error).message}</p>
+            <Button size="sm" variant="outline" onClick={() => refetch()}>Thử lại</Button>
+          </div>
+        ) : isEmpty ? (
+          <div className="flex flex-col items-center gap-3 p-12 text-center">
             <Ticket className="h-10 w-10 text-muted-foreground/40" />
-            <p className="text-sm text-muted-foreground">Chưa có phiếu hỗ trợ nào.</p>
+            <p className="text-sm text-muted-foreground">
+              {hasFilters ? 'Không có phiếu hỗ trợ nào khớp bộ lọc hiện tại.' : 'Chưa có phiếu hỗ trợ nào.'}
+            </p>
+            {hasFilters ? (
+              <Button size="sm" variant="outline" onClick={resetFilters}>Xóa bộ lọc</Button>
+            ) : (
+              <Button size="sm" variant="outline" onClick={() => { createMut.reset(); setForm(defaultForm); setModal('create'); }}>
+                <Plus className="mr-1.5 h-4 w-4" /> Tạo phiếu mới
+              </Button>
+            )}
           </div>
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead><tr className="border-b bg-muted/30">
                 <th className="px-2 py-3 w-8">
-                  <input type="checkbox" className="rounded border-input" checked={data?.data?.length > 0 && selected.size === data.data.length} onChange={e => {
-                    if (e.target.checked) setSelected(new Set(data.data.map((t: any) => t.id)));
+                  <input type="checkbox" aria-label="Chọn tất cả phiếu" className="rounded border-input" checked={tickets.length > 0 && selected.size === tickets.length} onChange={e => {
+                    if (e.target.checked) setSelected(new Set(tickets.map((t: any) => t.id)));
                     else setSelected(new Set());
                   }} />
                 </th>
@@ -278,7 +310,7 @@ export function TicketListPage() {
                   onClick={() => setDetailTicket(t)}
                 >
                   <td className="px-2 py-3 w-8" onClick={e => e.stopPropagation()}>
-                    <input type="checkbox" className="rounded border-input" checked={selected.has(t.id)} onChange={e => {
+                    <input type="checkbox" aria-label={`Chọn phiếu ${t.ticket_number || t.title}`} className="rounded border-input" checked={selected.has(t.id)} onChange={e => {
                       const next = new Set(selected);
                       if (e.target.checked) next.add(t.id); else next.delete(t.id);
                       setSelected(next);
@@ -299,6 +331,7 @@ export function TicketListPage() {
                   <td className="px-4 py-3 text-xs" onClick={e => e.stopPropagation()}>
                     {t.created_by_agent && t.created_by_agent !== 'board' ? (
                       <button
+                        type="button"
                         className="text-blue-600 hover:underline flex items-center gap-0.5"
                         onClick={() => nav(`/GEM/agents/${t.created_by_agent}/configuration`)}
                       >
@@ -312,14 +345,14 @@ export function TicketListPage() {
                   <td className="px-4 py-3 text-right" onClick={e => e.stopPropagation()}>
                     <div className="flex justify-end gap-1">
                       {!['resolved', 'closed'].includes(t.status) && (
-                        <button onClick={() => resolveMut.mutate(t.id)} className="p-1 rounded hover:bg-green-500/10 text-green-600" title="Giải quyết">
+                        <button type="button" onClick={() => resolveMut.mutate(t.id)} className="p-1.5 rounded hover:bg-green-500/10 text-green-600" title="Giải quyết" aria-label={`Giải quyết phiếu ${t.ticket_number || t.title}`}>
                           <CheckCircle className="h-4 w-4" />
                         </button>
                       )}
-                      <button onClick={() => openEdit(t)} className="p-1 rounded hover:bg-blue-500/10 text-blue-600" title="Sửa / Gán agent">
+                      <button type="button" onClick={() => openEdit(t)} className="p-1.5 rounded hover:bg-blue-500/10 text-blue-600" title="Sửa / Gán agent" aria-label={`Sửa phiếu ${t.ticket_number || t.title}`}>
                         <Pencil className="h-4 w-4" />
                       </button>
-                      <button onClick={() => { setActiveTicket(t); deleteMut.reset(); setModal('delete'); }} className="p-1 rounded hover:bg-red-500/10 text-red-600" title="Xóa">
+                      <button type="button" onClick={() => { setActiveTicket(t); deleteMut.reset(); setModal('delete'); }} className="p-1.5 rounded hover:bg-red-500/10 text-red-600" title="Xóa" aria-label={`Xóa phiếu ${t.ticket_number || t.title}`}>
                         <Trash2 className="h-4 w-4" />
                       </button>
                     </div>
@@ -329,10 +362,19 @@ export function TicketListPage() {
             </table>
           </div>
         )}
+        {data && data.totalPages > 1 && (
+          <div className="flex items-center justify-between border-t px-4 py-3">
+            <p className="text-xs text-muted-foreground">{data.total} phiếu, trang {page}/{data.totalPages}</p>
+            <div className="flex gap-2">
+              <Button size="sm" variant="outline" disabled={page <= 1} onClick={() => setPage(p => Math.max(1, p - 1))}>Trước</Button>
+              <Button size="sm" variant="outline" disabled={page >= data.totalPages} onClick={() => setPage(p => p + 1)}>Sau</Button>
+            </div>
+          </div>
+        )}
       </Card>}
 
       {/* KANBAN VIEW */}
-      {view === 'kanban' && <KanbanView tickets={tickets} onStatusChange={(id, status) => updateMut.mutate({ id, d: { status } })} />}
+      {view === 'kanban' && <KanbanView tickets={tickets} onStatusChange={(id, status) => updateMut.mutate({ id, d: { status } })} onOpenDetail={setDetailTicket} />}
 
       {/* Detail side panel */}
       {detailTicket && (
@@ -428,7 +470,7 @@ function TicketForm({ form, setForm, agents, customers, showStatus }: {
                 {selectedCustomer.gemral_user_id ? ` · ID: ${selectedCustomer.gemral_user_id.slice(0, 8)}…` : ''}
               </p>
             </div>
-            <button className="text-xs text-red-500 hover:text-red-700" onClick={() => setForm(f => ({ ...f, customer_id: '' }))}>✕ Bỏ chọn</button>
+            <button type="button" className="text-xs text-red-500 hover:text-red-700" onClick={() => setForm(f => ({ ...f, customer_id: '' }))}>✕ Bỏ chọn</button>
           </div>
         ) : (
           <div className="mt-1 border border-input rounded-md overflow-hidden">
@@ -443,11 +485,13 @@ function TicketForm({ form, setForm, agents, customers, showStatus }: {
             </div>
             <div className="max-h-40 overflow-y-auto">
               <button
+                type="button"
                 className="w-full text-left px-3 py-1.5 text-sm text-muted-foreground hover:bg-muted/50 italic"
                 onClick={() => setForm(f => ({ ...f, customer_id: '' }))}
               >— Không liên kết khách hàng —</button>
               {filteredCustomers.slice(0, 30).map(c => (
                 <button
+                  type="button"
                   key={c.id}
                   className="w-full text-left px-3 py-1.5 hover:bg-muted/50 flex items-center justify-between"
                   onClick={() => { setForm(f => ({ ...f, customer_id: c.id })); setCustomerSearch(''); }}
@@ -529,7 +573,7 @@ const kanbanColumns = [
   { status: 'closed', label: 'Đóng', color: 'border-gray-400' },
 ];
 
-function KanbanView({ tickets, onStatusChange }: { tickets: any[]; onStatusChange: (id: string, status: string) => void }) {
+function KanbanView({ tickets, onStatusChange, onOpenDetail }: { tickets: any[]; onStatusChange: (id: string, status: string) => void; onOpenDetail: (t: any) => void }) {
   const [dragId, setDragId] = useState<string | null>(null);
 
   return (
@@ -548,8 +592,16 @@ function KanbanView({ tickets, onStatusChange }: { tickets: any[]; onStatusChang
             </div>
             <div className="flex-1 px-2 pb-2 space-y-2 min-h-[100px]">
               {colTickets.map((t: any) => (
-                <div key={t.id} draggable onDragStart={() => setDragId(t.id)}
-                  className="rounded-md border bg-background p-2.5 cursor-grab active:cursor-grabbing hover:shadow-sm text-xs">
+                <div
+                  key={t.id}
+                  role="button"
+                  tabIndex={0}
+                  draggable
+                  onDragStart={() => setDragId(t.id)}
+                  onClick={() => onOpenDetail(t)}
+                  onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onOpenDetail(t); } }}
+                  className="rounded-md border bg-background p-2.5 cursor-pointer hover:shadow-sm text-xs focus:outline-none focus:ring-2 focus:ring-primary/50"
+                >
                   <div className="flex justify-between mb-1">
                     <span className={`rounded-full px-1.5 py-0.5 text-[10px] font-medium ${priorityColors[t.priority] || ''}`}>{t.priority}</span>
                     <span className="text-muted-foreground">{t.ticket_number}</span>
