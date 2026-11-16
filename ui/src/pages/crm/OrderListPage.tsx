@@ -54,14 +54,11 @@ const defaultOrderForm = {
 };
 
 /**
- * @archetype form
+ * @archetype list
  * @capability-skip dirty-guard: trang danh sách chỉ có ô tìm kiếm/bộ lọc; modal tạo đơn nhanh chọn sản phẩm từ danh mục cố định kèm tên/SĐT/ghi chú ngắn, nhập lại trong vài giây, không có bản nháp dài
+ * @capability-skip empty-state: render trực tiếp nhánh isEmpty kèm nút xóa bộ lọc / tạo đơn mới
  */
 export function OrderListPage() {
-  const [errors, setErrors] = useState({});
-  const [isSubmitting, setIsSubmitting] = useState(false);
-
-
   const navigate = useNavigate();
   const qc = useQueryClient();
   const [search, setSearch] = useState('');
@@ -70,7 +67,7 @@ export function OrderListPage() {
   const [showCreate, setShowCreate] = useState(false);
   const [form, setForm] = useState(defaultOrderForm);
 
-  const { data, isLoading, error } = useQuery({
+  const { data, isLoading, error, refetch } = useQuery({
     queryKey: ['crm', 'orders', { search, status, page }],
     queryFn: () => crmApi.getOrders({
       ...(search && { search }),
@@ -119,11 +116,26 @@ export function OrderListPage() {
     });
   };
 
+  const orders = data?.data || [];
+  const hasFilters = Boolean(search.trim() || status);
+  const isEmpty = !isLoading && !error && orders.length === 0;
+  const resetFilters = () => {
+    setSearch('');
+    setStatus('');
+    setPage(1);
+  };
+
+  const openCreateModal = () => {
+    createMut.reset();
+    setForm(defaultOrderForm);
+    setShowCreate(true);
+  };
+
   return (
     <div className="space-y-4 p-6">
       <div className="flex items-center justify-between">
         <h1 className="text-2xl font-bold">Đơn hàng</h1>
-        <Button size="sm" onClick={() => { setForm(defaultOrderForm); setShowCreate(true); }}>
+        <Button size="sm" onClick={openCreateModal}>
           <Plus className="mr-1.5 h-4 w-4" />
           Tạo đơn hàng
         </Button>
@@ -142,9 +154,9 @@ export function OrderListPage() {
       <div className="flex flex-wrap items-center gap-3">
         <div className="relative flex-1 min-w-[200px] max-w-sm">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-          <Input placeholder="Tìm theo mã đơn, tên khách..." className="pl-9" value={search} onChange={e => setSearch(e.target.value)} />
+          <Input aria-label="Tìm đơn hàng" placeholder="Tìm theo mã đơn, tên khách..." className="pl-9" value={search} onChange={e => { setSearch(e.target.value); setPage(1); }} />
         </div>
-        <select value={status} onChange={e => { setStatus(e.target.value); setPage(1); }} className="rounded-md border border-input bg-background px-3 py-2 text-sm">
+        <select aria-label="Lọc trạng thái đơn hàng" value={status} onChange={e => { setStatus(e.target.value); setPage(1); }} className="rounded-md border border-input bg-background px-3 py-2 text-sm">
           <option value="">Tất cả trạng thái</option>
           <option value="draft">Nháp</option>
           <option value="pending_payment">Chờ thanh toán</option>
@@ -160,11 +172,23 @@ export function OrderListPage() {
         {isLoading ? (
           <div className="p-4 space-y-3">{Array.from({ length: 6 }).map((_, i) => <Skeleton key={i} className="h-12 w-full" />)}</div>
         ) : error ? (
-          <div className="p-8 text-center text-sm text-destructive">Lỗi tải dữ liệu: {(error as Error).message}</div>
-        ) : !data?.data?.length ? (
+          <div className="p-8 text-center space-y-3">
+            <p role="alert" className="text-sm text-destructive">Lỗi tải dữ liệu: {(error as Error).message}</p>
+            <Button size="sm" variant="outline" onClick={() => refetch()}>Thử lại</Button>
+          </div>
+        ) : isEmpty ? (
           <div className="flex flex-col items-center gap-3 p-12 text-center">
             <ShoppingBag className="h-10 w-10 text-muted-foreground/40" />
-            <p className="text-sm text-muted-foreground">Chưa có đơn hàng nào.</p>
+            <p className="text-sm text-muted-foreground">
+              {hasFilters ? 'Không tìm thấy đơn hàng nào khớp bộ lọc.' : 'Chưa có đơn hàng nào.'}
+            </p>
+            {hasFilters ? (
+              <Button size="sm" variant="outline" onClick={resetFilters}>Xóa bộ lọc</Button>
+            ) : (
+              <Button size="sm" variant="outline" onClick={openCreateModal}>
+                <Plus className="mr-1.5 h-4 w-4" /> Tạo đơn hàng
+              </Button>
+            )}
           </div>
         ) : (
           <div className="overflow-x-auto">
@@ -180,8 +204,14 @@ export function OrderListPage() {
                 </tr>
               </thead>
               <tbody>
-                {data.data.map((o: any) => (
-                  <tr key={o.id} className="border-b cursor-pointer hover:bg-muted/30 transition-colors" onClick={() => navigate(`/crm/orders/${o.id}`)}>
+                {orders.map((o: any) => (
+                  <tr
+                    key={o.id}
+                    tabIndex={0}
+                    className="border-b cursor-pointer hover:bg-muted/30 transition-colors focus:outline-none focus:bg-muted/40"
+                    onClick={() => navigate(`/crm/orders/${o.id}`)}
+                    onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); navigate(`/crm/orders/${o.id}`); } }}
+                  >
                     <td className="px-4 py-3 font-medium">{o.order_number}</td>
                     <td className="px-4 py-3">{o.customer?.display_name || '—'}</td>
                     <td className="px-4 py-3">
@@ -263,6 +293,11 @@ export function OrderListPage() {
             <label className="text-sm font-medium">Ghi chú</label>
             <textarea value={form.notes} onChange={e => setForm(f => ({ ...f, notes: e.target.value }))} placeholder="Ghi chú thêm..." className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm min-h-[60px]" />
           </div>
+          {createMut.isError && (
+            <p role="alert" className="rounded-md bg-red-500/10 px-3 py-2 text-sm text-red-600">
+              {(createMut.error as Error).message}
+            </p>
+          )}
         </div>
       </SimpleModal>
     </div>
