@@ -48,13 +48,15 @@ const FLEET_ENV_KEYS = [
   "PAPERCLIP_HEARTBEAT_JITTER_MAX_SEC",
   "PAPERCLIP_FLEET_FAIR_ORDER",
   "PAPERCLIP_FLEET_FAIR_WAIT_MAX_MIN",
+  "PAPERCLIP_FLEET_MIN_FREE_MEM_MB",
   "PAPERCLIP_RESTART_DRAIN_FLAG",
   "PAPERCLIP_RESTART_DRAIN_FLAG_TTL_SEC",
 ] as const;
 
 function setFleetEnv(values: Partial<Record<(typeof FLEET_ENV_KEYS)[number], string>>) {
   for (const key of FLEET_ENV_KEYS) delete process.env[key];
-  Object.assign(process.env, values);
+  // Rule 1b reads real host RAM in claims — off by default so DB tests stay deterministic.
+  Object.assign(process.env, { PAPERCLIP_FLEET_MIN_FREE_MEM_MB: "0" }, values);
 }
 
 describe("fleet throttle pure helpers", () => {
@@ -72,9 +74,10 @@ describe("fleet throttle pure helpers", () => {
     expect(isRestartDrainActive(now, { ...env, PAPERCLIP_RESTART_DRAIN_FLAG_TTL_SEC: "0" }, at(now))).toBe(false);
   });
 
-  it("defaults to 3 running / 2 starts per 10 min / 3 timer wakes per hour / 30s jitter / 60m fairWaitMaxMin", () => {
+  it("defaults to 4 running / 2 starts per 10 min / 3 timer wakes per hour / 30s jitter / 60m fairWaitMaxMin", () => {
     const cfg = readFleetThrottleConfig({});
-    expect(cfg.maxRunning).toBe(3);
+    expect(cfg.maxRunning).toBe(4);
+    expect(cfg.minFreeMemMb).toBe(2048);
     expect(cfg.startsPerWindow).toBe(2);
     expect(cfg.timerWakesPerHour).toBe(3);
     expect(cfg.timerExemptAgents.size).toBe(0);
@@ -155,6 +158,17 @@ describe("fleet throttle pure helpers", () => {
     const now = new Date("2026-10-05T10:47:13.000Z");
     expect(fleetWindowStart(now, 10 * 60 * 1000).toISOString()).toBe("2026-10-05T10:40:00.000Z");
     expect(fleetWindowStart(now, 60 * 60 * 1000).toISOString()).toBe("2026-10-05T10:00:00.000Z");
+  });
+
+  it("rule 1b (GEM-1996): low free RAM holds new starts unless nothing runs; 0 disables", () => {
+    const cfg = readFleetThrottleConfig({ PAPERCLIP_FLEET_MIN_FREE_MEM_MB: "2048" });
+    expect(evaluateFleetClaim(cfg, { running: 2, startsInWindow: 0, freeMemMb: 1500 }, { invocationSource: "timer", pendingTimerRuns: 0 }))
+      .toMatchObject({ ok: false, reason: "memory_low" });
+    expect(evaluateFleetClaim(cfg, { running: 0, startsInWindow: 0, freeMemMb: 500 }).ok).toBe(true);
+    expect(evaluateFleetClaim(cfg, { running: 2, startsInWindow: 0, freeMemMb: 4096 }).ok).toBe(true);
+    expect(evaluateFleetClaim(cfg, { running: 2, startsInWindow: 0 }).ok).toBe(true);
+    const off = readFleetThrottleConfig({ PAPERCLIP_FLEET_MIN_FREE_MEM_MB: "0" });
+    expect(evaluateFleetClaim(off, { running: 2, startsInWindow: 0, freeMemMb: 100 }).ok).toBe(true);
   });
 
   it("blocks on running cap before start-window cap", () => {

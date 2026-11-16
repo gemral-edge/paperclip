@@ -1,5 +1,6 @@
 import fs from "node:fs/promises";
 import path from "node:path";
+import os from "node:os";
 import { execFile as execFileCallback } from "node:child_process";
 import { promisify } from "node:util";
 import { and, asc, desc, eq, gt, inArray, notInArray, sql } from "drizzle-orm";
@@ -2048,6 +2049,7 @@ export function heartbeatService(db: Db) {
           running: Number(counts?.running ?? 0),
           startsInWindow: Number(counts?.startsInWindow ?? 0),
           runningNonTimer: Number(counts?.runningNonTimer ?? 0),
+          freeMemMb: Math.floor(os.freemem() / (1024 * 1024)),
         };
         const recordFleetDeferred = (verdict: Exclude<FleetClaimVerdict, { ok: true }>) => {
           if (!fleetDeferredRunIds.has(run.id)) {

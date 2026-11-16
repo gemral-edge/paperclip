@@ -30,7 +30,9 @@
  *     30 s recovery tick (oldest first) then claims the older run.
  *
  * Config (single place, read at call time so ops can change env + restart):
- *   PAPERCLIP_FLEET_MAX_RUNNING            default 3   (<=0 disables rule 1)
+ *   PAPERCLIP_FLEET_MAX_RUNNING            default 4   (<=0 disables rule 1; 3→4 GEM-1996 16/11:
+ *                                                     24h đo 388′ đủ 3 chỗ + 194′ chỗ timer bỏ trống)
+ *   PAPERCLIP_FLEET_MIN_FREE_MEM_MB        default 2048 (<=0 disables; rule 1b memory guard)
  *   PAPERCLIP_FLEET_STARTS_PER_10MIN       default 2   (<=0 disables rule 2)
  *   PAPERCLIP_FLEET_TIMER_WAKES_PER_HOUR   default 3   (<=0 disables rule 3)
  *   PAPERCLIP_FLEET_TIMER_EXEMPT_AGENTS    default ""  (comma list of agent id or name;
@@ -47,7 +49,9 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
-export const FLEET_MAX_RUNNING_DEFAULT = 3;
+export const FLEET_MAX_RUNNING_DEFAULT = 4;
+/** GEM-1996 rule 1b: no new run starts while the host has less free RAM than this (MB). */
+export const FLEET_MIN_FREE_MEM_MB_DEFAULT = 2048;
 export const FLEET_STARTS_PER_WINDOW_DEFAULT = 2;
 export const FLEET_START_WINDOW_MS = 10 * 60 * 1000;
 export const FLEET_TIMER_WAKES_PER_HOUR_DEFAULT = 3;
@@ -81,6 +85,7 @@ export interface FleetThrottleConfig {
   heartbeatJitterMaxSec: number;
   fairOrder: boolean;
   fairWaitMaxMin: number;
+  minFreeMemMb: number;
 }
 
 function readIntEnv(env: NodeJS.ProcessEnv, key: string, fallback: number) {
@@ -116,6 +121,7 @@ export function readFleetThrottleConfig(env: NodeJS.ProcessEnv = process.env): F
       0,
       readIntEnv(env, "PAPERCLIP_FLEET_FAIR_WAIT_MAX_MIN", FLEET_FAIR_WAIT_MAX_MIN_DEFAULT),
     ),
+    minFreeMemMb: Math.max(0, readIntEnv(env, "PAPERCLIP_FLEET_MIN_FREE_MEM_MB", FLEET_MIN_FREE_MEM_MB_DEFAULT)),
   };
 }
 
@@ -253,7 +259,7 @@ export type FleetClaimVerdict =
   | { ok: true }
   | {
       ok: false;
-      reason: "max_running" | "start_window" | "timer_priority" | "timer_reserved" | "fair_order";
+      reason: "max_running" | "memory_low" | "start_window" | "timer_priority" | "timer_reserved" | "fair_order";
       running: number;
       startsInWindow: number;
       pendingTimerRuns?: number;
@@ -262,7 +268,7 @@ export type FleetClaimVerdict =
 
 export function evaluateFleetClaim(
   config: FleetThrottleConfig,
-  counts: { running: number; startsInWindow: number; runningNonTimer?: number },
+  counts: { running: number; startsInWindow: number; runningNonTimer?: number; freeMemMb?: number },
   claim?: {
     invocationSource: string | null | undefined;
     pendingTimerRuns: number;
@@ -272,6 +278,16 @@ export function evaluateFleetClaim(
 ): FleetClaimVerdict {
   if (config.maxRunning > 0 && counts.running >= config.maxRunning) {
     return { ok: false, reason: "max_running", ...counts };
+  }
+  // Rule 1b memory guard (GEM-1996): with maxRunning raised to 4 the host must not be pushed
+  // into swap. Low free RAM holds every new start unless nothing is running (never deadlock).
+  if (
+    config.minFreeMemMb > 0 &&
+    counts.freeMemMb !== undefined &&
+    counts.running > 0 &&
+    counts.freeMemMb < config.minFreeMemMb
+  ) {
+    return { ok: false, reason: "memory_low", ...counts };
   }
   if (config.startsPerWindow > 0 && counts.startsInWindow >= config.startsPerWindow) {
     return { ok: false, reason: "start_window", ...counts };
