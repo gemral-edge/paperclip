@@ -74,11 +74,11 @@ describe("fleet throttle pure helpers", () => {
     expect(isRestartDrainActive(now, { ...env, PAPERCLIP_RESTART_DRAIN_FLAG_TTL_SEC: "0" }, at(now))).toBe(false);
   });
 
-  it("defaults to 4 running / 2 starts per 10 min / 3 timer wakes per hour / 30s jitter / 60m fairWaitMaxMin", () => {
+  it("defaults to 5 running / 3 starts per 10 min / 3 timer wakes per hour / 30s jitter / 60m fairWaitMaxMin", () => {
     const cfg = readFleetThrottleConfig({});
-    expect(cfg.maxRunning).toBe(4);
+    expect(cfg.maxRunning).toBe(5);
     expect(cfg.minFreeMemMb).toBe(2048);
-    expect(cfg.startsPerWindow).toBe(2);
+    expect(cfg.startsPerWindow).toBe(3);
     expect(cfg.timerWakesPerHour).toBe(3);
     expect(cfg.timerExemptAgents.size).toBe(0);
     expect(cfg.heartbeatJitterMaxSec).toBe(30);
@@ -172,7 +172,7 @@ describe("fleet throttle pure helpers", () => {
   });
 
   it("blocks on running cap before start-window cap", () => {
-    const cfg = readFleetThrottleConfig({ PAPERCLIP_FLEET_MAX_RUNNING: "2" });
+    const cfg = readFleetThrottleConfig({ PAPERCLIP_FLEET_MAX_RUNNING: "2", PAPERCLIP_FLEET_STARTS_PER_10MIN: "2" });
     expect(evaluateFleetClaim(cfg, { running: 1, startsInWindow: 1 }).ok).toBe(true);
     expect(evaluateFleetClaim(cfg, { running: 2, startsInWindow: 0 })).toMatchObject({ ok: false, reason: "max_running" });
     expect(evaluateFleetClaim(cfg, { running: 0, startsInWindow: 2 })).toMatchObject({ ok: false, reason: "start_window" });

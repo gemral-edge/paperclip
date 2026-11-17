@@ -30,10 +30,13 @@
  *     30 s recovery tick (oldest first) then claims the older run.
  *
  * Config (single place, read at call time so ops can change env + restart):
- *   PAPERCLIP_FLEET_MAX_RUNNING            default 4   (<=0 disables rule 1; 3→4 GEM-1996 16/11:
- *                                                     24h đo 388′ đủ 3 chỗ + 194′ chỗ timer bỏ trống)
+ *   PAPERCLIP_FLEET_MAX_RUNNING            default 5   (<=0 disables rule 1; 3→4 GEM-1996 16/11:
+ *                                                     24h đo 388′ đủ 3 chỗ + 194′ chỗ timer bỏ trống;
+ *                                                     4→5 GEM-1996 17/11: replay 24h, CEO giao 10–15
+ *                                                     việc/30′ → 14 lượt chờ >30′ ở (4,2), 3 ở (5,3))
  *   PAPERCLIP_FLEET_MIN_FREE_MEM_MB        default 2048 (<=0 disables; rule 1b memory guard)
- *   PAPERCLIP_FLEET_STARTS_PER_10MIN       default 2   (<=0 disables rule 2)
+ *   PAPERCLIP_FLEET_STARTS_PER_10MIN       default 3   (<=0 disables rule 2; 2→3 GEM-1996 17/11:
+ *                                                     62/289′ chờ do trần bắt đầu khi còn chỗ trống)
  *   PAPERCLIP_FLEET_TIMER_WAKES_PER_HOUR   default 3   (<=0 disables rule 3)
  *   PAPERCLIP_FLEET_TIMER_EXEMPT_AGENTS    default ""  (comma list of agent id or name;
  *                                                     exempt from rule 3 only)
@@ -49,10 +52,10 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
-export const FLEET_MAX_RUNNING_DEFAULT = 4;
+export const FLEET_MAX_RUNNING_DEFAULT = 5;
 /** GEM-1996 rule 1b: no new run starts while the host has less free RAM than this (MB). */
 export const FLEET_MIN_FREE_MEM_MB_DEFAULT = 2048;
-export const FLEET_STARTS_PER_WINDOW_DEFAULT = 2;
+export const FLEET_STARTS_PER_WINDOW_DEFAULT = 3;
 export const FLEET_START_WINDOW_MS = 10 * 60 * 1000;
 export const FLEET_TIMER_WAKES_PER_HOUR_DEFAULT = 3;
 export const FLEET_TIMER_RESERVED_SLOTS_DEFAULT = 1;
