@@ -11,13 +11,14 @@
 const GREETING_TOKENS = new Set([
   'hi', 'hello', 'hey', 'helo', 'hallo', 'alo', 'allo', 'ê',
   'chào', 'chao', 'xin', 'good', 'morning', 'afternoon', 'evening',
-  'ơi', 'oi', 'ạ', 'nhé', 'nha', 'nhe',
+  'ơi', 'oi', 'ạ', 'ạh', 'ah', 'dạ', 'da', 'nhé', 'nha', 'nhe',
   'có', 'ai', 'không', 'khong', 'đó', 'đây',
 ]);
 
 /** Từ xưng hô / đối tượng (chỉ hợp lệ khi đi kèm từ chào gốc, không tự đứng một mình). */
 const ADDRESS_TOKENS = new Set([
-  'em', 'anh', 'chị', 'bạn', 'shop', 'ad', 'admin', 'page', 'mọi', 'người', 'cả', 'nhà',
+  'em', 'e', 'anh', 'a', 'chị', 'chi', 'c', 'bạn', 'ban', 'b', 'mình', 'minh',
+  'shop', 'ad', 'admin', 'page', 'mọi', 'người', 'mn', 'mng', 'cả', 'nhà',
   'there', 'all', 'everyone', 'bác', 'cô', 'chú', 'sếp', 'gemral', 'jennie', 'cậu',
 ]);
 
@@ -29,7 +30,7 @@ const CORE_GREETING = new Set([
 /** Tin chào thuần tiếng Anh → trả lời tiếng Anh. */
 const ENGLISH_ONLY = new Set(['hi', 'hello', 'hey', 'good', 'morning', 'afternoon', 'evening', 'there', 'all', 'everyone']);
 
-const MAX_TOKENS = 5;
+const MAX_TOKENS = 6;
 const MAX_CHARS = 30;
 
 function tokenize(text: string): string[] {

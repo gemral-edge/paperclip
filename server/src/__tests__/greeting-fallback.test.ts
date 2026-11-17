@@ -7,10 +7,13 @@ describe("isShortGreeting", () => {
   it.each([
     "Hi Em", "hi em", "Xin chào", "xin chào shop ạ", "Chào bạn", "alo", "Alo có ai không", "Hello 👋",
     "hey!", "Shop ơi", "Good morning", "chào ad nhé", "Chào anh chị",
+    "E chào chị", "e chào c", "Em chào a", "Dạ em chào chị", "Dạ em chào chị ạ", "Dạ em chào chị ạh",
+    "Da em chao chi a", "Chào mn", "Hello mng", "Chào b", "Mình chào shop ạ", "E ơi", "Dạ em xin chào chị ạ",
   ])("nhận %s là lời chào", (s) => expect(isShortGreeting(s)).toBe(true));
 
   it.each([
     "", "   ", "em", "shop", "ạ nhé", "có không",
+    "e", "c", "a", "b", "dạ", "da", "mn", "mng", "Dạ chị", "e hỏi chị chút",
     "Hi em cho mình hỏi khóa học", "chào shop, giá bao nhiêu?", "Hello 123", "xin chào mã đơn 4848",
     "hi em tư vấn giúp mình", "Hi?", "chào buổi sáng tốt lành nha cả nhà mình",
   ])("KHÔNG coi %j là lời chào thuần", (s) => expect(isShortGreeting(s)).toBe(false));
@@ -22,10 +25,12 @@ describe("isShortGreeting", () => {
 });
 
 describe("buildGreetingFallback", () => {
-  it("tin Việt (kể cả 'Hi Em') → trả lời tiếng Việt, không chứa giá/số", () => {
-    const t = buildGreetingFallback("Hi Em");
-    expect(t).toContain("Dạ em chào");
-    expect(t).not.toMatch(/\d/);
+  it("tin Việt (kể cả 'Hi Em', 'E chào chị', 'Hi e') → trả lời tiếng Việt, không chứa giá/số", () => {
+    for (const msg of ["Hi Em", "E chào chị", "Hi e"]) {
+      const t = buildGreetingFallback(msg);
+      expect(t).toContain("Dạ em chào");
+      expect(t).not.toMatch(/\d/);
+    }
   });
   it("tin thuần Anh → trả lời tiếng Anh", () => {
     expect(buildGreetingFallback("Hello")).toMatch(/^Hello!/);
