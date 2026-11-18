@@ -299,6 +299,26 @@ export function isAntigravityUnfinishedPromise(reply: string | null | undefined)
   return ANTIGRAVITY_UNFINISHED_PROMISE_PATTERNS.some((p) => p.test(tail));
 }
 
+// GEM-2381 — lượt kết thúc bằng câu TIẾN ĐỘ "đang chạy… em sẽ xử lý khi lệnh hoàn tất": model đẩy
+// lệnh kiểm tra/build ra nền rồi kết thúc lượt; agy `-p` không gọi model lại khi lệnh xong, nên phần
+// việc sau (build, đối chiếu, xuất báo cáo, commit) không bao giờ chạy. Khác ANTIGRAVITY_UNFINISHED_*
+// (0 tool ghi): ở đây agent ĐÃ sửa file, vẫn mất sản phẩm (17/11 run d0a25d20 Kiểm Định UX — mất báo
+// cáo S3; 16/11 run 268a25e0). Backtest 422 lượt agy / 7 ngày: bắt đúng 2 lượt đó, 0 bắt oan.
+export const ANTIGRAVITY_WAIT_PROMISE_PATTERNS: ReadonlyArray<RegExp> = [
+  // Đoạn cuối MỞ ĐẦU bằng "Đang chạy/kiểm/chờ…" = câu báo tiến độ, không phải báo cáo kết quả.
+  /^(?:dạ\s*,?\s*)?(?:em\s+)?đang\s+(?:chạy|kiểm|đợi|chờ|build|đẩy|thực\s+thi|xử\s+lý|tiến\s+hành)/i,
+  // "… khi/ngay khi/sau khi lệnh|tác vụ|kiểm tra… hoàn tất/xong" — hẹn làm tiếp sau khi lệnh nền trả.
+  /(?:khi|ngay\s+khi|sau\s+khi)\s+(?:các\s+|bộ\s+|lệnh\s+)?(?:lệnh|tác\s+vụ|tiến\s+trình|kiểm\s+tra|build|kiểm\s+thử)[^.;\n]{0,60}?(?:hoàn\s+tất|xong|kết\s+thúc|trả\s+kết\s+quả)/i,
+  /\b(?:once|when|after)\s+(?:the\s+)?(?:command|task|build|checks?|tests?|run)\s+(?:has\s+)?(?:finish|complete|return)/i,
+  /^(?:now\s+)?(?:running|waiting\s+for)\b/i,
+];
+
+export function isAntigravityWaitPromise(reply: string | null | undefined): boolean {
+  const tail = closingParagraph(reply);
+  if (!tail) return false;
+  return ANTIGRAVITY_WAIT_PROMISE_PATTERNS.some((p) => p.test(tail));
+}
+
 // GEM-1892 — agy `-p` keeps the process alive after the model's final answer while any
 // run_command it pushed to the background is still running ("root agent idle; waiting up
 // to 24h0m0s for N background task(s)"). Run 1d6ead3f (Giám Sát Hệ Thống, 07/11) answered

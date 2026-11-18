@@ -26,6 +26,7 @@ export {
   countAntigravityMutationCalls,
   ANTIGRAVITY_MUTATION_TOOL_RE,
   isAntigravityUnfinishedPromise,
+  isAntigravityWaitPromise,
   ANTIGRAVITY_IDLE_AFTER_ANSWER_DEFAULT_SEC,
   shouldReapAntigravityIdleAfterAnswer,
   normalizeProcessExitCode,

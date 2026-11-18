@@ -46,6 +46,7 @@ import {
   isAntigravityCleanExitProse,
   countAntigravityMutationCalls,
   isAntigravityUnfinishedPromise,
+  isAntigravityWaitPromise,
   detectAntigravityModelNotAvailable,
   detectAntigravityAccountDisabled,
   ANTIGRAVITY_IDLE_AFTER_ANSWER_DEFAULT_SEC,
@@ -1315,6 +1316,14 @@ export async function execute(ctx: AdapterExecutionContext): Promise<AdapterExec
       errorMessage =
         `agy kết thúc lượt bằng câu hứa làm tiếp nhưng không ghi file / gọi MCP nào — ` +
         `việc chưa được làm (turnMarker ${turnMarker}).`;
+    } else if (requireToolAction && isAntigravityWaitPromise(detected.reply || summary)) {
+      // GEM-2381: đã sửa file nhưng kết thúc lượt bằng "đang chạy… em sẽ xử lý khi lệnh hoàn tất"
+      // (run d0a25d20 Kiểm Định UX 17/11 — mất báo cáo S3, vẫn ghi succeeded). agy -p không gọi lại
+      // model khi lệnh nền xong → phần sau không chạy. Cùng mã unfinished_turn → quota-retry chạy lại ngắn.
+      errorCode = "antigravity_unfinished_turn";
+      errorMessage =
+        `agy kết thúc lượt bằng câu tiến độ "đang chạy… sẽ xử lý khi lệnh hoàn tất" — lệnh nền chưa trả, ` +
+        `phần việc sau (build/đối chiếu/báo cáo) chưa làm (turnMarker ${turnMarker}).`;
     }
 
     // Persist the REAL brain id (agy's auto-created or resumed id) so the next
