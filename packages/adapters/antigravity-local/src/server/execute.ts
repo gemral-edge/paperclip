@@ -36,6 +36,7 @@ import {
   shouldAntigravityFallback,
   detectAntigravityTransientDisconnect,
   detectAntigravityZeroTokenBudget,
+  detectAntigravityEmptyConversationId,
   findAntigravityRunByTurnMarker,
   looksLikeSystemPromptLeak,
   parseAntigravityStdout,
@@ -1528,6 +1529,21 @@ export async function execute(ctx: AdapterExecutionContext): Promise<AdapterExec
             `[paperclip] agy hỏng trước khi bắt đầu (maxMessageTokens = 0, chưa gọi model, chưa chạy công cụ) → chạy lại 1 lần cùng model "${attemptModel}", cùng phiên.\n`,
           );
           await new Promise<void>((resolve) => setTimeout(resolve, 5_000));
+          attempt = await runAttempt(conversationId, attemptModel);
+        }
+
+        // GEM-2389: máy chủ trả mã hội thoại rỗng ("failed to start conversation: backend returned an
+        // empty conversation id") → lỗi tạm, chưa gọi model. Chạy lại 1 lần sau 10 giây CÙNG model,
+        // CÙNG tài khoản, CÙNG phiên (không phải fallback — luật 22/10).
+        if (
+          (attempt.proc.exitCode ?? 0) !== 0 &&
+          detectAntigravityEmptyConversationId({ stderr: attempt.proc.stderr }).emptyConversationId
+        ) {
+          await onLog(
+            "stderr",
+            `[paperclip] agy không mở được hội thoại (máy chủ trả mã hội thoại rỗng, chưa gọi model) → chờ 10 giây rồi chạy lại 1 lần cùng model "${attemptModel}", cùng tài khoản "${attemptAccountEmail ?? "active"}".\n`,
+          );
+          await new Promise<void>((resolve) => setTimeout(resolve, 10_000));
           attempt = await runAttempt(conversationId, attemptModel);
         }
 

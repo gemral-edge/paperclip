@@ -745,6 +745,22 @@ export function detectAntigravityZeroTokenBudget(input: { stderr: string }): { z
   return { zeroBudget };
 }
 
+// GEM-2389 (18/11/2026): máy chủ Google trả về mã hội thoại rỗng lúc agy mở hội thoại —
+// `error: failed to start conversation: backend returned an empty conversation id` (stderr 1 dòng,
+// exit ≠ 0, chưa gọi model). Đo 14 ngày: 6 lượt failed (17/11 11:59 → 18/11 11:38 giờ VN), 6/6 lượt kế
+// tiếp cùng agent chạy được → lỗi tạm phía máy chủ, chạy lại an toàn cùng model/tài khoản/phiên.
+const EMPTY_CONVERSATION_ID_RE = /failed to start conversation:.*empty conversation id/i;
+
+/** STDERR-only: agy không mở được hội thoại vì máy chủ trả mã rỗng → lỗi tạm, chạy lại 1 lần. */
+export function detectAntigravityEmptyConversationId(input: { stderr?: string | null }): {
+  emptyConversationId: boolean;
+} {
+  const emptyConversationId = scanLines("", input.stderr ?? "")
+    .filter((line) => !line.startsWith("[paperclip]"))
+    .some((line) => EMPTY_CONVERSATION_ID_RE.test(line));
+  return { emptyConversationId };
+}
+
 // GEM-2265 (15/11/2026): Google khoá tài khoản — `PERMISSION_DENIED (code 403): This service has been
 // disabled in this account for violation of Terms of Service. Please submit an appeal…`. Đo 15/11: 44 lượt
 // của 14 agent (08:56→13:05) trên jesspham9378@, bị ghi `adapter_failed` chung chung. KHÁC hết quota: không

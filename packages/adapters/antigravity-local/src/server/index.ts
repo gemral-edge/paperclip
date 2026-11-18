@@ -16,6 +16,7 @@ export {
   detectAntigravityQuotaExhausted,
   detectAntigravityTransientDisconnect,
   detectAntigravityZeroTokenBudget,
+  detectAntigravityEmptyConversationId,
   detectAntigravityModelNotAvailable,
   detectAntigravityAccountDisabled,
   shouldAntigravityFallback,
