@@ -96,7 +96,7 @@ function PropertyPicker({
     return (
       <div>
         <PropertyRow label={label}>
-          <button className={btnCn} onClick={() => onOpenChange(!open)}>
+          <button type="button" className={btnCn} onClick={() => onOpenChange(!open)}>
             {triggerContent}
           </button>
           {extra}
@@ -114,7 +114,7 @@ function PropertyPicker({
     <PropertyRow label={label}>
       <Popover open={open} onOpenChange={onOpenChange}>
         <PopoverTrigger asChild>
-          <button className={btnCn}>{triggerContent}</button>
+          <button type="button" className={btnCn}>{triggerContent}</button>
         </PopoverTrigger>
         <PopoverContent className={cn("p-1", popoverClassName)} align={popoverAlign} collisionPadding={16}>
           {children}
@@ -198,32 +198,46 @@ export function IssueProperties({
   );
   const documentCount = sortedDocuments.length + (hasLegacyPlan ? 1 : 0);
 
+  const [propertyError, setPropertyError] = useState<string | null>(null);
+
   const deleteDocument = useMutation({
     mutationFn: (key: string) => issuesApi.deleteDocument(issue.id, key),
     onSuccess: () => {
+      setPropertyError(null);
       queryClient.invalidateQueries({ queryKey: queryKeys.issues.detail(issue.id) });
       if (issue.identifier && issue.identifier !== issue.id) {
         queryClient.invalidateQueries({ queryKey: queryKeys.issues.detail(issue.identifier) });
       }
       queryClient.invalidateQueries({ queryKey: queryKeys.issues.documents(issue.id) });
     },
+    onError: (err) => {
+      setPropertyError(err instanceof Error ? err.message : "Failed to delete document");
+    },
   });
 
   const createLabel = useMutation({
     mutationFn: (data: { name: string; color: string }) => issuesApi.createLabel(companyId!, data),
     onSuccess: async (created) => {
+      setPropertyError(null);
       await queryClient.invalidateQueries({ queryKey: queryKeys.issues.labels(companyId!) });
       onUpdate({ labelIds: [...(issue.labelIds ?? []), created.id] });
       setNewLabelName("");
+    },
+    onError: (err) => {
+      setPropertyError(err instanceof Error ? err.message : "Failed to create label");
     },
   });
 
   const deleteLabel = useMutation({
     mutationFn: (labelId: string) => issuesApi.deleteLabel(labelId),
     onSuccess: () => {
+      setPropertyError(null);
       queryClient.invalidateQueries({ queryKey: queryKeys.issues.labels(companyId!) });
       queryClient.invalidateQueries({ queryKey: queryKeys.issues.list(companyId!) });
       queryClient.invalidateQueries({ queryKey: queryKeys.issues.detail(issue.id) });
+    },
+    onError: (err) => {
+      setPropertyError(err instanceof Error ? err.message : "Failed to delete label");
     },
   });
 
@@ -296,13 +310,26 @@ export function IssueProperties({
 
   const labelsContent = (
     <>
-      <input
-        className="w-full px-2 py-1.5 text-xs bg-transparent outline-none border-b border-border mb-1 placeholder:text-muted-foreground/50"
-        placeholder="Search labels..."
-        value={labelSearch}
-        onChange={(e) => setLabelSearch(e.target.value)}
-        autoFocus={!inline}
-      />
+      <div className="relative border-b border-border mb-1">
+        <input
+          className="w-full px-2 py-1.5 pr-7 text-base sm:text-xs bg-transparent outline-none placeholder:text-muted-foreground/50"
+          placeholder="Search labels..."
+          aria-label="Search labels"
+          value={labelSearch}
+          onChange={(e) => setLabelSearch(e.target.value)}
+          autoFocus={!inline}
+        />
+        {labelSearch && (
+          <button
+            type="button"
+            onClick={() => setLabelSearch("")}
+            aria-label="Clear label search"
+            className="absolute right-1 top-1/2 -translate-y-1/2 inline-flex h-5 w-5 items-center justify-center rounded text-muted-foreground hover:text-foreground"
+          >
+            <X className="h-3 w-3" />
+          </button>
+        )}
+      </div>
       <div className="max-h-44 overflow-y-auto overscroll-contain space-y-0.5">
         {(labels ?? [])
           .filter((label) => {
@@ -314,6 +341,7 @@ export function IssueProperties({
             return (
               <div key={label.id} className="flex items-center gap-1">
                 <button
+                  type="button"
                   className={cn(
                     "flex items-center gap-2 flex-1 px-2 py-1.5 text-xs rounded hover:bg-accent/50 text-left",
                     selected && "bg-accent"
@@ -328,6 +356,7 @@ export function IssueProperties({
                   className="p-1 text-muted-foreground hover:text-destructive rounded"
                   onClick={() => deleteLabel.mutate(label.id)}
                   title={`Delete ${label.name}`}
+                  aria-label={`Delete label ${label.name}`}
                 >
                   <Trash2 className="h-3 w-3" />
                 </button>
@@ -340,17 +369,20 @@ export function IssueProperties({
           <input
             className="h-7 w-7 p-0 rounded bg-transparent"
             type="color"
+            aria-label="New label color"
             value={newLabelColor}
             onChange={(e) => setNewLabelColor(e.target.value)}
           />
           <input
-            className="flex-1 px-2 py-1.5 text-xs bg-transparent outline-none rounded placeholder:text-muted-foreground/50"
+            className="flex-1 px-2 py-1.5 text-base sm:text-xs bg-transparent outline-none rounded placeholder:text-muted-foreground/50"
             placeholder="New label"
+            aria-label="New label name"
             value={newLabelName}
             onChange={(e) => setNewLabelName(e.target.value)}
           />
         </div>
         <button
+          type="button"
           className="flex items-center justify-center gap-1.5 w-full px-2 py-1.5 text-xs rounded border border-border hover:bg-accent/50 disabled:opacity-50"
           disabled={!newLabelName.trim() || createLabel.isPending}
           onClick={() =>
@@ -383,15 +415,29 @@ export function IssueProperties({
 
   const assigneeContent = (
     <>
-      <input
-        className="w-full px-2 py-1.5 text-xs bg-transparent outline-none border-b border-border mb-1 placeholder:text-muted-foreground/50"
-        placeholder="Search assignees..."
-        value={assigneeSearch}
-        onChange={(e) => setAssigneeSearch(e.target.value)}
-        autoFocus={!inline}
-      />
+      <div className="relative border-b border-border mb-1">
+        <input
+          className="w-full px-2 py-1.5 pr-7 text-base sm:text-xs bg-transparent outline-none placeholder:text-muted-foreground/50"
+          placeholder="Search assignees..."
+          aria-label="Search assignees"
+          value={assigneeSearch}
+          onChange={(e) => setAssigneeSearch(e.target.value)}
+          autoFocus={!inline}
+        />
+        {assigneeSearch && (
+          <button
+            type="button"
+            onClick={() => setAssigneeSearch("")}
+            aria-label="Clear assignee search"
+            className="absolute right-1 top-1/2 -translate-y-1/2 inline-flex h-5 w-5 items-center justify-center rounded text-muted-foreground hover:text-foreground"
+          >
+            <X className="h-3 w-3" />
+          </button>
+        )}
+      </div>
       <div className="max-h-48 overflow-y-auto overscroll-contain">
         <button
+          type="button"
           className={cn(
             "flex items-center gap-2 w-full px-2 py-1.5 text-xs rounded hover:bg-accent/50",
             !issue.assigneeAgentId && !issue.assigneeUserId && "bg-accent"
@@ -402,6 +448,7 @@ export function IssueProperties({
         </button>
         {currentUserId && (
           <button
+            type="button"
             className={cn(
               "flex items-center gap-2 w-full px-2 py-1.5 text-xs rounded hover:bg-accent/50",
               issue.assigneeUserId === currentUserId && "bg-accent",
@@ -417,6 +464,7 @@ export function IssueProperties({
         )}
         {issue.createdByUserId && issue.createdByUserId !== currentUserId && (
           <button
+            type="button"
             className={cn(
               "flex items-center gap-2 w-full px-2 py-1.5 text-xs rounded hover:bg-accent/50",
               issue.assigneeUserId === issue.createdByUserId && "bg-accent",
@@ -438,6 +486,7 @@ export function IssueProperties({
           })
           .map((a) => (
           <button
+            type="button"
             key={a.id}
             className={cn(
               "flex items-center gap-2 w-full px-2 py-1.5 text-xs rounded hover:bg-accent/50",
@@ -470,15 +519,29 @@ export function IssueProperties({
 
   const projectContent = (
     <>
-      <input
-        className="w-full px-2 py-1.5 text-xs bg-transparent outline-none border-b border-border mb-1 placeholder:text-muted-foreground/50"
-        placeholder="Search projects..."
-        value={projectSearch}
-        onChange={(e) => setProjectSearch(e.target.value)}
-        autoFocus={!inline}
-      />
+      <div className="relative border-b border-border mb-1">
+        <input
+          className="w-full px-2 py-1.5 pr-7 text-base sm:text-xs bg-transparent outline-none placeholder:text-muted-foreground/50"
+          placeholder="Search projects..."
+          aria-label="Search projects"
+          value={projectSearch}
+          onChange={(e) => setProjectSearch(e.target.value)}
+          autoFocus={!inline}
+        />
+        {projectSearch && (
+          <button
+            type="button"
+            onClick={() => setProjectSearch("")}
+            aria-label="Clear project search"
+            className="absolute right-1 top-1/2 -translate-y-1/2 inline-flex h-5 w-5 items-center justify-center rounded text-muted-foreground hover:text-foreground"
+          >
+            <X className="h-3 w-3" />
+          </button>
+        )}
+      </div>
       <div className="max-h-48 overflow-y-auto overscroll-contain">
         <button
+          type="button"
           className={cn(
             "flex items-center gap-2 w-full px-2 py-1.5 text-xs rounded hover:bg-accent/50 whitespace-nowrap",
             !issue.projectId && "bg-accent"
@@ -504,6 +567,7 @@ export function IssueProperties({
           })
           .map((p) => (
           <button
+            type="button"
             key={p.id}
             className={cn(
               "flex items-center gap-2 w-full px-2 py-1.5 text-xs rounded hover:bg-accent/50 whitespace-nowrap",
@@ -536,6 +600,22 @@ export function IssueProperties({
 
   return (
     <div className="space-y-4">
+      {propertyError && (
+        <div
+          role="alert"
+          className="flex items-start justify-between gap-2 rounded-md border border-destructive/30 bg-destructive/10 px-2.5 py-2 text-xs text-destructive"
+        >
+          <span>{propertyError}</span>
+          <button
+            type="button"
+            onClick={() => setPropertyError(null)}
+            aria-label="Dismiss error"
+            className="shrink-0 rounded p-0.5 hover:bg-destructive/10"
+          >
+            <X className="h-3 w-3" />
+          </button>
+        </div>
+      )}
       <div className="space-y-1">
         {/* 2026-04-18 — Jennie asked for the issue key (GEM-NNN) at the top
             of the Properties panel so it can be copied/referenced without
@@ -567,7 +647,8 @@ export function IssueProperties({
             <AlarmClock className="h-3.5 w-3.5 shrink-0 text-amber-500" />
             <input
               type="datetime-local"
-              className="h-7 min-w-0 rounded border border-input bg-transparent px-1.5 text-xs focus:outline-none focus:border-ring"
+              aria-label="Scheduled wake time"
+              className="h-7 min-w-0 rounded border border-input bg-transparent px-1.5 text-base sm:text-xs focus:outline-none focus:border-ring"
               value={wakeDraft ?? toDatetimeLocalValue(new Date(issue.scheduledWakeAt))}
               min={toDatetimeLocalValue(new Date())}
               onChange={(e) => setWakeDraft(e.target.value)}
@@ -582,8 +663,10 @@ export function IssueProperties({
               }}
             />
             <button
+              type="button"
               className="inline-flex items-center justify-center h-5 w-5 rounded hover:bg-accent/50 transition-colors text-muted-foreground hover:text-destructive"
               title="Bỏ hẹn giờ (issue ở lại Backlog, không tự wake nữa)"
+              aria-label="Bỏ hẹn giờ"
               onClick={() => onUpdate({ scheduledWakeAt: null })}
             >
               <X className="h-3 w-3" />
@@ -615,6 +698,8 @@ export function IssueProperties({
               to={`/agents/${issue.assigneeAgentId}`}
               target="_blank"
               rel="noopener noreferrer"
+              aria-label="Open assignee agent"
+              title="Open assignee agent"
               className="inline-flex items-center justify-center h-5 w-5 rounded hover:bg-accent/50 transition-colors text-muted-foreground hover:text-foreground"
               onClick={(e) => e.stopPropagation()}
             >
@@ -638,6 +723,8 @@ export function IssueProperties({
               to={projectLink(issue.projectId)!}
               target="_blank"
               rel="noopener noreferrer"
+              aria-label="Open project"
+              title="Open project"
               className="inline-flex items-center justify-center h-5 w-5 rounded hover:bg-accent/50 transition-colors text-muted-foreground hover:text-foreground"
               onClick={(e) => e.stopPropagation()}
             >

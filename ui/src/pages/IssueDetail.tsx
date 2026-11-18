@@ -234,8 +234,15 @@ export function IssueDetail() {
   const [descriptionExpanded, setDescriptionExpanded] = useState(false);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const lastMarkedReadIssueIdRef = useRef<string | null>(null);
+  const copyTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const { data: issue, isLoading, error } = useQuery({
+  useEffect(() => {
+    return () => {
+      if (copyTimerRef.current) clearTimeout(copyTimerRef.current);
+    };
+  }, []);
+
+  const { data: issue, isLoading, error, refetch } = useQuery({
     queryKey: queryKeys.issues.detail(issueId!),
     queryFn: async () => {
       const res = await issuesApi.get(issueId!);
@@ -617,6 +624,13 @@ export function IssueDetail() {
     onSuccess: () => {
       invalidateIssue();
     },
+    onError: (err) => {
+      pushToast({
+        title: "Update failed",
+        body: err instanceof Error ? err.message : "Unable to update issue",
+        tone: "error",
+      });
+    },
   });
 
   const addComment = useMutation({
@@ -941,14 +955,45 @@ export function IssueDetail() {
     const title = decodeEntities(issue.title);
     const body = decodeEntities(issue.description ?? "");
     const md = `# ${issue.identifier}: ${title}\n\n${body}`.trimEnd();
-    await navigator.clipboard.writeText(md);
-    setCopied(true);
-    pushToast({ title: "Copied to clipboard", tone: "success" });
-    setTimeout(() => setCopied(false), 2000);
+    try {
+      if (!navigator.clipboard?.writeText) {
+        throw new Error("Clipboard API unavailable");
+      }
+      await navigator.clipboard.writeText(md);
+      setCopied(true);
+      pushToast({ title: "Copied to clipboard", tone: "success" });
+      if (copyTimerRef.current) clearTimeout(copyTimerRef.current);
+      copyTimerRef.current = setTimeout(() => setCopied(false), 2000);
+    } catch (err) {
+      pushToast({
+        title: "Copy failed",
+        body: err instanceof Error ? err.message : "Unable to copy issue markdown",
+        tone: "error",
+      });
+    }
   };
 
   if (isLoading && !issue) return <p className="text-sm text-muted-foreground">Loading...</p>;
-  if (error && !issue) return <p className="text-sm text-destructive">{error.message}</p>;
+  if (error && !issue) {
+    return (
+      <div
+        role="alert"
+        className="w-full max-w-xl rounded-lg border border-destructive/30 bg-destructive/5 p-5 space-y-3"
+      >
+        <p className="text-sm font-medium text-destructive">
+          {error instanceof Error ? error.message : "Unable to load issue"}
+        </p>
+        <div className="flex flex-wrap items-center gap-2">
+          <Button type="button" variant="outline" size="sm" onClick={() => void refetch()}>
+            Retry
+          </Button>
+          <Button asChild type="button" variant="ghost" size="sm">
+            <Link to="/issues">Back to issues</Link>
+          </Button>
+        </div>
+      </div>
+    );
+  }
   if (!issue) return null;
 
   // Ancestors are returned oldest-first from the server (root at end, immediate parent at start)
@@ -956,15 +1001,22 @@ export function IssueDetail() {
   const handleFilePicked = async (evt: ChangeEvent<HTMLInputElement>) => {
     const files = evt.target.files;
     if (!files || files.length === 0) return;
-    for (const file of Array.from(files)) {
-      if (isMarkdownFile(file)) {
-        await importMarkdownDocument.mutateAsync(file);
-      } else {
-        await uploadAttachment.mutateAsync(file);
+    try {
+      for (const file of Array.from(files)) {
+        try {
+          if (isMarkdownFile(file)) {
+            await importMarkdownDocument.mutateAsync(file);
+          } else {
+            await uploadAttachment.mutateAsync(file);
+          }
+        } catch {
+          // Mutation onError updates attachmentError cleanly without aborting remaining files
+        }
       }
-    }
-    if (fileInputRef.current) {
-      fileInputRef.current.value = "";
+    } finally {
+      if (fileInputRef.current) {
+        fileInputRef.current.value = "";
+      }
     }
   };
 
@@ -974,10 +1026,14 @@ export function IssueDetail() {
     const files = evt.dataTransfer.files;
     if (!files || files.length === 0) return;
     for (const file of Array.from(files)) {
-      if (isMarkdownFile(file)) {
-        await importMarkdownDocument.mutateAsync(file);
-      } else {
-        await uploadAttachment.mutateAsync(file);
+      try {
+        if (isMarkdownFile(file)) {
+          await importMarkdownDocument.mutateAsync(file);
+        } else {
+          await uploadAttachment.mutateAsync(file);
+        }
+      } catch {
+        // Mutation onError updates attachmentError cleanly
       }
     }
   };
@@ -987,6 +1043,7 @@ export function IssueDetail() {
   const hasAttachments = attachmentList.length > 0;
   const attachmentUploadButton = (
     <Button
+      type="button"
       variant="outline"
       size="sm"
       onClick={() => fileInputRef.current?.click()}
@@ -1007,7 +1064,7 @@ export function IssueDetail() {
   );
 
   return (
-    <div className="w-full max-w-3xl space-y-6">
+    <div className="w-full min-w-0 max-w-3xl space-y-6">
       <input
         ref={fileInputRef}
         type="file"
@@ -1120,18 +1177,22 @@ export function IssueDetail() {
 
           <div className="ml-auto flex items-center gap-0.5 md:hidden shrink-0">
             <Button
+              type="button"
               variant="ghost"
               size="icon-xs"
               onClick={copyIssueToClipboard}
               title="Copy issue as markdown"
+              aria-label="Copy issue as markdown"
             >
               {copied ? <Check className="h-4 w-4 text-green-500" /> : <Copy className="h-4 w-4" />}
             </Button>
             <Button
+              type="button"
               variant="ghost"
               size="icon-xs"
               onClick={() => setMobilePropsOpen(true)}
               title="Properties"
+              aria-label="Properties"
             >
               <SlidersHorizontal className="h-4 w-4" />
             </Button>
@@ -1139,14 +1200,17 @@ export function IssueDetail() {
 
           <div className="hidden md:flex items-center md:ml-auto shrink-0">
             <Button
+              type="button"
               variant="ghost"
               size="icon-xs"
               onClick={copyIssueToClipboard}
               title="Copy issue as markdown"
+              aria-label="Copy issue as markdown"
             >
               {copied ? <Check className="h-4 w-4 text-green-500" /> : <Copy className="h-4 w-4" />}
             </Button>
             <Button
+              type="button"
               variant="ghost"
               size="icon-xs"
               className={cn(
@@ -1155,18 +1219,20 @@ export function IssueDetail() {
               )}
               onClick={() => setPanelVisible(true)}
               title="Show properties"
+              aria-label="Show properties"
             >
               <SlidersHorizontal className="h-4 w-4" />
             </Button>
 
             <Popover open={moreOpen} onOpenChange={setMoreOpen}>
               <PopoverTrigger asChild>
-                <Button variant="ghost" size="icon-xs" className="shrink-0">
+                <Button type="button" variant="ghost" size="icon-xs" className="shrink-0" title="Issue actions" aria-label="Issue actions">
                   <MoreHorizontal className="h-4 w-4" />
                 </Button>
               </PopoverTrigger>
             <PopoverContent className="w-44 p-1" align="end">
               <button
+                type="button"
                 className="flex items-center gap-2 w-full px-2 py-1.5 text-xs rounded hover:bg-accent/50 text-destructive"
                 onClick={() => {
                   updateIssue.mutate(
@@ -1216,6 +1282,8 @@ export function IssueDetail() {
               />
               {isLongDescription && (
                 <button
+                  type="button"
+                  aria-expanded={descriptionExpanded}
                   onClick={() => setDescriptionExpanded(!descriptionExpanded)}
                   className="flex items-center gap-1 mt-1.5 text-[12px] text-primary hover:text-primary/80 transition-colors"
                 >
@@ -1333,6 +1401,7 @@ export function IssueDetail() {
                         onClick={() => deleteAttachment.mutate(attachment.id)}
                         disabled={deleteAttachment.isPending}
                         title="Delete attachment"
+                        aria-label={`Delete ${attachment.originalFilename ?? "attachment"}`}
                       >
                         <Trash2 className="h-3.5 w-3.5" />
                       </button>
@@ -1375,27 +1444,27 @@ export function IssueDetail() {
             setNewDocumentRequest(0);
           }
         }}
-        className="space-y-3"
+        className="space-y-3 min-w-0"
       >
-        <TabsList variant="line" className="w-full justify-start gap-1">
-          <TabsTrigger value="comments" className="gap-1.5">
+        <TabsList variant="line" className="flex w-full max-w-full justify-start gap-1 overflow-x-auto overflow-y-hidden">
+          <TabsTrigger value="comments" className="gap-1.5 shrink-0">
             <MessageSquare className="h-3.5 w-3.5" />
             Comments
           </TabsTrigger>
-          <TabsTrigger value="documents" className="gap-1.5">
+          <TabsTrigger value="documents" className="gap-1.5 shrink-0">
             <FileText className="h-3.5 w-3.5" />
             {issueDocumentCount > 0 ? `Documents (${issueDocumentCount})` : "Documents"}
           </TabsTrigger>
-          <TabsTrigger value="subissues" className="gap-1.5">
+          <TabsTrigger value="subissues" className="gap-1.5 shrink-0">
             <ListTree className="h-3.5 w-3.5" />
             {childIssues.length > 0 ? `Sub-issues (${childIssues.length})` : "Sub-issues"}
           </TabsTrigger>
-          <TabsTrigger value="activity" className="gap-1.5">
+          <TabsTrigger value="activity" className="gap-1.5 shrink-0">
             <ActivityIcon className="h-3.5 w-3.5" />
             Activity
           </TabsTrigger>
           {issuePluginTabItems.map((item) => (
-            <TabsTrigger key={item.value} value={item.value}>
+            <TabsTrigger key={item.value} value={item.value} className="shrink-0">
               {item.label}
             </TabsTrigger>
           ))}

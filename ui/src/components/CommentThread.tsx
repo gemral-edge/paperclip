@@ -134,15 +134,33 @@ function parseReassignment(target: string): CommentReassignment | null {
 
 function CopyMarkdownButton({ text }: { text: string }) {
   const [copied, setCopied] = useState(false);
+  const [copyFailed, setCopyFailed] = useState(false);
+  const resetTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (resetTimerRef.current) clearTimeout(resetTimerRef.current);
+    };
+  }, []);
+
   return (
     <button
       type="button"
       className="text-muted-foreground hover:text-foreground transition-colors"
-      title="Copy as markdown"
+      title={copyFailed ? "Copy failed — copy manually" : copied ? "Copied" : "Copy as markdown"}
+      aria-label={copyFailed ? "Copy failed" : copied ? "Copied markdown" : "Copy as markdown"}
       onClick={() => {
+        setCopyFailed(false);
+        if (!navigator.clipboard?.writeText) {
+          setCopyFailed(true);
+          return;
+        }
         navigator.clipboard.writeText(text).then(() => {
           setCopied(true);
-          setTimeout(() => setCopied(false), 2000);
+          if (resetTimerRef.current) clearTimeout(resetTimerRef.current);
+          resetTimerRef.current = setTimeout(() => setCopied(false), 2000);
+        }).catch(() => {
+          setCopyFailed(true);
         });
       }}
     >
@@ -172,6 +190,7 @@ function CommentCard({
   const isPending = comment.clientStatus === "pending";
   const isQueued = queued || comment.queueState === "queued" || comment.clientStatus === "queued";
   const [submittingChecklist, setSubmittingChecklist] = useState(false);
+  const [checklistError, setChecklistError] = useState<string | null>(null);
   const contentRef = useRef<HTMLDivElement>(null);
 
   const hasChecklists = comment.authorAgentId && (comment.body.includes("[ ]") || comment.body.includes("[x]"));
@@ -194,8 +213,11 @@ function CommentCard({
     if (selectedText.length > 0) {
       const replyBody = `Tôi chọn các mục sau:\n\n${selectedText.join("\n")}`;
       setSubmittingChecklist(true);
+      setChecklistError(null);
       try {
         await onAddAndReassign(comment.authorAgentId, replyBody);
+      } catch (err) {
+        setChecklistError(err instanceof Error ? err.message : "Unable to send selected items.");
       } finally {
         setSubmittingChecklist(false);
       }
@@ -264,13 +286,20 @@ function CommentCard({
         <MarkdownBody className="text-sm">{stripPaperclipMeta(comment.body)}</MarkdownBody>
       </div>
       {hasChecklists && onAddAndReassign && !isPending && (
-        <div className="mt-3 pt-3 border-t border-border/60 flex items-center justify-between">
-          <span className="text-xs text-muted-foreground italic">
-            Check the items you want to assign, then click send.
-          </span>
-          <Button size="sm" onClick={handleSubmitChecklist} disabled={submittingChecklist}>
-            {submittingChecklist ? "Sending..." : "Gửi Assignment (Selected Items)"}
-          </Button>
+        <div className="mt-3 pt-3 border-t border-border/60 space-y-2">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <span className="text-xs text-muted-foreground italic">
+              Check the items you want to assign, then click send.
+            </span>
+            <Button type="button" size="sm" onClick={handleSubmitChecklist} disabled={submittingChecklist}>
+              {submittingChecklist ? "Sending..." : "Gửi Assignment (Selected Items)"}
+            </Button>
+          </div>
+          {checklistError && (
+            <p role="alert" className="text-xs text-destructive">
+              {checklistError}
+            </p>
+          )}
         </div>
       )}
       {companyId && !isPending ? (
@@ -324,6 +353,8 @@ const TimelineList = memo(function TimelineList({
   projectId,
   highlightCommentId,
   onAddAndReassign,
+  hasActiveFilter = false,
+  onResetFilters,
 }: {
   groupedTimeline: { label: string; items: TimelineItem[] }[];
   agentMap?: Map<string, Agent>;
@@ -331,9 +362,20 @@ const TimelineList = memo(function TimelineList({
   projectId?: string | null;
   highlightCommentId?: string | null;
   onAddAndReassign?: (agentId: string, replyBody: string) => Promise<void>;
+  hasActiveFilter?: boolean;
+  onResetFilters?: () => void;
 }) {
   if (groupedTimeline.length === 0 || (groupedTimeline.length === 1 && groupedTimeline[0].items.length === 0)) {
-    return <p className="text-sm text-muted-foreground">No comments or runs match the filter.</p>;
+    return (
+      <div className="flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
+        <span>No comments or runs match the filter.</span>
+        {hasActiveFilter && onResetFilters && (
+          <Button type="button" variant="outline" size="xs" onClick={onResetFilters}>
+            Reset filter
+          </Button>
+        )}
+      </div>
+    );
   }
 
   return (
@@ -418,6 +460,7 @@ export function CommentComposer({
   const [reopen, setReopen] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [attaching, setAttaching] = useState(false);
+  const [composerError, setComposerError] = useState<string | null>(null);
   const effectiveSuggestedAssigneeValue = suggestedAssigneeValue ?? currentAssigneeValue;
   const [reassignTarget, setReassignTarget] = useState(effectiveSuggestedAssigneeValue);
   const editorRef = useRef<MarkdownEditorRef>(null);
@@ -455,19 +498,21 @@ export function CommentComposer({
     const submittedBody = trimmed;
 
     setSubmitting(true);
+    setComposerError(null);
     setBody("");
     try {
       await onAdd(submittedBody, reopen ? true : undefined, reassignment ?? undefined);
       if (draftKey) clearDraft(draftKey);
       setReopen(true);
       setReassignTarget(effectiveSuggestedAssigneeValue);
-    } catch {
+    } catch (err) {
       setBody((current) =>
         restoreSubmittedCommentDraft({
           currentBody: current,
           submittedBody,
         }),
       );
+      setComposerError(err instanceof Error ? err.message : "Unable to post comment.");
     } finally {
       setSubmitting(false);
     }
@@ -477,6 +522,7 @@ export function CommentComposer({
     const file = evt.target.files?.[0];
     if (!file) return;
     setAttaching(true);
+    setComposerError(null);
     try {
       if (imageUploadHandler) {
         const url = await imageUploadHandler(file);
@@ -486,6 +532,8 @@ export function CommentComposer({
       } else if (onAttachImage) {
         await onAttachImage(file);
       }
+    } catch (err) {
+      setComposerError(err instanceof Error ? err.message : "Unable to attach image.");
     } finally {
       setAttaching(false);
       if (attachInputRef.current) attachInputRef.current.value = "";
@@ -506,6 +554,11 @@ export function CommentComposer({
         imageUploadHandler={imageUploadHandler}
         contentClassName="min-h-[40px] text-sm"
       />
+      {composerError && (
+        <p role="alert" className="mt-1.5 text-xs text-destructive">
+          {composerError}
+        </p>
+      )}
       <div className="flex items-center justify-end gap-3 mt-1.5">
         {(imageUploadHandler || onAttachImage) && (
           <div className="mr-auto flex items-center gap-3">
@@ -517,11 +570,13 @@ export function CommentComposer({
               onChange={handleAttachFile}
             />
             <Button
+              type="button"
               variant="ghost"
               size="icon-sm"
               onClick={() => attachInputRef.current?.click()}
               disabled={attaching}
               title="Attach image"
+              aria-label="Attach image"
             >
               <Paperclip className="h-4 w-4" />
             </Button>
@@ -574,7 +629,7 @@ export function CommentComposer({
             }}
           />
         )}
-        <Button size="sm" disabled={!canSubmit} onClick={handleSubmit}>
+        <Button type="button" size="sm" disabled={!canSubmit} onClick={handleSubmit}>
           {submitting ? "Posting..." : "Comment"}
         </Button>
       </div>
@@ -658,7 +713,9 @@ export function CommentThread({
           label = agentMap?.get(item.run.agentId)?.name ?? "Agent";
         }
       } else if (groupBy === "date") {
-        label = new Date(item.createdAtMs).toLocaleDateString();
+        label = Number.isFinite(item.createdAtMs)
+          ? new Date(item.createdAtMs).toLocaleDateString()
+          : "Unknown date";
       } else if (groupBy === "status") {
         if (item.kind === "comment") {
           label = item.comment.queueState === "queued" ? "Queued" : item.comment.clientStatus === "pending" ? "Pending" : "Posted";
@@ -719,7 +776,7 @@ export function CommentThread({
         <div className="flex flex-wrap items-center gap-2">
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
-              <Button variant="outline" size="sm" className="h-7 text-xs px-2 gap-1 shadow-none bg-accent/20">
+              <Button type="button" variant="outline" size="sm" className="h-7 text-xs px-2 gap-1 shadow-none bg-accent/20">
                 <ArrowUpDown className="h-3 w-3" />
                 <span className="hidden sm:inline">Sắp xếp</span>
               </Button>
@@ -735,7 +792,7 @@ export function CommentThread({
 
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
-              <Button variant="outline" size="sm" className="h-7 text-xs px-2 gap-1 shadow-none bg-accent/20">
+              <Button type="button" variant="outline" size="sm" className="h-7 text-xs px-2 gap-1 shadow-none bg-accent/20">
                 <Filter className="h-3 w-3" />
                 <span className="hidden sm:inline">Lọc</span>
               </Button>
@@ -759,7 +816,7 @@ export function CommentThread({
 
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
-              <Button variant="outline" size="sm" className="h-7 text-xs px-2 gap-1 shadow-none bg-accent/20">
+              <Button type="button" variant="outline" size="sm" className="h-7 text-xs px-2 gap-1 shadow-none bg-accent/20">
                 <ListFilter className="h-3 w-3" />
                 <span className="hidden sm:inline">Nhóm</span>
               </Button>
@@ -789,6 +846,11 @@ export function CommentThread({
           projectId={projectId}
           highlightCommentId={highlightCommentId}
           onAddAndReassign={handleAddAndReassign}
+          hasActiveFilter={filterKind !== "all" || filterAuthor !== "all"}
+          onResetFilters={() => {
+            setFilterKind("all");
+            setFilterAuthor("all");
+          }}
         />
       ) : null}
 
