@@ -261,6 +261,12 @@ export const PROVIDER_MODELS: Record<AgentProvider, string[]> = {
     'Gemini 3.8 Flash (High)',
     'Gemini 3.8 Flash (Medium)',
     'Gemini 3.8 Flash (Low)',
+    // 2026-11-19: +Gemini 4 Neon x4 +Orchestrator (Neon) — verbatim `agy models` col 2.
+    'Gemini 4 Neon (High)',
+    'Gemini 4 Neon (XHigh)',
+    'Gemini 4 Neon (Medium)',
+    'Gemini 4 Neon (Low)',
+    'Orchestrator (Neon)',
     'Gemini 4 Argon (High)',
     'Gemini 4 Argon (Medium)',
     'Gemini 4 Argon (Low)',

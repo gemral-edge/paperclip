@@ -34,10 +34,16 @@ export const DEFAULT_ANTIGRAVITY_FALLBACK_MODELS: readonly string[] = [];
 // 2026-11-13: +Gemini 4 Hydrogen + Gemini 4 Carbon (High/Medium/Low) — seen in the Antigravity model picker; tiers mirror Argon. Not yet verified via `agy models` (CLI signed out).
 // 2026-11-14: +Orchestrator (Carbon) +Orchestrator (Argon) +Gemini 4 Hydrogen (XHigh) — verbatim via `agy models` col 2 (22 models).
 // 2026-10-25: re-synced with live `agy models` (13 models). The 21/10 trim (GEM-1583) matched agy 1.4.4; agy now lists Gemini 4 Argon + Claude Opus/Sonnet 5.5 again — keep lists = `agy models` col 2.
+// 2026-11-19: +Gemini 4 Neon (High/XHigh/Medium/Low) +Orchestrator (Neon) — verbatim via `agy models` col 2 (23 models).
 export const models = [
   { id: "Gemini 3.8 Flash (High)", label: "Gemini 3.8 Flash (High) — Fast" },
   { id: "Gemini 3.8 Flash (Medium)", label: "Gemini 3.8 Flash (Medium) — Fast" },
   { id: "Gemini 3.8 Flash (Low)", label: "Gemini 3.8 Flash (Low) — Fast" },
+  { id: "Gemini 4 Neon (High)", label: "Gemini 4 Neon (High)" },
+  { id: "Gemini 4 Neon (XHigh)", label: "Gemini 4 Neon (XHigh)" },
+  { id: "Gemini 4 Neon (Medium)", label: "Gemini 4 Neon (Medium)" },
+  { id: "Gemini 4 Neon (Low)", label: "Gemini 4 Neon (Low)" },
+  { id: "Orchestrator (Neon)", label: "Orchestrator (Neon)" },
   { id: "Gemini 4 Argon (High)", label: "Gemini 4 Argon (High)" },
   { id: "Gemini 4 Argon (Medium)", label: "Gemini 4 Argon (Medium)" },
   { id: "Gemini 4 Argon (Low)", label: "Gemini 4 Argon (Low)" },
