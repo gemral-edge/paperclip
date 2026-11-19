@@ -9,9 +9,10 @@ import { queryKeys } from "../lib/queryKeys";
 import { cn } from "../lib/utils";
 import { PageTabBar } from "../components/PageTabBar";
 import { Tabs } from "@/components/ui/tabs";
-import { ShieldCheck } from "lucide-react";
+import { ShieldCheck, X } from "lucide-react";
 import { ApprovalCard } from "../components/ApprovalCard";
 import { PageSkeleton } from "../components/PageSkeleton";
+import { Button } from "@/components/ui/button";
 
 type StatusFilter = "pending" | "all";
 
@@ -29,7 +30,7 @@ export function Approvals() {
     setBreadcrumbs([{ label: "Approvals" }]);
   }, [setBreadcrumbs]);
 
-  const { data, isLoading, error } = useQuery({
+  const { data, isLoading, error, refetch } = useQuery({
     queryKey: queryKeys.approvals.list(selectedCompanyId!),
     queryFn: () => approvalsApi.list(selectedCompanyId!),
     enabled: !!selectedCompanyId,
@@ -68,7 +69,7 @@ export function Approvals() {
     .filter(
       (a) => statusFilter === "all" || a.status === "pending" || a.status === "revision_requested",
     )
-    .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+    .sort((a, b) => (new Date(b.createdAt).getTime() || 0) - (new Date(a.createdAt).getTime() || 0));
 
   const pendingCount = (data ?? []).filter(
     (a) => a.status === "pending" || a.status === "revision_requested",
@@ -86,22 +87,45 @@ export function Approvals() {
     <div className="space-y-4">
       <div className="flex items-center justify-between">
         <Tabs value={statusFilter} onValueChange={(v) => navigate(`/approvals/${v}`)}>
-          <PageTabBar items={[
-            { value: "pending", label: <>Pending{pendingCount > 0 && (
-              <span className={cn(
-                "ml-1.5 rounded-full px-1.5 py-0.5 text-[10px] font-medium",
-                "bg-yellow-500/20 text-yellow-500"
-              )}>
-                {pendingCount}
-              </span>
-            )}</> },
-            { value: "all", label: "All" },
-          ]} />
+          <PageTabBar
+            value={statusFilter}
+            onValueChange={(v) => navigate(`/approvals/${v}`)}
+            items={[
+              { value: "pending", label: <>Pending{pendingCount > 0 && (
+                <span className={cn(
+                  "ml-1.5 rounded-full px-1.5 py-0.5 text-[10px] font-medium",
+                  "bg-yellow-500/20 text-yellow-500"
+                )}>
+                  {pendingCount}
+                </span>
+              )}</> },
+              { value: "all", label: "All" },
+            ]}
+          />
         </Tabs>
       </div>
 
-      {error && <p className="text-sm text-destructive">{error.message}</p>}
-      {actionError && <p className="text-sm text-destructive">{actionError}</p>}
+      {error && (
+        <div role="alert" className="flex items-center justify-between gap-3 rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+          <span>{error instanceof Error ? error.message : "Failed to load approvals."}</span>
+          <Button type="button" size="sm" variant="outline" onClick={() => refetch()}>
+            Retry
+          </Button>
+        </div>
+      )}
+      {actionError && (
+        <div role="alert" className="flex items-center justify-between gap-3 rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+          <span>{actionError}</span>
+          <button
+            type="button"
+            aria-label="Dismiss error"
+            onClick={() => setActionError(null)}
+            className="rounded p-1 hover:bg-destructive/10"
+          >
+            <X className="h-3.5 w-3.5" />
+          </button>
+        </div>
+      )}
 
       {filtered.length === 0 && (
         <div className="flex flex-col items-center justify-center py-16 text-center">
@@ -109,6 +133,17 @@ export function Approvals() {
           <p className="text-sm text-muted-foreground">
             {statusFilter === "pending" ? "No pending approvals." : "No approvals yet."}
           </p>
+          {statusFilter === "pending" && (data ?? []).length > 0 && (
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              className="mt-3"
+              onClick={() => navigate("/approvals/all")}
+            >
+              View all approvals
+            </Button>
+          )}
         </div>
       )}
 

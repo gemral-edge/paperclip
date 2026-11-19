@@ -20,7 +20,7 @@ export function Goals() {
     setBreadcrumbs([{ label: "Goals" }]);
   }, [setBreadcrumbs]);
 
-  const { data: goals, isLoading, error } = useQuery({
+  const { data: goals, isLoading, error, refetch } = useQuery({
     queryKey: queryKeys.goals.list(selectedCompanyId!),
     queryFn: () => goalsApi.list(selectedCompanyId!),
     enabled: !!selectedCompanyId,
@@ -36,7 +36,14 @@ export function Goals() {
 
   return (
     <div className="space-y-4">
-      {error && <p className="text-sm text-destructive">{error.message}</p>}
+      {error && (
+        <div role="alert" className="flex items-center justify-between gap-3 rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+          <span>{error instanceof Error ? error.message : "Failed to load goals."}</span>
+          <Button type="button" size="sm" variant="outline" onClick={() => refetch()}>
+            Retry
+          </Button>
+        </div>
+      )}
 
       {goals && goals.length === 0 && (
         <EmptyState
@@ -50,7 +57,7 @@ export function Goals() {
       {goals && goals.length > 0 && (
         <>
           <div className="flex items-center justify-start">
-            <Button size="sm" variant="outline" onClick={() => openNewGoal()}>
+            <Button type="button" size="sm" variant="outline" onClick={() => openNewGoal()}>
               <Plus className="h-3.5 w-3.5 mr-1.5" />
               New Goal
             </Button>

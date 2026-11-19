@@ -154,6 +154,7 @@ export function Costs() {
   const [mainTab, setMainTab] = useState<"overview" | "budgets" | "providers" | "billers" | "finance">("overview");
   const [activeProvider, setActiveProvider] = useState("all");
   const [activeBiller, setActiveBiller] = useState("all");
+  const [mutationError, setMutationError] = useState<string | null>(null);
 
   const {
     preset,
@@ -191,7 +192,7 @@ export function Costs() {
   const weekRange = useMemo(() => currentWeekRange(), [today]);
   const companyId = selectedCompanyId ?? NO_COMPANY;
 
-  const { data: budgetData, isLoading: budgetLoading, error: budgetError } = useQuery({
+  const { data: budgetData, isLoading: budgetLoading, error: budgetError, refetch: refetchBudgets } = useQuery({
     queryKey: queryKeys.budgets.overview(companyId),
     queryFn: () => budgetsApi.overview(companyId),
     enabled: !!selectedCompanyId && customReady,
@@ -220,16 +221,20 @@ export function Costs() {
         amount: input.amount,
         windowKind: input.windowKind,
       }),
+    onMutate: () => setMutationError(null),
     onSuccess: invalidateBudgetViews,
+    onError: (err) => setMutationError(err instanceof Error ? err.message : "Failed to save budget policy."),
   });
 
   const incidentMutation = useMutation({
     mutationFn: (input: { incidentId: string; action: "keep_paused" | "raise_budget_and_resume"; amount?: number }) =>
       budgetsApi.resolveIncident(companyId, input.incidentId, input),
+    onMutate: () => setMutationError(null),
     onSuccess: invalidateBudgetViews,
+    onError: (err) => setMutationError(err instanceof Error ? err.message : "Failed to update budget incident."),
   });
 
-  const { data: spendData, isLoading: spendLoading, error: spendError } = useQuery({
+  const { data: spendData, isLoading: spendLoading, error: spendError, refetch: refetchSpend } = useQuery({
     queryKey: queryKeys.costs(companyId, from || undefined, to || undefined),
     queryFn: async () => {
       const [summary, byAgent, byProject, byAgentModel] = await Promise.all([
@@ -243,7 +248,7 @@ export function Costs() {
     enabled: !!selectedCompanyId && customReady,
   });
 
-  const { data: financeData, isLoading: financeLoading, error: financeError } = useQuery({
+  const { data: financeData, isLoading: financeLoading, error: financeError, refetch: refetchFinance } = useQuery({
     queryKey: [
       queryKeys.financeSummary(companyId, from || undefined, to || undefined),
       queryKeys.financeByBiller(companyId, from || undefined, to || undefined),
@@ -289,7 +294,7 @@ export function Costs() {
     return map;
   }, [spendData?.byAgentModel]);
 
-  const { data: providerData } = useQuery({
+  const { data: providerData, error: providerError, refetch: refetchProvider } = useQuery({
     queryKey: queryKeys.usageByProvider(companyId, from || undefined, to || undefined),
     queryFn: () => costsApi.byProvider(companyId, from || undefined, to || undefined),
     enabled: !!selectedCompanyId && customReady && (mainTab === "providers" || mainTab === "billers"),
@@ -297,7 +302,7 @@ export function Costs() {
     staleTime: 10_000,
   });
 
-  const { data: billerData } = useQuery({
+  const { data: billerData, error: billerError, refetch: refetchBiller } = useQuery({
     queryKey: queryKeys.usageByBiller(companyId, from || undefined, to || undefined),
     queryFn: () => costsApi.byBiller(companyId, from || undefined, to || undefined),
     enabled: !!selectedCompanyId && customReady && mainTab === "billers",
@@ -537,7 +542,7 @@ export function Costs() {
   const overviewError = spendError ?? financeError;
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 min-w-0">
       <div className="space-y-5">
           <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
             <div>
@@ -550,6 +555,7 @@ export function Costs() {
             <div className="flex flex-wrap items-center gap-2">
               {PRESET_KEYS.map((key) => (
                 <Button
+                  type="button"
                   key={key}
                   variant={preset === key ? "secondary" : "ghost"}
                   size="sm"
@@ -565,16 +571,18 @@ export function Costs() {
             <div className="flex flex-wrap items-center gap-2 border border-border p-3">
               <input
                 type="date"
+                aria-label="Start date"
                 value={customFrom}
                 onChange={(event) => setCustomFrom(event.target.value)}
-                className="h-9 rounded-md border border-input bg-background px-3 text-sm text-foreground"
+                className="h-9 rounded-md border border-input bg-background px-3 text-base sm:text-sm text-foreground"
               />
               <span className="text-sm text-muted-foreground">to</span>
               <input
                 type="date"
+                aria-label="End date"
                 value={customTo}
                 onChange={(event) => setCustomTo(event.target.value)}
-                className="h-9 rounded-md border border-input bg-background px-3 text-sm text-foreground"
+                className="h-9 rounded-md border border-input bg-background px-3 text-base sm:text-sm text-foreground"
               />
             </div>
           ) : null}
@@ -617,13 +625,22 @@ export function Costs() {
           </div>
       </div>
 
-      <Tabs value={mainTab} onValueChange={(value) => setMainTab(value as typeof mainTab)}>
-        <TabsList variant="line" className="justify-start">
-          <TabsTrigger value="overview">Overview</TabsTrigger>
-          <TabsTrigger value="budgets">Budgets</TabsTrigger>
-          <TabsTrigger value="providers">Providers</TabsTrigger>
-          <TabsTrigger value="billers">Billers</TabsTrigger>
-          <TabsTrigger value="finance">Finance</TabsTrigger>
+      {mutationError ? (
+        <div role="alert" className="flex items-center justify-between gap-3 rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+          <span>{mutationError}</span>
+          <Button type="button" size="sm" variant="ghost" onClick={() => setMutationError(null)}>
+            Dismiss
+          </Button>
+        </div>
+      ) : null}
+
+      <Tabs value={mainTab} onValueChange={(value) => setMainTab(value as typeof mainTab)} className="min-w-0">
+        <TabsList variant="line" className="flex w-full max-w-full justify-start overflow-x-auto overflow-y-hidden">
+          <TabsTrigger value="overview" className="shrink-0">Overview</TabsTrigger>
+          <TabsTrigger value="budgets" className="shrink-0">Budgets</TabsTrigger>
+          <TabsTrigger value="providers" className="shrink-0">Providers</TabsTrigger>
+          <TabsTrigger value="billers" className="shrink-0">Billers</TabsTrigger>
+          <TabsTrigger value="finance" className="shrink-0">Finance</TabsTrigger>
         </TabsList>
 
         <TabsContent value="overview" className="mt-4 space-y-4">
@@ -632,7 +649,20 @@ export function Costs() {
           ) : showOverviewLoading ? (
             <PageSkeleton variant="costs" />
           ) : overviewError ? (
-            <p className="text-sm text-destructive">{(overviewError as Error).message}</p>
+            <div role="alert" className="flex items-center justify-between gap-3 rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+              <span>{overviewError instanceof Error ? overviewError.message : "Failed to load cost overview."}</span>
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                onClick={() => {
+                  refetchSpend();
+                  refetchFinance();
+                }}
+              >
+                Retry
+              </Button>
+            </div>
           ) : (
             <>
               {activeBudgetIncidents.length > 0 ? (
@@ -729,37 +759,60 @@ export function Costs() {
                         const hasBreakdown = modelRows.length > 0;
                         return (
                           <div key={row.agentId} className="border border-border px-4 py-3">
-                            <div
-                              className={cn("flex items-start justify-between gap-3", hasBreakdown ? "cursor-pointer select-none" : "")}
-                              onClick={() => hasBreakdown && toggleAgent(row.agentId)}
-                            >
-                              <div className="flex min-w-0 items-center gap-2">
-                                {hasBreakdown ? (
-                                  isExpanded
+                            {hasBreakdown ? (
+                              <button
+                                type="button"
+                                aria-expanded={isExpanded}
+                                className="flex w-full items-start justify-between gap-3 text-left cursor-pointer select-none"
+                                onClick={() => toggleAgent(row.agentId)}
+                              >
+                                <div className="flex min-w-0 items-center gap-2">
+                                  {isExpanded
                                     ? <ChevronDown className="h-3 w-3 shrink-0 text-muted-foreground" />
-                                    : <ChevronRight className="h-3 w-3 shrink-0 text-muted-foreground" />
-                                ) : (
-                                  <span className="h-3 w-3 shrink-0" />
-                                )}
-                                <Identity name={row.agentName ?? row.agentId} size="sm" />
-                                {row.agentStatus === "terminated" ? <StatusBadge status="terminated" /> : null}
-                              </div>
-                              <div className="text-right text-sm tabular-nums">
-                                <div className="font-medium">{formatCents(row.costCents)}</div>
-                                <div className="text-xs text-muted-foreground">
-                                  in {formatTokens(row.inputTokens + row.cachedInputTokens)} · out {formatTokens(row.outputTokens)}
+                                    : <ChevronRight className="h-3 w-3 shrink-0 text-muted-foreground" />}
+                                  <Identity name={row.agentName ?? row.agentId} size="sm" />
+                                  {row.agentStatus === "terminated" ? <StatusBadge status="terminated" /> : null}
                                 </div>
-                                {(row.apiRunCount > 0 || row.subscriptionRunCount > 0) ? (
+                                <div className="text-right text-sm tabular-nums">
+                                  <div className="font-medium">{formatCents(row.costCents)}</div>
                                   <div className="text-xs text-muted-foreground">
-                                    {row.apiRunCount > 0 ? `${row.apiRunCount} api` : "0 api"}
-                                    {" · "}
-                                    {row.subscriptionRunCount > 0
-                                      ? `${row.subscriptionRunCount} subscription`
-                                      : "0 subscription"}
+                                    in {formatTokens(row.inputTokens + row.cachedInputTokens)} · out {formatTokens(row.outputTokens)}
                                   </div>
-                                ) : null}
+                                  {(row.apiRunCount > 0 || row.subscriptionRunCount > 0) ? (
+                                    <div className="text-xs text-muted-foreground">
+                                      {row.apiRunCount > 0 ? `${row.apiRunCount} api` : "0 api"}
+                                      {" · "}
+                                      {row.subscriptionRunCount > 0
+                                        ? `${row.subscriptionRunCount} subscription`
+                                        : "0 subscription"}
+                                    </div>
+                                  ) : null}
+                                </div>
+                              </button>
+                            ) : (
+                              <div className="flex items-start justify-between gap-3">
+                                <div className="flex min-w-0 items-center gap-2">
+                                  <span className="h-3 w-3 shrink-0" />
+                                  <Identity name={row.agentName ?? row.agentId} size="sm" />
+                                  {row.agentStatus === "terminated" ? <StatusBadge status="terminated" /> : null}
+                                </div>
+                                <div className="text-right text-sm tabular-nums">
+                                  <div className="font-medium">{formatCents(row.costCents)}</div>
+                                  <div className="text-xs text-muted-foreground">
+                                    in {formatTokens(row.inputTokens + row.cachedInputTokens)} · out {formatTokens(row.outputTokens)}
+                                  </div>
+                                  {(row.apiRunCount > 0 || row.subscriptionRunCount > 0) ? (
+                                    <div className="text-xs text-muted-foreground">
+                                      {row.apiRunCount > 0 ? `${row.apiRunCount} api` : "0 api"}
+                                      {" · "}
+                                      {row.subscriptionRunCount > 0
+                                        ? `${row.subscriptionRunCount} subscription`
+                                        : "0 subscription"}
+                                    </div>
+                                  ) : null}
+                                </div>
                               </div>
-                            </div>
+                            )}
 
                             {isExpanded && modelRows.length > 0 ? (
                               <div className="mt-3 space-y-2 border-l border-border pl-4">
@@ -835,7 +888,12 @@ export function Costs() {
           {budgetLoading ? (
             <PageSkeleton variant="costs" />
           ) : budgetError ? (
-            <p className="text-sm text-destructive">{(budgetError as Error).message}</p>
+            <div role="alert" className="flex items-center justify-between gap-3 rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+              <span>{budgetError instanceof Error ? budgetError.message : "Failed to load budget policies."}</span>
+              <Button type="button" size="sm" variant="outline" onClick={() => refetchBudgets()}>
+                Retry
+              </Button>
+            </div>
           ) : (
             <>
               <Card className="border-border/70 bg-[linear-gradient(180deg,rgba(255,255,255,0.05),rgba(255,255,255,0.02))]">
@@ -951,10 +1009,17 @@ export function Costs() {
         <TabsContent value="providers" className="mt-4 space-y-4">
           {showCustomPrompt ? (
             <p className="text-sm text-muted-foreground">Select a start and end date to load data.</p>
+          ) : providerError ? (
+            <div role="alert" className="flex items-center justify-between gap-3 rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+              <span>{providerError instanceof Error ? providerError.message : "Failed to load provider usage."}</span>
+              <Button type="button" size="sm" variant="outline" onClick={() => refetchProvider()}>
+                Retry
+              </Button>
+            </div>
           ) : (
             <>
               <Tabs value={effectiveProvider} onValueChange={setActiveProvider}>
-                <PageTabBar items={providerTabItems} value={effectiveProvider} />
+                <PageTabBar items={providerTabItems} value={effectiveProvider} onValueChange={setActiveProvider} />
 
                 <TabsContent value="all" className="mt-4">
                   {providers.length === 0 ? (
@@ -1006,10 +1071,17 @@ export function Costs() {
         <TabsContent value="billers" className="mt-4 space-y-4">
           {showCustomPrompt ? (
             <p className="text-sm text-muted-foreground">Select a start and end date to load data.</p>
+          ) : billerError ? (
+            <div role="alert" className="flex items-center justify-between gap-3 rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+              <span>{billerError instanceof Error ? billerError.message : "Failed to load biller spend."}</span>
+              <Button type="button" size="sm" variant="outline" onClick={() => refetchBiller()}>
+                Retry
+              </Button>
+            </div>
           ) : (
             <>
               <Tabs value={effectiveBiller} onValueChange={setActiveBiller}>
-                <PageTabBar items={billerTabItems} value={effectiveBiller} />
+                <PageTabBar items={billerTabItems} value={effectiveBiller} onValueChange={setActiveBiller} />
 
                 <TabsContent value="all" className="mt-4">
                   {billers.length === 0 ? (
@@ -1062,7 +1134,12 @@ export function Costs() {
           ) : financeLoading ? (
             <PageSkeleton variant="costs" />
           ) : financeError ? (
-            <p className="text-sm text-destructive">{(financeError as Error).message}</p>
+            <div role="alert" className="flex items-center justify-between gap-3 rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+              <span>{financeError instanceof Error ? financeError.message : "Failed to load finance events."}</span>
+              <Button type="button" size="sm" variant="outline" onClick={() => refetchFinance()}>
+                Retry
+              </Button>
+            </div>
           ) : (
             <>
               <FinanceSummaryCard
