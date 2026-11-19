@@ -279,12 +279,6 @@ export const PROVIDER_MODELS: Record<AgentProvider, string[]> = {
     'Gemini 4 Carbon (Low)',
     'Orchestrator (Carbon)',
     'Orchestrator (Argon)',
-    'Claude Opus 5.5 (High)',
-    'Claude Opus 5.5 (Medium)',
-    'Claude Opus 5.5 (Low)',
-    'Claude Sonnet 5.5 (High)',
-    'Claude Sonnet 5.5 (Medium)',
-    'Claude Sonnet 5.5 (Low)',
     'GPT-OSS 120B (Medium)',
   ],
   openrouter: [
