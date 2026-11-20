@@ -18,6 +18,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { Button } from "@/components/ui/button";
 import { History } from "lucide-react";
 import type { Agent } from "@paperclipai/shared";
 
@@ -30,7 +31,7 @@ export function Activity() {
     setBreadcrumbs([{ label: "Activity" }]);
   }, [setBreadcrumbs]);
 
-  const { data, isLoading, error } = useQuery({
+  const { data, isLoading, error, refetch } = useQuery({
     queryKey: queryKeys.activity(selectedCompanyId!),
     queryFn: () => activityApi.list(selectedCompanyId!),
     enabled: !!selectedCompanyId,
@@ -98,11 +99,14 @@ export function Activity() {
     ? [...new Set(data.map((e) => e.entityType))].sort()
     : [];
 
+  const hasData = (data?.length ?? 0) > 0;
+  const hasFilteredResults = (filtered?.length ?? 0) > 0;
+
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-end">
         <Select value={filter} onValueChange={setFilter}>
-          <SelectTrigger className="w-[140px] h-8 text-xs">
+          <SelectTrigger className="w-[140px] h-8 text-xs" aria-label="Filter activity by entity type">
             <SelectValue placeholder="Filter by type" />
           </SelectTrigger>
           <SelectContent>
@@ -116,13 +120,32 @@ export function Activity() {
         </Select>
       </div>
 
-      {error && <p className="text-sm text-destructive">{error.message}</p>}
+      {error && (
+        <div
+          role="alert"
+          className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive"
+        >
+          <span>{error instanceof Error ? error.message : "Failed to load activity."}</span>
+          <Button type="button" size="sm" variant="outline" onClick={() => refetch()}>
+            Retry
+          </Button>
+        </div>
+      )}
 
-      {filtered && filtered.length === 0 && (
+      {!error && !hasData && (
         <EmptyState icon={History} message="No activity yet." />
       )}
 
-      {filtered && filtered.length > 0 && (
+      {!error && hasData && !hasFilteredResults && (
+        <EmptyState
+          icon={History}
+          message="No activity matching this filter."
+          action="Show all types"
+          onAction={() => setFilter("all")}
+        />
+      )}
+
+      {filtered && hasFilteredResults && (
         <div className="border border-border divide-y divide-border">
           {filtered.map((event) => (
             <ActivityRow

@@ -1,4 +1,4 @@
-import { ChangeEvent, useEffect, useState } from "react";
+import { ChangeEvent, useEffect, useRef, useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useCompany } from "../context/CompanyContext";
 import { useBreadcrumbs } from "../context/BreadcrumbContext";
@@ -54,12 +54,42 @@ export function CompanySettings() {
   const [inviteSnippet, setInviteSnippet] = useState<string | null>(null);
   const [snippetCopied, setSnippetCopied] = useState(false);
   const [snippetCopyDelightId, setSnippetCopyDelightId] = useState(0);
+  const [copyError, setCopyError] = useState<string | null>(null);
+  const copyTimerRef = useRef<number | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (copyTimerRef.current !== null) {
+        window.clearTimeout(copyTimerRef.current);
+      }
+    };
+  }, []);
 
   const generalDirty =
     !!selectedCompany &&
     (companyName !== selectedCompany.name ||
       description !== (selectedCompany.description ?? "") ||
       brandColor !== (selectedCompany.brandColor ?? ""));
+
+  useEffect(() => {
+    if (!generalDirty) return undefined;
+    const handleBeforeUnload = (e: BeforeUnloadEvent) => {
+      e.preventDefault();
+      e.returnValue = "";
+    };
+    window.addEventListener("beforeunload", handleBeforeUnload);
+    return () => window.removeEventListener("beforeunload", handleBeforeUnload);
+  }, [generalDirty]);
+
+  const scheduleCopiedReset = () => {
+    if (copyTimerRef.current !== null) {
+      window.clearTimeout(copyTimerRef.current);
+    }
+    copyTimerRef.current = window.setTimeout(() => {
+      setSnippetCopied(false);
+      copyTimerRef.current = null;
+    }, 2000);
+  };
 
   const generalMutation = useMutation({
     mutationFn: (data: {
@@ -116,13 +146,14 @@ export function CompanySettings() {
         });
       }
       setInviteSnippet(snippet);
+      setCopyError(null);
       try {
         await navigator.clipboard.writeText(snippet);
         setSnippetCopied(true);
         setSnippetCopyDelightId((prev) => prev + 1);
-        setTimeout(() => setSnippetCopied(false), 2000);
+        scheduleCopiedReset();
       } catch {
-        /* clipboard may not be available */
+        setCopyError("Clipboard unavailable — copy the prompt below manually.");
       }
       queryClient.invalidateQueries({
         queryKey: queryKeys.sidebarBadges(selectedCompanyId!)
@@ -281,6 +312,7 @@ export function CompanySettings() {
                 <div className="space-y-2">
                   <input
                     type="file"
+                    aria-label="Upload company logo"
                     accept="image/png,image/jpeg,image/webp,image/gif,image/svg+xml"
                     onChange={handleLogoFileChange}
                     className="w-full rounded-md border border-border bg-transparent px-2.5 py-1.5 text-sm outline-none file:mr-4 file:rounded-md file:border-0 file:bg-muted file:px-2.5 file:py-1 file:text-xs"
@@ -288,6 +320,7 @@ export function CompanySettings() {
                   {logoUrl && (
                     <div className="flex items-center gap-2">
                       <Button
+                        type="button"
                         size="sm"
                         variant="outline"
                         onClick={handleClearLogo}
@@ -298,7 +331,7 @@ export function CompanySettings() {
                     </div>
                   )}
                   {(logoUploadMutation.isError || logoUploadError) && (
-                    <span className="text-xs text-destructive">
+                    <span role="alert" className="text-xs text-destructive">
                       {logoUploadError ??
                         (logoUploadMutation.error instanceof Error
                           ? logoUploadMutation.error.message
@@ -306,7 +339,7 @@ export function CompanySettings() {
                     </span>
                   )}
                   {clearLogoMutation.isError && (
-                    <span className="text-xs text-destructive">
+                    <span role="alert" className="text-xs text-destructive">
                       {clearLogoMutation.error.message}
                     </span>
                   )}
@@ -322,12 +355,14 @@ export function CompanySettings() {
                 <div className="flex items-center gap-2">
                   <input
                     type="color"
+                    aria-label="Brand color picker"
                     value={brandColor || "#6366f1"}
                     onChange={(e) => setBrandColor(e.target.value)}
                     className="h-8 w-8 cursor-pointer rounded border border-border bg-transparent p-0"
                   />
                   <input
                     type="text"
+                    aria-label="Brand color hex"
                     value={brandColor}
                     onChange={(e) => {
                       const v = e.target.value;
@@ -340,6 +375,7 @@ export function CompanySettings() {
                   />
                   {brandColor && (
                     <Button
+                      type="button"
                       size="sm"
                       variant="ghost"
                       onClick={() => setBrandColor("")}
@@ -359,6 +395,7 @@ export function CompanySettings() {
       {generalDirty && (
         <div className="flex items-center gap-2">
           <Button
+            type="button"
             size="sm"
             onClick={handleSaveGeneral}
             disabled={generalMutation.isPending || !companyName.trim()}
@@ -369,7 +406,7 @@ export function CompanySettings() {
             <span className="text-xs text-muted-foreground">Saved</span>
           )}
           {generalMutation.isError && (
-            <span className="text-xs text-destructive">
+            <span role="alert" className="text-xs text-destructive">
               {generalMutation.error instanceof Error
                   ? generalMutation.error.message
                   : "Failed to save"}
@@ -383,7 +420,7 @@ export function CompanySettings() {
         <div className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
           Hiring
         </div>
-        <div className="rounded-md border border-border px-4 py-3">
+        <div className="space-y-2 rounded-md border border-border px-4 py-3">
           <ToggleField
             label="Require board approval for new hires"
             hint="New agent hires stay pending until approved by board."
@@ -391,6 +428,13 @@ export function CompanySettings() {
             onChange={(v) => settingsMutation.mutate(v)}
             toggleTestId="company-settings-team-approval-toggle"
           />
+          {settingsMutation.isError && (
+            <p role="alert" className="text-xs text-destructive">
+              {settingsMutation.error instanceof Error
+                ? settingsMutation.error.message
+                : "Failed to update hiring setting"}
+            </p>
+          )}
         </div>
       </div>
 
@@ -408,6 +452,7 @@ export function CompanySettings() {
           </div>
           <div className="flex flex-wrap items-center gap-2">
             <Button
+              type="button"
               data-testid="company-settings-invites-generate-button"
               size="sm"
               onClick={() => inviteMutation.mutate()}
@@ -419,7 +464,7 @@ export function CompanySettings() {
             </Button>
           </div>
           {inviteError && (
-            <p className="text-sm text-destructive">{inviteError}</p>
+            <p role="alert" className="text-sm text-destructive">{inviteError}</p>
           )}
           {inviteSnippet && (
             <div
@@ -442,24 +487,30 @@ export function CompanySettings() {
               </div>
               <div className="mt-1 space-y-1.5">
                 <textarea
+                  aria-label="OpenClaw Invite Prompt"
                   data-testid="company-settings-invites-snippet-textarea"
                   className="h-[28rem] w-full rounded-md border border-border bg-background px-2 py-1.5 font-mono text-xs outline-none"
                   value={inviteSnippet}
                   readOnly
                 />
+                {copyError && (
+                  <p role="alert" className="text-xs text-destructive">{copyError}</p>
+                )}
                 <div className="flex justify-end">
                   <Button
+                    type="button"
                     data-testid="company-settings-invites-copy-button"
                     size="sm"
                     variant="ghost"
                     onClick={async () => {
                       try {
                         await navigator.clipboard.writeText(inviteSnippet);
+                        setCopyError(null);
                         setSnippetCopied(true);
                         setSnippetCopyDelightId((prev) => prev + 1);
-                        setTimeout(() => setSnippetCopied(false), 2000);
+                        scheduleCopiedReset();
                       } catch {
-                        /* clipboard may not be available */
+                        setCopyError("Clipboard unavailable — copy the prompt above manually.");
                       }
                     }}
                   >
@@ -511,6 +562,7 @@ export function CompanySettings() {
           </p>
           <div className="flex items-center gap-2">
             <Button
+              type="button"
               size="sm"
               variant="destructive"
               disabled={
@@ -545,7 +597,7 @@ export function CompanySettings() {
                 : "Archive company"}
             </Button>
             {archiveMutation.isError && (
-              <span className="text-xs text-destructive">
+              <span role="alert" className="text-xs text-destructive">
                 {archiveMutation.error instanceof Error
                   ? archiveMutation.error.message
                   : "Failed to archive company"}

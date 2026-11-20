@@ -22,7 +22,7 @@ export function Projects() {
     setBreadcrumbs([{ label: "Projects" }]);
   }, [setBreadcrumbs]);
 
-  const { data: allProjects, isLoading, error } = useQuery({
+  const { data: allProjects, isLoading, error, refetch } = useQuery({
     queryKey: queryKeys.projects.list(selectedCompanyId!),
     queryFn: () => projectsApi.list(selectedCompanyId!),
     enabled: !!selectedCompanyId,
@@ -43,15 +43,25 @@ export function Projects() {
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-end">
-        <Button size="sm" variant="outline" onClick={openNewProject}>
+        <Button type="button" size="sm" variant="outline" onClick={openNewProject}>
           <Plus className="h-4 w-4 mr-1" />
           Add Project
         </Button>
       </div>
 
-      {error && <p className="text-sm text-destructive">{error.message}</p>}
+      {error && (
+        <div
+          role="alert"
+          className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive"
+        >
+          <span>{error instanceof Error ? error.message : "Failed to load projects."}</span>
+          <Button type="button" size="sm" variant="outline" onClick={() => refetch()}>
+            Retry
+          </Button>
+        </div>
+      )}
 
-      {!isLoading && projects.length === 0 && (
+      {!error && !isLoading && projects.length === 0 && (
         <EmptyState
           icon={Hexagon}
           message="No projects yet."
