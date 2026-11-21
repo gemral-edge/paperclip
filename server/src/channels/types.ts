@@ -279,6 +279,9 @@ export const PROVIDER_MODELS: Record<AgentProvider, string[]> = {
     'Gemini 4 Carbon (Low)',
     'Orchestrator (Carbon)',
     'Orchestrator (Argon)',
+    // 2026-11-21: +Claude Sonnet/Opus 4.6 (Thinking) — verbatim `agy models` col 2.
+    'Claude Sonnet 4.6 (Thinking)',
+    'Claude Opus 4.6 (Thinking)',
     'GPT-OSS 120B (Medium)',
   ],
   openrouter: [

@@ -36,6 +36,7 @@ export const DEFAULT_ANTIGRAVITY_FALLBACK_MODELS: readonly string[] = [];
 // 2026-10-25: re-synced with live `agy models` (13 models). The 21/10 trim (GEM-1583) matched agy 1.4.4; agy now lists Gemini 4 Argon + Claude Opus/Sonnet 5.5 again — keep lists = `agy models` col 2.
 // 2026-11-19: +Gemini 4 Neon (High/XHigh/Medium/Low) +Orchestrator (Neon) — verbatim via `agy models` col 2 (23 models).
 // 2026-11-19: removed Claude Opus 5.5 x3 + Claude Sonnet 5.5 x3 — `agy models` no longer lists them (0 agents in `agents`/`paperclip_agents` used them).
+// 2026-11-21: +Claude Sonnet 4.6 (Thinking) +Claude Opus 4.6 (Thinking) — verbatim via `agy models` col 2 (23 models).
 export const models = [
   { id: "Gemini 3.8 Flash (High)", label: "Gemini 3.8 Flash (High) — Fast" },
   { id: "Gemini 3.8 Flash (Medium)", label: "Gemini 3.8 Flash (Medium) — Fast" },
@@ -57,6 +58,8 @@ export const models = [
   { id: "Gemini 4 Carbon (Low)", label: "Gemini 4 Carbon (Low)" },
   { id: "Orchestrator (Carbon)", label: "Orchestrator (Carbon)" },
   { id: "Orchestrator (Argon)", label: "Orchestrator (Argon)" },
+  { id: "Claude Sonnet 4.6 (Thinking)", label: "Claude Sonnet 4.6 (Thinking)" },
+  { id: "Claude Opus 4.6 (Thinking)", label: "Claude Opus 4.6 (Thinking)" },
   { id: "GPT-OSS 120B (Medium)", label: "GPT-OSS 120B (Medium)" },
 ];
 
