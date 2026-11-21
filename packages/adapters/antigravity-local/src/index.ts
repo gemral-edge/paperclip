@@ -59,18 +59,40 @@ export function orchestratorVirtualModelIds(): string[] {
   );
 }
 
-/** Map a Paperclip model id to the agy `--model` value + optional `--settings` JSON. */
-export function resolveAntigravityModel(model: string): { model: string; settings: string | null } {
-  const m = ORCHESTRATOR_VIRTUAL_RE.exec(model.trim());
-  if (!m) return { model, settings: null };
-  const [, base, level] = m;
-  if (!ORCHESTRATOR_PLANNER_LEVELS[base]?.includes(level)) return { model, settings: null };
-  return {
-    model: `Orchestrator (${base})`,
-    settings: JSON.stringify({
-      orchestrator: { planner: `Gemini 4 ${base} (${level})`, executor: ORCHESTRATOR_EXECUTOR_MODEL },
-    }),
-  };
+// 2026-11-21: executor (Gemini 4 Hydrogen) level is chosen per agent via adapterConfig
+// `orchestratorExecutorEffort` (Low|Medium|High|XHigh). Empty = agy default (XHigh — the agy
+// `/model` picker shows "Gemini 4 Hydrogen (XHigh) executes" when nothing is set).
+export const ORCHESTRATOR_EXECUTOR_LEVELS = ["Low", "Medium", "High", "XHigh"] as const;
+const ORCHESTRATOR_PLAIN_RE = /^Orchestrator \((Neon|Carbon|Argon)\)$/;
+
+function executorModelFor(level: string | null | undefined): string | null {
+  const lv = (level ?? "").trim();
+  return (ORCHESTRATOR_EXECUTOR_LEVELS as readonly string[]).includes(lv) ? `Gemini 4 Hydrogen (${lv})` : null;
+}
+
+/** Map a Paperclip model id (+ optional executor level) to the agy `--model` value + optional `--settings` JSON. */
+export function resolveAntigravityModel(
+  model: string,
+  executorLevel?: string | null,
+): { model: string; settings: string | null } {
+  const trimmed = model.trim();
+  const executor = executorModelFor(executorLevel);
+  const m = ORCHESTRATOR_VIRTUAL_RE.exec(trimmed);
+  if (m) {
+    const [, base, level] = m;
+    if (!ORCHESTRATOR_PLANNER_LEVELS[base]?.includes(level)) return { model, settings: null };
+    return {
+      model: `Orchestrator (${base})`,
+      settings: JSON.stringify({
+        orchestrator: { planner: `Gemini 4 ${base} (${level})`, executor: executor ?? ORCHESTRATOR_EXECUTOR_MODEL },
+      }),
+    };
+  }
+  // Plain "Orchestrator (Neon)" keeps agy's default planner level; only the executor is overridden.
+  if (executor && ORCHESTRATOR_PLAIN_RE.test(trimmed)) {
+    return { model: trimmed, settings: JSON.stringify({ orchestrator: { executor } }) };
+  }
+  return { model, settings: null };
 }
 
 export const models = [

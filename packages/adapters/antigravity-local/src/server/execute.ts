@@ -1068,7 +1068,7 @@ export async function execute(ctx: AdapterExecutionContext): Promise<AdapterExec
     // model default is a real string (DEFAULT_ANTIGRAVITY_MODEL) → always pass it.
     if (model) {
       // Virtual "Orchestrator (Neon · XHigh)" → real `--model` + `--settings` carrying the planner level.
-      const resolved = resolveAntigravityModel(model);
+      const resolved = resolveAntigravityModel(model, asString(config.orchestratorExecutorEffort, ""));
       args.push("--model", resolved.model);
       if (resolved.settings) args.push("--settings", resolved.settings);
     }

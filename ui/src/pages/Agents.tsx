@@ -1011,6 +1011,25 @@ export function AgentModelQuickEdit({
     }
   };
 
+  const currentExecutorLevel =
+    typeof agent.adapterConfig?.orchestratorExecutorEffort === "string"
+      ? agent.adapterConfig.orchestratorExecutorEffort
+      : "";
+
+  // Mức thinking của executor Orchestrator — lưu riêng trong adapterConfig, không đổi model.
+  const handleSelectExecutor = async (level: string) => {
+    const nextConfig: Record<string, unknown> = {
+      ...((agent.adapterConfig ?? {}) as Record<string, unknown>),
+      orchestratorExecutorEffort: level || undefined,
+    };
+    await onQuickUpdateAgent(
+      agent.id,
+      "model",
+      { adapterConfig: nextConfig },
+      `Đã đổi mức executor của ${agent.name} sang ${level || "mặc định"}`,
+    );
+  };
+
   const isChip = variant === "chip";
 
   return (
@@ -1189,6 +1208,12 @@ export function AgentModelQuickEdit({
                 currentModel={selectedAdapter === agent.adapterType ? currentModel : ""}
                 disabled={isUpdating}
                 onSelect={(id) => void handleSelectModel(selectedAdapter, id)}
+                executorLevel={currentExecutorLevel}
+                onSelectExecutor={
+                  selectedAdapter === "antigravity_local" && selectedAdapter === agent.adapterType
+                    ? (level) => void handleSelectExecutor(level)
+                    : undefined
+                }
               />
             ) : filteredModels.length > 0 ? (
               filteredModels.map((item) => {

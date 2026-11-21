@@ -17,12 +17,18 @@ export function ModelGroupList({
   currentModel,
   disabled,
   onSelect,
+  executorLevel = "",
+  onSelectExecutor,
 }: {
   models: readonly ModelOption[];
   /** Mã model đang dùng (rỗng nếu agent ở adapter khác / mặc định). */
   currentModel: string;
   disabled: boolean;
   onSelect: (modelId: string) => void;
+  /** Mức thinking của executor Gemini 4 Hydrogen (Low|Medium|High|XHigh; rỗng = mặc định agy). */
+  executorLevel?: string;
+  /** Có truyền thì nhóm Orchestrator hiện thêm hàng chọn mức executor. */
+  onSelectExecutor?: (level: string) => void;
 }) {
   const groups = useMemo(() => groupModels(models), [models]);
   const current = useMemo(() => locateModel(groups, currentModel), [groups, currentModel]);
@@ -76,6 +82,9 @@ export function ModelGroupList({
                     onSelect={onSelect}
                   />
                 ))}
+                {group.key === "Orchestrator" && onSelectExecutor && (
+                  <ExecutorLevels level={executorLevel} disabled={disabled} onSelect={onSelectExecutor} />
+                )}
               </div>
             )}
           </div>
@@ -118,6 +127,54 @@ function BranchLevels({
             )}
           >
             {variantLabel(v)}
+            {active && <Check className="h-3 w-3" />}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+const EXECUTOR_LEVELS: { value: string; label: string }[] = [
+  { value: "", label: "Mặc định" },
+  { value: "Low", label: "Low" },
+  { value: "Medium", label: "Medium" },
+  { value: "High", label: "High" },
+  { value: "XHigh", label: "Extra High" },
+];
+
+// Executor = model thi hành các bước planner giao (agy chỉ có Gemini 4 Hydrogen cho vai này).
+// "Mặc định" = để agy tự dùng Hydrogen Extra High.
+function ExecutorLevels({
+  level,
+  disabled,
+  onSelect,
+}: {
+  level: string;
+  disabled: boolean;
+  onSelect: (level: string) => void;
+}) {
+  return (
+    <div className="flex flex-wrap items-center gap-1 border-t border-border/50 pt-1.5">
+      <span className="w-full text-[10px] font-medium text-muted-foreground">
+        Executor Gemini 4 Hydrogen
+      </span>
+      {EXECUTOR_LEVELS.map((opt) => {
+        const active = opt.value === level;
+        return (
+          <button
+            key={opt.value || "default"}
+            type="button"
+            disabled={disabled}
+            onClick={() => onSelect(opt.value)}
+            className={cn(
+              "inline-flex items-center gap-1 rounded border px-2 py-0.5 text-[11px] transition-colors cursor-pointer disabled:opacity-60",
+              active
+                ? "border-primary bg-primary font-medium text-primary-foreground"
+                : "border-border bg-background text-muted-foreground hover:bg-accent/60 hover:text-foreground",
+            )}
+          >
+            {opt.label}
             {active && <Check className="h-3 w-3" />}
           </button>
         );
