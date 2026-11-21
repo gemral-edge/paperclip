@@ -76,12 +76,13 @@ import {
   Cpu,
 } from "lucide-react";
 import { AGENT_ROLE_LABELS, type Agent } from "@paperclipai/shared";
+import { ModelGroupList } from "../components/ModelGroupList";
 
 type AgentRowAction = "pause" | "resume" | "invoke";
 
 type SortOption = "name-asc" | "name-desc" | "status" | "recent" | "model" | "custom";
 
-const adapterLabels: Record<string, string> = {
+export const adapterLabels: Record<string, string> = {
   claude_local: "Claude",
   codex_local: "Codex",
   gemini_local: "Gemini",
@@ -734,11 +735,17 @@ function AgentPauseResumeActions({
   );
 }
 
-function AgentScheduleQuickEdit({
+// `variant="cell"` is used by the Timetable "Giờ" column: no side border / fixed
+// width, trigger shows the row's time (`timeLabel`) instead of the cron summary.
+export function AgentScheduleQuickEdit({
   agent,
   isUpdating,
   onQuickUpdateAgent,
+  variant = "row",
+  timeLabel,
 }: {
+  variant?: "row" | "cell";
+  timeLabel?: string;
   agent: Agent;
   isUpdating: boolean;
   onQuickUpdateAgent: (
@@ -796,9 +803,11 @@ function AgentScheduleQuickEdit({
     }
   };
 
+  const isCell = variant === "cell";
+
   return (
     <div
-      className="w-64 shrink-0 border-l border-border/50 pl-2"
+      className={isCell ? "inline-block" : "w-64 shrink-0 border-l border-border/50 pl-2"}
       onClick={(e) => e.stopPropagation()}
       onPointerDown={(e) => e.stopPropagation()}
     >
@@ -811,6 +820,21 @@ function AgentScheduleQuickEdit({
           onPointerDown={(e) => e.stopPropagation()}
         >
           <PopoverTrigger asChild>
+            {isCell ? (
+              <button
+                type="button"
+                disabled={isUpdating}
+                title={`Bấm để đổi giờ chạy · lịch hiện tại: ${formatSchedule(effectiveCron)}`}
+                className="inline-flex items-center gap-1 rounded-sm px-1 py-0.5 -mx-1 font-mono text-muted-foreground hover:bg-accent hover:text-foreground transition-colors cursor-pointer disabled:opacity-60"
+              >
+                <span>{timeLabel}</span>
+                {isUpdating ? (
+                  <Loader2 className="h-3 w-3 animate-spin shrink-0" />
+                ) : (
+                  <CalendarClock className="h-3 w-3 opacity-50 shrink-0" />
+                )}
+              </button>
+            ) : (
             <button
               type="button"
               disabled={isUpdating}
@@ -831,6 +855,7 @@ function AgentScheduleQuickEdit({
                 {agent.lastHeartbeatAt ? formatDateTime(agent.lastHeartbeatAt) : "Chưa từng chạy"}
               </span>
             </button>
+            )}
           </PopoverTrigger>
         </div>
         <PopoverContent
@@ -890,13 +915,17 @@ function AgentScheduleQuickEdit({
   );
 }
 
-function AgentModelQuickEdit({
+// `variant="chip"` is used by the Timetable "Agent · Model" column: the trigger is
+// just the small model chip (the agent name next to it stays a link).
+export function AgentModelQuickEdit({
   agent,
   companyId,
   adapterLabels,
   isUpdating,
   onQuickUpdateAgent,
+  variant = "row",
 }: {
+  variant?: "row" | "chip";
   agent: Agent;
   companyId: string;
   adapterLabels: Record<string, string>;
@@ -982,9 +1011,11 @@ function AgentModelQuickEdit({
     }
   };
 
+  const isChip = variant === "chip";
+
   return (
     <div
-      className="w-36 shrink-0 border-l border-border/50 pl-2"
+      className={isChip ? "inline-block max-w-full" : "w-36 shrink-0 border-l border-border/50 pl-2"}
       onClick={(e) => e.stopPropagation()}
       onPointerDown={(e) => e.stopPropagation()}
     >
@@ -997,6 +1028,21 @@ function AgentModelQuickEdit({
           onPointerDown={(e) => e.stopPropagation()}
         >
           <PopoverTrigger asChild>
+            {isChip ? (
+              <button
+                type="button"
+                disabled={isUpdating}
+                title={`Bấm để đổi model · hiện tại: ${currentModel || "Default"}`}
+                className="inline-flex max-w-[140px] items-center gap-0.5 rounded border border-border bg-muted/40 px-1 py-px text-[10px] text-muted-foreground font-mono hover:border-primary/40 hover:text-foreground transition-colors cursor-pointer disabled:opacity-60"
+              >
+                <span className="truncate">{currentModel || "Default"}</span>
+                {isUpdating ? (
+                  <Loader2 className="h-2.5 w-2.5 animate-spin shrink-0" />
+                ) : (
+                  <ChevronDown className="h-2.5 w-2.5 opacity-60 shrink-0" />
+                )}
+              </button>
+            ) : (
             <button
               type="button"
               disabled={isUpdating}
@@ -1020,6 +1066,7 @@ function AgentModelQuickEdit({
                 {currentModel || "Default"}
               </span>
             </button>
+            )}
           </PopoverTrigger>
         </div>
         <PopoverContent
@@ -1112,7 +1159,7 @@ function AgentModelQuickEdit({
             </div>
           </div>
 
-          <div className="max-h-56 overflow-y-auto border border-border rounded-sm divide-y divide-border/40">
+          <div className="max-h-72 overflow-y-auto border border-border rounded-sm divide-y divide-border/40">
             {selectedAdapter !== "opencode_local" && !modelSearch.trim() && (
               <button
                 type="button"
@@ -1135,6 +1182,14 @@ function AgentModelQuickEdit({
                 <Loader2 className="h-3.5 w-3.5 animate-spin" />
                 <span>Đang tải danh sách model...</span>
               </div>
+            ) : !modelSearch.trim() && (adapterModels?.length ?? 0) > 0 ? (
+              // Không tìm kiếm → danh sách gom nhóm (model gốc → planner → mức thinking).
+              <ModelGroupList
+                models={adapterModels ?? []}
+                currentModel={selectedAdapter === agent.adapterType ? currentModel : ""}
+                disabled={isUpdating}
+                onSelect={(id) => void handleSelectModel(selectedAdapter, id)}
+              />
             ) : filteredModels.length > 0 ? (
               filteredModels.map((item) => {
                 const isSelected =
