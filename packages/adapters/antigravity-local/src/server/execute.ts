@@ -1538,17 +1538,25 @@ export async function execute(ctx: AdapterExecutionContext): Promise<AdapterExec
         }
 
         // GEM-2389: máy chủ trả mã hội thoại rỗng ("failed to start conversation: backend returned an
-        // empty conversation id") → lỗi tạm, chưa gọi model. Chạy lại 1 lần sau 10 giây CÙNG model,
-        // CÙNG tài khoản, CÙNG phiên (không phải fallback — luật 22/10).
-        if (
-          (attempt.proc.exitCode ?? 0) !== 0 &&
-          detectAntigravityEmptyConversationId({ stderr: attempt.proc.stderr }).emptyConversationId
-        ) {
+        // empty conversation id") → lỗi tạm, chưa gọi model. Chạy lại CÙNG model, CÙNG tài khoản,
+        // CÙNG phiên (không phải fallback — luật 22/10). Đo 72 giờ (18→21/11): 18 lần chạy lại sau
+        // 10 giây cứu 16, 2 lần máy chủ vẫn lỗi ≥80 giây → thêm lần thứ 2 sau 60 giây.
+        const EMPTY_CONVERSATION_RETRY_DELAYS_MS = [10_000, 60_000];
+        for (let retry = 0; retry < EMPTY_CONVERSATION_RETRY_DELAYS_MS.length; retry++) {
+          if (
+            !(
+              (attempt.proc.exitCode ?? 0) !== 0 &&
+              detectAntigravityEmptyConversationId({ stderr: attempt.proc.stderr }).emptyConversationId
+            )
+          ) {
+            break;
+          }
+          const waitMs = EMPTY_CONVERSATION_RETRY_DELAYS_MS[retry];
           await onLog(
             "stderr",
-            `[paperclip] agy không mở được hội thoại (máy chủ trả mã hội thoại rỗng, chưa gọi model) → chờ 10 giây rồi chạy lại 1 lần cùng model "${attemptModel}", cùng tài khoản "${attemptAccountEmail ?? "active"}".\n`,
+            `[paperclip] agy không mở được hội thoại (máy chủ trả mã hội thoại rỗng, chưa gọi model) → chờ ${waitMs / 1000} giây rồi chạy lại (lần ${retry + 1}/${EMPTY_CONVERSATION_RETRY_DELAYS_MS.length}) cùng model "${attemptModel}", cùng tài khoản "${attemptAccountEmail ?? "active"}".\n`,
           );
-          await new Promise<void>((resolve) => setTimeout(resolve, 10_000));
+          await new Promise<void>((resolve) => setTimeout(resolve, waitMs));
           attempt = await runAttempt(conversationId, attemptModel);
         }
 
