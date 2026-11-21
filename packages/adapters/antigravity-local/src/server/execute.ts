@@ -29,7 +29,7 @@ import {
   runningProcesses,
   terminateProcessTree,
 } from "@paperclipai/adapter-utils/server-utils";
-import { DEFAULT_ANTIGRAVITY_MODEL } from "../index.js";
+import { DEFAULT_ANTIGRAVITY_MODEL, resolveAntigravityModel } from "../index.js";
 import {
   detectAntigravityAuthRequired,
   detectAntigravityQuotaExhausted,
@@ -1066,7 +1066,12 @@ export async function execute(ctx: AdapterExecutionContext): Promise<AdapterExec
     const args: string[] = ["-p", pointerPrompt, "--dangerously-skip-permissions"];
     args.push("--print-timeout", agyPrintTimeout);
     // model default is a real string (DEFAULT_ANTIGRAVITY_MODEL) → always pass it.
-    if (model) args.push("--model", model);
+    if (model) {
+      // Virtual "Orchestrator (Neon · XHigh)" → real `--model` + `--settings` carrying the planner level.
+      const resolved = resolveAntigravityModel(model);
+      args.push("--model", resolved.model);
+      if (resolved.settings) args.push("--settings", resolved.settings);
+    }
     if (conversationId) args.push("--conversation", conversationId);
     for (const dir of addDirs) args.push("--add-dir", dir);
     if (extraArgs.length > 0) args.push(...extraArgs);

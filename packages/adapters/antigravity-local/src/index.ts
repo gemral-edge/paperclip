@@ -37,6 +37,42 @@ export const DEFAULT_ANTIGRAVITY_FALLBACK_MODELS: readonly string[] = [];
 // 2026-11-19: +Gemini 4 Neon (High/XHigh/Medium/Low) +Orchestrator (Neon) — verbatim via `agy models` col 2 (23 models).
 // 2026-11-19: removed Claude Opus 5.5 x3 + Claude Sonnet 5.5 x3 — `agy models` no longer lists them (0 agents in `agents`/`paperclip_agents` used them).
 // 2026-11-21: +Claude Sonnet 4.6 (Thinking) +Claude Opus 4.6 (Thinking) — verbatim via `agy models` col 2 (23 models).
+// 2026-11-21 chị Jennie: agy 1.5.14 lets Orchestrator pick the PLANNER model + its thinking
+// level (and the executor's), saved as settings `{"orchestrator":{"planner":"Gemini 4 Neon (High)",
+// "executor":"Gemini 4 Hydrogen (XHigh)"}}` — verified by driving the agy `/model` picker and reading
+// settings.json. `--effort` is REJECTED for Orchestrator ("not supported"), so the level can only
+// travel through `--settings`. Paperclip exposes each planner+level as a virtual model id
+// "Orchestrator (Neon · XHigh)"; resolveAntigravityModel() turns it into
+// `--model "Orchestrator (Neon)" --settings '{"orchestrator":{...}}'`.
+// Plain "Orchestrator (Neon)" stays valid (agy default levels).
+export const ORCHESTRATOR_EXECUTOR_MODEL = "Gemini 4 Hydrogen (XHigh)";
+export const ORCHESTRATOR_PLANNER_LEVELS: Record<string, readonly string[]> = {
+  Neon: ["XHigh", "High", "Medium", "Low"],
+  Carbon: ["High", "Medium", "Low"],
+  Argon: ["High", "Medium", "Low"],
+};
+const ORCHESTRATOR_VIRTUAL_RE = /^Orchestrator \((Neon|Carbon|Argon) · (XHigh|High|Medium|Low)\)$/;
+
+export function orchestratorVirtualModelIds(): string[] {
+  return Object.entries(ORCHESTRATOR_PLANNER_LEVELS).flatMap(([base, levels]) =>
+    levels.map((lv) => `Orchestrator (${base} · ${lv})`),
+  );
+}
+
+/** Map a Paperclip model id to the agy `--model` value + optional `--settings` JSON. */
+export function resolveAntigravityModel(model: string): { model: string; settings: string | null } {
+  const m = ORCHESTRATOR_VIRTUAL_RE.exec(model.trim());
+  if (!m) return { model, settings: null };
+  const [, base, level] = m;
+  if (!ORCHESTRATOR_PLANNER_LEVELS[base]?.includes(level)) return { model, settings: null };
+  return {
+    model: `Orchestrator (${base})`,
+    settings: JSON.stringify({
+      orchestrator: { planner: `Gemini 4 ${base} (${level})`, executor: ORCHESTRATOR_EXECUTOR_MODEL },
+    }),
+  };
+}
+
 export const models = [
   { id: "Gemini 3.8 Flash (High)", label: "Gemini 3.8 Flash (High) — Fast" },
   { id: "Gemini 3.8 Flash (Medium)", label: "Gemini 3.8 Flash (Medium) — Fast" },
@@ -46,6 +82,16 @@ export const models = [
   { id: "Gemini 4 Neon (Medium)", label: "Gemini 4 Neon (Medium)" },
   { id: "Gemini 4 Neon (Low)", label: "Gemini 4 Neon (Low)" },
   { id: "Orchestrator (Neon)", label: "Orchestrator (Neon)" },
+  { id: "Orchestrator (Neon · XHigh)", label: "Orchestrator — planner Gemini 4 Neon (XHigh)" },
+  { id: "Orchestrator (Neon · High)", label: "Orchestrator — planner Gemini 4 Neon (High)" },
+  { id: "Orchestrator (Neon · Medium)", label: "Orchestrator — planner Gemini 4 Neon (Medium)" },
+  { id: "Orchestrator (Neon · Low)", label: "Orchestrator — planner Gemini 4 Neon (Low)" },
+  { id: "Orchestrator (Carbon · High)", label: "Orchestrator — planner Gemini 4 Carbon (High)" },
+  { id: "Orchestrator (Carbon · Medium)", label: "Orchestrator — planner Gemini 4 Carbon (Medium)" },
+  { id: "Orchestrator (Carbon · Low)", label: "Orchestrator — planner Gemini 4 Carbon (Low)" },
+  { id: "Orchestrator (Argon · High)", label: "Orchestrator — planner Gemini 4 Argon (High)" },
+  { id: "Orchestrator (Argon · Medium)", label: "Orchestrator — planner Gemini 4 Argon (Medium)" },
+  { id: "Orchestrator (Argon · Low)", label: "Orchestrator — planner Gemini 4 Argon (Low)" },
   { id: "Gemini 4 Argon (High)", label: "Gemini 4 Argon (High)" },
   { id: "Gemini 4 Argon (Medium)", label: "Gemini 4 Argon (Medium)" },
   { id: "Gemini 4 Argon (Low)", label: "Gemini 4 Argon (Low)" },
