@@ -29,7 +29,7 @@ export function ApprovalDetail() {
   const [error, setError] = useState<string | null>(null);
   const [showRawPayload, setShowRawPayload] = useState(false);
 
-  const { data: approval, isLoading } = useQuery({
+  const { data: approval, isLoading, error: loadError, refetch } = useQuery({
     queryKey: queryKeys.approvals.detail(approvalId!),
     queryFn: () => approvalsApi.get(approvalId!),
     enabled: !!approvalId,
@@ -144,6 +144,18 @@ export function ApprovalDetail() {
   });
 
   if (isLoading) return <PageSkeleton variant="detail" />;
+  if (loadError) {
+    return (
+      <div role="alert" className="space-y-3 rounded-lg border border-destructive/40 bg-destructive/5 p-4">
+        <p className="text-sm text-destructive">
+          {loadError instanceof Error ? loadError.message : "Failed to load approval."}
+        </p>
+        <Button type="button" size="sm" variant="outline" onClick={() => void refetch()}>
+          Retry
+        </Button>
+      </div>
+    );
+  }
   if (!approval) return <p className="text-sm text-muted-foreground">Approval not found.</p>;
 
   const payload = approval.payload as Record<string, unknown>;
@@ -201,7 +213,7 @@ export function ApprovalDetail() {
         </div>
       )}
       <div className="border border-border rounded-lg p-4 space-y-3">
-        <div className="flex items-center justify-between">
+        <div className="flex flex-wrap items-center justify-between gap-2">
           <div className="flex items-center gap-2">
             <TypeIcon className="h-5 w-5 text-muted-foreground shrink-0" />
             <div>
@@ -239,7 +251,7 @@ export function ApprovalDetail() {
             <p className="text-xs text-muted-foreground">Decision note: {approval.decisionNote}</p>
           )}
         </div>
-        {error && <p className="text-sm text-destructive">{error}</p>}
+        {error && <p role="alert" className="text-sm text-destructive">{error}</p>}
         {linkedIssues && linkedIssues.length > 0 && (
           <div className="pt-2 border-t border-border/60">
             <p className="text-xs text-muted-foreground mb-1.5">Linked Issues</p>
@@ -342,7 +354,9 @@ export function ApprovalDetail() {
                   <Identity name="Board" size="sm" />
                 )}
                 <span className="text-xs text-muted-foreground">
-                  {new Date(comment.createdAt).toLocaleString()}
+                  {Number.isNaN(new Date(comment.createdAt).getTime())
+                    ? "—"
+                    : new Date(comment.createdAt).toLocaleString()}
                 </span>
               </div>
               <MarkdownBody className="text-sm">{comment.body}</MarkdownBody>
@@ -350,6 +364,7 @@ export function ApprovalDetail() {
           ))}
         </div>
         <Textarea
+          aria-label="Approval comment"
           value={commentBody}
           onChange={(e) => setCommentBody(e.target.value)}
           placeholder="Add a comment..."

@@ -8,6 +8,7 @@ import { queryKeys } from "../lib/queryKeys";
 import { formatCents, relativeTime } from "../lib/utils";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
+import { EmptyState } from "../components/EmptyState";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -26,6 +27,7 @@ import {
   CircleDot,
   DollarSign,
   Calendar,
+  Building2,
 } from "lucide-react";
 
 export function Companies() {
@@ -49,22 +51,31 @@ export function Companies() {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editName, setEditName] = useState("");
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
+  const [mutationError, setMutationError] = useState<string | null>(null);
 
   const editMutation = useMutation({
     mutationFn: ({ id, newName }: { id: string; newName: string }) =>
       companiesApi.update(id, { name: newName }),
     onSuccess: () => {
+      setMutationError(null);
       queryClient.invalidateQueries({ queryKey: queryKeys.companies.all });
       setEditingId(null);
+    },
+    onError: (err) => {
+      setMutationError(err instanceof Error ? err.message : "Failed to rename company");
     },
   });
 
   const deleteMutation = useMutation({
     mutationFn: (id: string) => companiesApi.remove(id),
     onSuccess: () => {
+      setMutationError(null);
       queryClient.invalidateQueries({ queryKey: queryKeys.companies.all });
       queryClient.invalidateQueries({ queryKey: queryKeys.companies.stats });
       setConfirmDeleteId(null);
+    },
+    onError: (err) => {
+      setMutationError(err instanceof Error ? err.message : "Failed to delete company");
     },
   });
 
@@ -73,6 +84,7 @@ export function Companies() {
   }, [setBreadcrumbs]);
 
   function startEdit(companyId: string, currentName: string) {
+    setMutationError(null);
     setEditingId(companyId);
     setEditName(currentName);
   }
@@ -96,11 +108,20 @@ export function Companies() {
         </Button>
       </div>
 
-      <div className="h-6">
+      <div className="min-h-6 space-y-1">
         {loading && <p className="text-sm text-muted-foreground">Loading companies...</p>}
-        {error && <p className="text-sm text-destructive">{error.message}</p>}
+        {error && <p role="alert" className="text-sm text-destructive">{error.message}</p>}
+        {mutationError && <p role="alert" className="text-sm text-destructive">{mutationError}</p>}
       </div>
 
+      {!loading && !error && companies.length === 0 ? (
+        <EmptyState
+          icon={Building2}
+          message="No companies yet. Create your first company to organize agents and projects."
+          action="New Company"
+          onAction={() => openOnboarding()}
+        />
+      ) : (
       <div className="grid gap-4">
         {companies.map((company) => {
           const selected = company.id === selectedCompanyId;
@@ -145,6 +166,7 @@ export function Companies() {
                       <Input
                         value={editName}
                         onChange={(e) => setEditName(e.target.value)}
+                        aria-label="Company name"
                         className="h-7 text-sm"
                         autoFocus
                         onKeyDown={(e) => {
@@ -155,12 +177,13 @@ export function Companies() {
                       <Button
                         variant="ghost"
                         size="icon-xs"
+                        aria-label="Save company name"
                         onClick={saveEdit}
                         disabled={editMutation.isPending}
                       >
                         <Check className="h-3.5 w-3.5 text-green-500" />
                       </Button>
-                      <Button variant="ghost" size="icon-xs" onClick={cancelEdit}>
+                      <Button variant="ghost" size="icon-xs" aria-label="Cancel rename" onClick={cancelEdit}>
                         <X className="h-3.5 w-3.5 text-muted-foreground" />
                       </Button>
                     </div>
@@ -181,7 +204,8 @@ export function Companies() {
                       <Button
                         variant="ghost"
                         size="icon-xs"
-                        className="text-muted-foreground opacity-0 group-hover:opacity-100"
+                        aria-label={`Rename ${company.name}`}
+                        className="text-muted-foreground opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 focus-visible:opacity-100"
                         onClick={(e) => {
                           e.stopPropagation();
                           startEdit(company.id, company.name);
@@ -205,7 +229,8 @@ export function Companies() {
                       <Button
                         variant="ghost"
                         size="icon-xs"
-                        className="text-muted-foreground opacity-0 group-hover:opacity-100 data-[state=open]:opacity-100"
+                        aria-label={`Actions for ${company.name}`}
+                        className="text-muted-foreground opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 focus-visible:opacity-100 data-[state=open]:opacity-100"
                       >
                         <MoreHorizontal className="h-4 w-4" />
                       </Button>
@@ -292,6 +317,7 @@ export function Companies() {
           );
         })}
       </div>
+      )}
     </div>
   );
 }
