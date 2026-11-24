@@ -54,7 +54,9 @@ function autoResizeTextarea(element: HTMLTextAreaElement | null) {
 
 function formatLastRunTimestamp(value: Date | string | null | undefined) {
   if (!value) return "Never";
-  return new Date(value).toLocaleString();
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return "—";
+  return parsed.toLocaleString();
 }
 
 function nextRoutineStatus(currentStatus: string, enabled: boolean) {
@@ -90,7 +92,7 @@ export function Routines() {
     setBreadcrumbs([{ label: "Routines" }]);
   }, [setBreadcrumbs]);
 
-  const { data: routines, isLoading, error } = useQuery({
+  const { data: routines, isLoading, error, refetch } = useQuery({
     queryKey: queryKeys.routines.list(selectedCompanyId!),
     queryFn: () => routinesApi.list(selectedCompanyId!),
     enabled: !!selectedCompanyId,
@@ -237,7 +239,7 @@ export function Routines() {
             Recurring work definitions that materialize into auditable execution issues.
           </p>
         </div>
-        <Button onClick={() => setComposerOpen(true)}>
+        <Button type="button" onClick={() => setComposerOpen(true)}>
           <Plus className="mr-2 h-4 w-4" />
           Create routine
         </Button>
@@ -263,6 +265,7 @@ export function Routines() {
               </p>
             </div>
             <Button
+              type="button"
               variant="ghost"
               size="sm"
               onClick={() => {
@@ -433,7 +436,7 @@ export function Routines() {
                         value={draft.concurrencyPolicy}
                         onValueChange={(concurrencyPolicy) => setDraft((current) => ({ ...current, concurrencyPolicy }))}
                       >
-                        <SelectTrigger>
+                        <SelectTrigger aria-label="Concurrency policy">
                           <SelectValue />
                         </SelectTrigger>
                         <SelectContent>
@@ -450,7 +453,7 @@ export function Routines() {
                         value={draft.catchUpPolicy}
                         onValueChange={(catchUpPolicy) => setDraft((current) => ({ ...current, catchUpPolicy }))}
                       >
-                        <SelectTrigger>
+                        <SelectTrigger aria-label="Catch-up policy">
                           <SelectValue />
                         </SelectTrigger>
                         <SelectContent>
@@ -473,6 +476,7 @@ export function Routines() {
             </div>
             <div className="flex flex-col gap-2 sm:items-end">
               <Button
+                type="button"
                 onClick={() => createRoutine.mutate()}
                 disabled={
                   createRoutine.isPending ||
@@ -495,15 +499,18 @@ export function Routines() {
       </Dialog>
 
       {error ? (
-        <Card>
-          <CardContent className="pt-6 text-sm text-destructive">
-            {error instanceof Error ? error.message : "Failed to load routines"}
+        <Card role="alert">
+          <CardContent className="flex flex-wrap items-center justify-between gap-3 pt-6 text-sm text-destructive">
+            <span>{error instanceof Error ? error.message : "Failed to load routines"}</span>
+            <Button type="button" variant="outline" size="sm" onClick={() => void refetch()}>
+              Retry
+            </Button>
           </CardContent>
         </Card>
       ) : null}
 
       <div>
-        {(routines ?? []).length === 0 ? (
+        {error ? null : isLoading ? null : (routines ?? []).length === 0 ? (
           <div className="py-12">
             <EmptyState
               icon={Repeat}
@@ -515,12 +522,12 @@ export function Routines() {
             <table className="min-w-full text-sm">
               <thead>
                 <tr className="text-left text-xs text-muted-foreground border-b border-border">
-                  <th className="px-3 py-2 font-medium">Name</th>
-                  <th className="px-3 py-2 font-medium">Project</th>
-                  <th className="px-3 py-2 font-medium">Agent</th>
-                  <th className="px-3 py-2 font-medium">Last run</th>
-                  <th className="px-3 py-2 font-medium">Enabled</th>
-                  <th className="w-12 px-3 py-2" />
+                  <th scope="col" className="px-3 py-2 font-medium">Name</th>
+                  <th scope="col" className="px-3 py-2 font-medium">Project</th>
+                  <th scope="col" className="px-3 py-2 font-medium">Agent</th>
+                  <th scope="col" className="px-3 py-2 font-medium">Last run</th>
+                  <th scope="col" className="px-3 py-2 font-medium">Enabled</th>
+                  <th scope="col" className="w-12 px-3 py-2"><span className="sr-only">Actions</span></th>
                 </tr>
               </thead>
               <tbody>
@@ -531,8 +538,15 @@ export function Routines() {
                   return (
                     <tr
                       key={routine.id}
-                      className="align-middle border-b border-border transition-colors hover:bg-accent/50 last:border-b-0 cursor-pointer"
+                      tabIndex={0}
+                      className="align-middle border-b border-border transition-colors hover:bg-accent/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring last:border-b-0 cursor-pointer"
                       onClick={() => navigate(`/routines/${routine.id}`)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter" || e.key === " ") {
+                          e.preventDefault();
+                          navigate(`/routines/${routine.id}`);
+                        }
+                      }}
                     >
                       <td className="px-3 py-2.5">
                         <div className="min-w-[180px]">

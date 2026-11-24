@@ -96,13 +96,15 @@ export function Issues() {
     setBreadcrumbs([{ label: "Issues" }]);
   }, [setBreadcrumbs]);
 
-  const { data: gem456Parent } = useQuery({
+  const [mutationError, setMutationError] = useState<string | null>(null);
+
+  const { data: gem456Parent, error: gem456Error, refetch: refetchGem456 } = useQuery({
     queryKey: ["issues", "GEM-456"],
     queryFn: () => issuesApi.get("GEM-456"),
     enabled: onlyGem456,
   });
 
-  const { data: issues, isLoading, error } = useQuery({
+  const { data: issues, isLoading, error, refetch: refetchIssues } = useQuery({
     queryKey: [
       ...queryKeys.issues.list(selectedCompanyId!),
       "participant-agent", participantAgentId ?? "__all__",
@@ -123,9 +125,23 @@ export function Issues() {
     mutationFn: ({ id, data }: { id: string; data: Record<string, unknown> }) =>
       issuesApi.update(id, data),
     onSuccess: () => {
+      setMutationError(null);
       queryClient.invalidateQueries({ queryKey: queryKeys.issues.list(selectedCompanyId!) });
     },
+    onError: (err) => {
+      setMutationError(err instanceof Error ? err.message : "Failed to update issue.");
+    },
   });
+
+  const combinedIssues = useMemo(() => {
+    if (!issues) return [];
+    if (onlyGem456 && gem456Parent) {
+      // Avoid duplicate if the API somehow returns it (though parentId filter prevents that)
+      if (issues.some(i => i.id === gem456Parent.id)) return issues;
+      return [gem456Parent, ...issues];
+    }
+    return issues;
+  }, [issues, onlyGem456, gem456Parent]);
 
   if (!selectedCompanyId) {
     return <EmptyState icon={CircleDot} message="Select a company to view issues." />;
@@ -145,23 +161,19 @@ export function Issues() {
     window.history.replaceState(window.history.state, "", `${url.pathname}${url.search}${url.hash}`);
   };
 
-  const combinedIssues = useMemo(() => {
-    if (!issues) return [];
-    if (onlyGem456 && gem456Parent) {
-      // Avoid duplicate if the API somehow returns it (though parentId filter prevents that)
-      if (issues.some(i => i.id === gem456Parent.id)) return issues;
-      return [gem456Parent, ...issues];
-    }
-    return issues;
-  }, [issues, onlyGem456, gem456Parent]);
-
   return (
     <div className="space-y-0">
-      <div className="flex items-center gap-6 px-6 pt-4 border-b border-border">
+      <div
+        role="tablist"
+        aria-label="Issue views"
+        className="flex items-center gap-6 px-4 sm:px-6 pt-4 border-b border-border overflow-x-auto no-scrollbar"
+      >
         <button
           type="button"
+          role="tab"
+          aria-selected={activeTab === "all"}
           onClick={() => handleTabChange("all")}
-          className={`pb-3 text-sm font-medium transition-colors border-b-2 ${
+          className={`pb-3 text-sm font-medium whitespace-nowrap shrink-0 transition-colors border-b-2 ${
             activeTab === "all"
               ? "border-gold text-gold"
               : "border-transparent text-txt-3 hover:text-txt hover:border-border-2"
@@ -171,8 +183,10 @@ export function Issues() {
         </button>
         <button
           type="button"
+          role="tab"
+          aria-selected={activeTab === "hidden"}
           onClick={() => handleTabChange("hidden")}
-          className={`pb-3 text-sm font-medium transition-colors border-b-2 ${
+          className={`pb-3 text-sm font-medium whitespace-nowrap shrink-0 transition-colors border-b-2 ${
             activeTab === "hidden"
               ? "border-gold text-gold"
               : "border-transparent text-txt-3 hover:text-txt hover:border-border-2"
@@ -182,8 +196,10 @@ export function Issues() {
         </button>
         <button
           type="button"
+          role="tab"
+          aria-selected={activeTab === "heartbeats"}
           onClick={() => handleTabChange("heartbeats")}
-          className={`pb-3 text-sm font-medium transition-colors border-b-2 ${
+          className={`pb-3 text-sm font-medium whitespace-nowrap shrink-0 transition-colors border-b-2 ${
             activeTab === "heartbeats"
               ? "border-blue-500 text-blue-500"
               : "border-transparent text-txt-3 hover:text-txt hover:border-border-2"
@@ -193,8 +209,10 @@ export function Issues() {
         </button>
         <button
           type="button"
+          role="tab"
+          aria-selected={activeTab === "gem456"}
           onClick={() => handleTabChange("gem456")}
-          className={`pb-3 text-sm font-medium transition-colors border-b-2 ${
+          className={`pb-3 text-sm font-medium whitespace-nowrap shrink-0 transition-colors border-b-2 ${
             activeTab === "gem456"
               ? "border-purple-500 text-purple-500"
               : "border-transparent text-txt-3 hover:text-txt hover:border-border-2"
@@ -203,10 +221,46 @@ export function Issues() {
           Long-lived rivalry (GEM-456)
         </button>
       </div>
+      {(error || (onlyGem456 && gem456Error) || mutationError) && (
+        <div
+          role="alert"
+          className="mx-4 sm:mx-6 mt-4 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-destructive/30 bg-destructive/10 px-4 py-2.5 text-sm text-destructive"
+        >
+          <span>
+            {mutationError ??
+              ((onlyGem456 && gem456Error ? gem456Error : error) instanceof Error
+                ? ((onlyGem456 && gem456Error ? gem456Error : error) as Error).message
+                : "Failed to load issues.")}
+          </span>
+          <div className="flex items-center gap-2">
+            {(error || (onlyGem456 && gem456Error)) && (
+              <button
+                type="button"
+                onClick={() => {
+                  if (onlyGem456 && gem456Error) void refetchGem456();
+                  if (error) void refetchIssues();
+                }}
+                className="rounded border border-destructive/40 px-2.5 py-1 text-xs font-medium hover:bg-destructive/15"
+              >
+                Retry
+              </button>
+            )}
+            {mutationError && (
+              <button
+                type="button"
+                onClick={() => setMutationError(null)}
+                className="rounded border border-destructive/40 px-2.5 py-1 text-xs font-medium hover:bg-destructive/15"
+              >
+                Dismiss
+              </button>
+            )}
+          </div>
+        </div>
+      )}
       <IssuesList
         issues={combinedIssues}
         isLoading={isLoading}
-        error={error as Error | null}
+        error={(onlyGem456 && gem456Error ? gem456Error : error) as Error | null}
         agents={agents}
         projects={projects}
         liveIssueIds={liveIssueIds}

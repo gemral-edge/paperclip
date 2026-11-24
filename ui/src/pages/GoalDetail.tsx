@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { useParams } from "@/lib/router";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { goalsApi } from "../api/goals";
@@ -32,7 +32,8 @@ export function GoalDetail() {
   const {
     data: goal,
     isLoading,
-    error
+    error,
+    refetch,
   } = useQuery({
     queryKey: queryKeys.goals.detail(goalId!),
     queryFn: () => goalsApi.get(goalId!),
@@ -57,10 +58,13 @@ export function GoalDetail() {
     setSelectedCompanyId(goal.companyId, { source: "route_sync" });
   }, [goal?.companyId, selectedCompanyId, setSelectedCompanyId]);
 
+  const [mutationError, setMutationError] = useState<string | null>(null);
+
   const updateGoal = useMutation({
     mutationFn: (data: Record<string, unknown>) =>
       goalsApi.update(goalId!, data),
     onSuccess: () => {
+      setMutationError(null);
       queryClient.invalidateQueries({
         queryKey: queryKeys.goals.detail(goalId!)
       });
@@ -69,7 +73,10 @@ export function GoalDetail() {
           queryKey: queryKeys.goals.list(resolvedCompanyId)
         });
       }
-    }
+    },
+    onError: (err) => {
+      setMutationError(err instanceof Error ? err.message : "Failed to update goal.");
+    },
   });
 
   const uploadImage = useMutation({
@@ -80,7 +87,10 @@ export function GoalDetail() {
         file,
         `goals/${goalId ?? "draft"}`
       );
-    }
+    },
+    onError: (err) => {
+      setMutationError(err instanceof Error ? err.message : "Failed to upload image.");
+    },
   });
 
   const childGoals = (allGoals ?? []).filter((g) => g.parentId === goalId);
@@ -111,13 +121,50 @@ export function GoalDetail() {
   }, [goal]); // eslint-disable-line react-hooks/exhaustive-deps
 
   if (isLoading) return <PageSkeleton variant="detail" />;
-  if (error) return <p className="text-sm text-destructive">{error.message}</p>;
-  if (!goal) return null;
+  if (error) {
+    return (
+      <div
+        role="alert"
+        className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm text-destructive"
+      >
+        <span>{error instanceof Error ? error.message : "Failed to load goal."}</span>
+        <button
+          type="button"
+          onClick={() => void refetch()}
+          className="rounded border border-destructive/40 px-2.5 py-1 text-xs font-medium hover:bg-destructive/15"
+        >
+          Retry
+        </button>
+      </div>
+    );
+  }
+  if (!goal) {
+    return (
+      <div className="rounded-lg border border-border bg-card p-6 text-sm text-muted-foreground">
+        Goal not found.
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6">
+      {mutationError && (
+        <div
+          role="alert"
+          className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-destructive/30 bg-destructive/10 px-4 py-2.5 text-sm text-destructive"
+        >
+          <span>{mutationError}</span>
+          <button
+            type="button"
+            onClick={() => setMutationError(null)}
+            className="rounded border border-destructive/40 px-2.5 py-1 text-xs font-medium hover:bg-destructive/15"
+          >
+            Dismiss
+          </button>
+        </div>
+      )}
       <div className="space-y-3">
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <span className="text-xs uppercase text-muted-foreground">
             {goal.level}
           </span>
@@ -146,7 +193,7 @@ export function GoalDetail() {
       </div>
 
       <Tabs defaultValue="children">
-        <TabsList>
+        <TabsList className="max-w-full overflow-x-auto">
           <TabsTrigger value="children">
             Sub-Goals ({childGoals.length})
           </TabsTrigger>
@@ -158,6 +205,7 @@ export function GoalDetail() {
         <TabsContent value="children" className="mt-4 space-y-3">
           <div className="flex items-center justify-start">
             <Button
+              type="button"
               size="sm"
               variant="outline"
               onClick={() => openNewGoal({ parentId: goalId })}
