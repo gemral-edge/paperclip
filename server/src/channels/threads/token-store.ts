@@ -19,6 +19,7 @@ export const THREADS_AUTHORIZE = 'https://threads.net/oauth/authorize';
 // ĐỦ BỘ quyền Threads cho tài khoản của chị — xin 1 lần, không thêm lắt nhắt từng quyền.
 // Gốc 08/11: danh sách cũ chỉ ghi "đủ dùng lúc đó" (14/10: 3 quyền · GEM-1818: +2 · .env: +publish) nên mỗi
 // tính năng mới (xoá bài 08/11) lại bắt chị cấp lại OAuth. Danh mục Meta: developers.facebook.com/docs/permissions.
+// 24/11: thêm threads_share_to_instagram (đối chiếu bảng quyền app 998707296533235: đủ 11 quyền).
 // Bỏ cố ý duy nhất threads_business_basic (chỉ để gắn tài khoản vào quảng cáo Business Portfolio).
 // SSOT = danh sách này; THREADS_OAUTH_SCOPES trong .env chỉ được THÊM, không bớt được quyền nào ở đây.
 // Máy gác: crypto-pattern-scanner/scripts/audit_threads_token_health.py (FULL_THREADS_SCOPES).
@@ -33,6 +34,7 @@ export const DEFAULT_SCOPES = [
   'threads_keyword_search',
   'threads_location_tagging',
   'threads_profile_discovery',
+  'threads_share_to_instagram', // 24/11: app có sẵn quyền này (bảng quyền use case Threads API) — xin luôn
 ];
 
 export const REFRESH_WITHIN_DAYS = 10;
