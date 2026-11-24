@@ -807,7 +807,7 @@ export function AgentScheduleQuickEdit({
 
   return (
     <div
-      className={isCell ? "inline-block" : "w-64 shrink-0 border-l border-border/50 pl-2"}
+      className={isCell ? "inline-block" : "w-48 shrink-0 border-l border-border/50 pl-2"}
       onClick={(e) => e.stopPropagation()}
       onPointerDown={(e) => e.stopPropagation()}
     >
@@ -1034,7 +1034,7 @@ export function AgentModelQuickEdit({
 
   return (
     <div
-      className={isChip ? "inline-block max-w-full" : "w-36 shrink-0 border-l border-border/50 pl-2"}
+      className={isChip ? "inline-block max-w-full" : "w-52 shrink-0 border-l border-border/50 pl-2"}
       onClick={(e) => e.stopPropagation()}
       onPointerDown={(e) => e.stopPropagation()}
     >
