@@ -145,7 +145,12 @@ export function OrgChart() {
   const { setBreadcrumbs } = useBreadcrumbs();
   const navigate = useNavigate();
 
-  const { data: orgTree, isLoading } = useQuery({
+  const {
+    data: orgTree,
+    isLoading,
+    error: orgError,
+    refetch: refetchOrg,
+  } = useQuery({
     queryKey: queryKeys.org(selectedCompanyId!),
     queryFn: () => agentsApi.org(selectedCompanyId!),
     enabled: !!selectedCompanyId,
@@ -264,6 +269,22 @@ export function OrgChart() {
     return <PageSkeleton variant="org-chart" />;
   }
 
+  if (orgError) {
+    return (
+      <div
+        role="alert"
+        className="mx-auto my-8 max-w-md rounded-lg border border-destructive/30 bg-destructive/5 p-6 text-center space-y-3"
+      >
+        <p className="text-sm text-destructive">
+          {orgError instanceof Error ? orgError.message : "Failed to load org chart."}
+        </p>
+        <Button type="button" variant="outline" size="sm" onClick={() => refetchOrg()}>
+          Retry
+        </Button>
+      </div>
+    );
+  }
+
   if (orgTree && orgTree.length === 0) {
     return <EmptyState icon={Network} message="No organizational hierarchy defined." />;
   }
@@ -297,7 +318,8 @@ export function OrgChart() {
       {/* Zoom controls */}
       <div className="absolute top-3 right-3 z-10 flex flex-col gap-1">
         <button
-          className="w-7 h-7 flex items-center justify-center bg-background border border-border rounded text-sm hover:bg-accent transition-colors"
+          type="button"
+          className="w-9 h-9 flex items-center justify-center bg-background border border-border rounded text-sm hover:bg-accent transition-colors"
           onClick={() => {
             const newZoom = Math.min(zoom * 1.2, 2);
             const container = containerRef.current;
@@ -314,7 +336,8 @@ export function OrgChart() {
           +
         </button>
         <button
-          className="w-7 h-7 flex items-center justify-center bg-background border border-border rounded text-sm hover:bg-accent transition-colors"
+          type="button"
+          className="w-9 h-9 flex items-center justify-center bg-background border border-border rounded text-sm hover:bg-accent transition-colors"
           onClick={() => {
             const newZoom = Math.max(zoom * 0.8, 0.2);
             const container = containerRef.current;
@@ -331,7 +354,8 @@ export function OrgChart() {
           &minus;
         </button>
         <button
-          className="w-7 h-7 flex items-center justify-center bg-background border border-border rounded text-[10px] hover:bg-accent transition-colors"
+          type="button"
+          className="w-9 h-9 flex items-center justify-center bg-background border border-border rounded text-xs font-medium hover:bg-accent transition-colors"
           onClick={() => {
             if (!containerRef.current) return;
             const cW = containerRef.current.clientWidth;
@@ -391,19 +415,29 @@ export function OrgChart() {
         {allNodes.map((node) => {
           const agent = agentMap.get(node.id);
           const dotColor = statusDotColor[node.status] ?? defaultDotColor;
+          const openAgent = () => navigate(agent ? agentUrl(agent) : `/agents/${node.id}`);
 
           return (
             <div
               key={node.id}
               data-org-card
-              className="absolute bg-card border border-border rounded-lg shadow-sm hover:shadow-md hover:border-foreground/20 transition-[box-shadow,border-color] duration-150 cursor-pointer select-none"
+              role="button"
+              tabIndex={0}
+              aria-label={`${node.name} (${agent?.title ?? roleLabel(node.role)})`}
+              className="absolute bg-card border border-border rounded-lg shadow-sm hover:shadow-md hover:border-foreground/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring transition-[box-shadow,border-color] duration-150 cursor-pointer select-none"
               style={{
                 left: node.x,
                 top: node.y,
                 width: CARD_W,
                 minHeight: CARD_H,
               }}
-              onClick={() => navigate(agent ? agentUrl(agent) : `/agents/${node.id}`)}
+              onClick={openAgent}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" || e.key === " ") {
+                  e.preventDefault();
+                  openAgent();
+                }
+              }}
             >
               <div className="flex items-center px-4 py-3 gap-3">
                 {/* Agent icon + status dot */}
@@ -418,19 +452,19 @@ export function OrgChart() {
                 </div>
                 {/* Name + role + adapter type */}
                 <div className="flex flex-col items-start min-w-0 flex-1">
-                  <span className="text-sm font-semibold text-foreground leading-tight">
+                  <span className="max-w-full truncate text-sm font-semibold text-foreground leading-tight">
                     {node.name}
                   </span>
-                  <span className="text-[11px] text-muted-foreground leading-tight mt-0.5">
+                  <span className="max-w-full truncate text-[11px] text-muted-foreground leading-tight mt-0.5">
                     {agent?.title ?? roleLabel(node.role)}
                   </span>
                   {agent && (
-                    <span className="text-[10px] text-muted-foreground/60 font-mono leading-tight mt-1">
+                    <span className="text-[11px] text-muted-foreground font-mono leading-tight mt-1">
                       {adapterLabels[agent.adapterType] ?? agent.adapterType}
                     </span>
                   )}
                   {agent && agent.capabilities && (
-                    <span className="text-[10px] text-muted-foreground/80 leading-tight mt-1 line-clamp-2">
+                    <span className="text-[11px] text-muted-foreground leading-tight mt-1 line-clamp-2">
                       {agent.capabilities}
                     </span>
                   )}

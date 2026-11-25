@@ -277,6 +277,7 @@ export function FailedRunInboxRow({
             className="h-8 shrink-0 px-2.5"
             onClick={onRetry}
             disabled={isRetrying}
+            aria-busy={isRetrying}
           >
             <RotateCcw className="mr-1.5 h-3.5 w-3.5" />
             {isRetrying ? "Retrying…" : "Retry"}
@@ -285,7 +286,7 @@ export function FailedRunInboxRow({
             <button
               type="button"
               onClick={onDismiss}
-              className="rounded-md p-1 text-muted-foreground opacity-0 transition-opacity hover:bg-accent hover:text-foreground group-hover:opacity-100"
+              className="rounded-md p-1 text-muted-foreground opacity-0 transition-opacity hover:bg-accent hover:text-foreground group-hover:opacity-100 focus-visible:opacity-100"
               aria-label="Dismiss"
             >
               <X className="h-4 w-4" />
@@ -418,19 +419,23 @@ function ApprovalInboxRow({
         {showResolutionButtons ? (
           <div className="hidden shrink-0 items-center gap-2 sm:flex">
             <Button
+              type="button"
               size="sm"
               className="h-8 bg-green-700 px-3 text-white hover:bg-green-600"
               onClick={onApprove}
               disabled={isPending}
+              aria-busy={isPending}
             >
               Approve
             </Button>
             <Button
+              type="button"
               variant="destructive"
               size="sm"
               className="h-8 px-3"
               onClick={onReject}
               disabled={isPending}
+              aria-busy={isPending}
             >
               Reject
             </Button>
@@ -440,19 +445,23 @@ function ApprovalInboxRow({
       {showResolutionButtons ? (
         <div className="mt-3 flex gap-2 sm:hidden">
           <Button
+            type="button"
             size="sm"
             className="h-8 bg-green-700 px-3 text-white hover:bg-green-600"
             onClick={onApprove}
             disabled={isPending}
+            aria-busy={isPending}
           >
             Approve
           </Button>
           <Button
+            type="button"
             variant="destructive"
             size="sm"
             className="h-8 px-3"
             onClick={onReject}
             disabled={isPending}
+            aria-busy={isPending}
           >
             Reject
           </Button>
@@ -637,6 +646,7 @@ export function Inbox() {
     data: approvals,
     isLoading: isApprovalsLoading,
     error: approvalsError,
+    refetch: refetchApprovals,
   } = useQuery({
     queryKey: queryKeys.approvals.list(selectedCompanyId!),
     queryFn: () => approvalsApi.list(selectedCompanyId!),
@@ -646,6 +656,8 @@ export function Inbox() {
   const {
     data: joinRequests = [],
     isLoading: isJoinRequestsLoading,
+    error: joinRequestsError,
+    refetch: refetchJoinRequests,
   } = useQuery({
     queryKey: queryKeys.access.joinRequests(selectedCompanyId!),
     queryFn: async () => {
@@ -662,13 +674,23 @@ export function Inbox() {
     retry: false,
   });
 
-  const { data: dashboard, isLoading: isDashboardLoading } = useQuery({
+  const {
+    data: dashboard,
+    isLoading: isDashboardLoading,
+    error: dashboardError,
+    refetch: refetchDashboard,
+  } = useQuery({
     queryKey: queryKeys.dashboard(selectedCompanyId!),
     queryFn: () => dashboardApi.summary(selectedCompanyId!),
     enabled: !!selectedCompanyId,
   });
 
-  const { data: issues, isLoading: isIssuesLoading } = useQuery({
+  const {
+    data: issues,
+    isLoading: isIssuesLoading,
+    error: issuesError,
+    refetch: refetchIssues,
+  } = useQuery({
     queryKey: queryKeys.issues.list(selectedCompanyId!),
     queryFn: () => issuesApi.list(selectedCompanyId!),
     enabled: !!selectedCompanyId,
@@ -676,6 +698,8 @@ export function Inbox() {
   const {
     data: mineIssuesRaw = [],
     isLoading: isMineIssuesLoading,
+    error: mineIssuesError,
+    refetch: refetchMineIssues,
   } = useQuery({
     queryKey: queryKeys.issues.listMineByMe(selectedCompanyId!),
     queryFn: () =>
@@ -689,6 +713,8 @@ export function Inbox() {
   const {
     data: touchedIssuesRaw = [],
     isLoading: isTouchedIssuesLoading,
+    error: touchedIssuesError,
+    refetch: refetchTouchedIssues,
   } = useQuery({
     queryKey: queryKeys.issues.listTouchedByMe(selectedCompanyId!),
     queryFn: () =>
@@ -699,7 +725,12 @@ export function Inbox() {
     enabled: !!selectedCompanyId,
   });
 
-  const { data: heartbeatRuns, isLoading: isRunsLoading } = useQuery({
+  const {
+    data: heartbeatRuns,
+    isLoading: isRunsLoading,
+    error: runsError,
+    refetch: refetchRuns,
+  } = useQuery({
     queryKey: queryKeys.heartbeats(selectedCompanyId!),
     queryFn: () => heartbeatsApi.list(selectedCompanyId!),
     enabled: !!selectedCompanyId,
@@ -863,12 +894,16 @@ export function Inbox() {
       return { newRun: result, originalRun: run };
     },
     onMutate: (run) => {
+      setActionError(null);
       setRetryingRunIds((prev) => new Set(prev).add(run.id));
     },
     onSuccess: ({ newRun, originalRun }) => {
       queryClient.invalidateQueries({ queryKey: queryKeys.heartbeats(originalRun.companyId) });
       queryClient.invalidateQueries({ queryKey: queryKeys.heartbeats(originalRun.companyId, originalRun.agentId) });
       navigate(`/agents/${originalRun.agentId}/runs/${newRun.id}`);
+    },
+    onError: (err) => {
+      setActionError(err instanceof Error ? err.message : "Failed to retry run");
     },
     onSettled: (_data, _error, run) => {
       if (!run) return;
@@ -1215,6 +1250,27 @@ export function Inbox() {
     .map((issue) => issue.id);
   const canMarkAllRead = unreadIssueIds.length > 0;
 
+  const fetchError =
+    approvalsError ||
+    issuesError ||
+    mineIssuesError ||
+    touchedIssuesError ||
+    runsError ||
+    dashboardError ||
+    joinRequestsError;
+
+  const handleRetryFetch = () => {
+    void Promise.all([
+      refetchApprovals(),
+      refetchJoinRequests(),
+      refetchDashboard(),
+      refetchIssues(),
+      refetchMineIssues(),
+      refetchTouchedIssues(),
+      refetchRuns(),
+    ]);
+  };
+
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between gap-2">
@@ -1288,8 +1344,18 @@ export function Inbox() {
         </div>
       )}
 
-      {approvalsError && <p className="text-sm text-destructive">{approvalsError.message}</p>}
-      {actionError && <p className="text-sm text-destructive">{actionError}</p>}
+      {fetchError && (
+        <div
+          role="alert"
+          className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-destructive/30 bg-destructive/5 px-3 py-2 text-sm text-destructive"
+        >
+          <span>{fetchError instanceof Error ? fetchError.message : "Failed to load inbox items."}</span>
+          <Button type="button" variant="outline" size="sm" onClick={handleRetryFetch}>
+            Retry
+          </Button>
+        </div>
+      )}
+      {actionError && <p role="alert" className="text-sm text-destructive">{actionError}</p>}
 
       {!allLoaded && visibleSections.length === 0 && (
         <PageSkeleton variant="inbox" />
@@ -1539,7 +1605,7 @@ export function Inbox() {
                   <button
                     type="button"
                     onClick={() => dismiss("alert:agent-errors")}
-                    className="rounded-md p-1 text-muted-foreground opacity-0 transition-opacity hover:bg-accent hover:text-foreground group-hover/alert:opacity-100"
+                    className="rounded-md p-1 text-muted-foreground opacity-0 transition-opacity hover:bg-accent hover:text-foreground group-hover/alert:opacity-100 focus-visible:opacity-100"
                     aria-label="Dismiss"
                   >
                     <X className="h-3.5 w-3.5" />
@@ -1552,7 +1618,7 @@ export function Inbox() {
                     to="/costs"
                     className="flex flex-1 cursor-pointer items-center gap-3 no-underline text-inherit"
                   >
-                    <AlertTriangle className="h-4 w-4 shrink-0 text-yellow-400" />
+                    <AlertTriangle className="h-4 w-4 shrink-0 text-amber-600 dark:text-yellow-400" />
                     <span className="text-sm">
                       Budget at{" "}
                       <span className="font-medium">{dashboard!.costs.monthUtilizationPercent}%</span>{" "}
@@ -1562,7 +1628,7 @@ export function Inbox() {
                   <button
                     type="button"
                     onClick={() => dismiss("alert:budget")}
-                    className="rounded-md p-1 text-muted-foreground opacity-0 transition-opacity hover:bg-accent hover:text-foreground group-hover/alert:opacity-100"
+                    className="rounded-md p-1 text-muted-foreground opacity-0 transition-opacity hover:bg-accent hover:text-foreground group-hover/alert:opacity-100 focus-visible:opacity-100"
                     aria-label="Dismiss"
                   >
                     <X className="h-3.5 w-3.5" />

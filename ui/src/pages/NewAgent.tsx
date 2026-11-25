@@ -75,7 +75,12 @@ export function NewAgent() {
   const [roleOpen, setRoleOpen] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
 
-  const { data: agents } = useQuery({
+  const {
+    data: agents,
+    isLoading: agentsLoading,
+    error: agentsError,
+    refetch: refetchAgents,
+  } = useQuery({
     queryKey: queryKeys.agents.list(selectedCompanyId!),
     queryFn: () => agentsApi.list(selectedCompanyId!),
     enabled: !!selectedCompanyId,
@@ -94,13 +99,17 @@ export function NewAgent() {
     enabled: Boolean(selectedCompanyId),
   });
 
-  const { data: companySkills } = useQuery({
+  const {
+    data: companySkills,
+    error: companySkillsError,
+    refetch: refetchSkills,
+  } = useQuery({
     queryKey: queryKeys.companySkills.list(selectedCompanyId ?? ""),
     queryFn: () => companySkillsApi.list(selectedCompanyId!),
     enabled: Boolean(selectedCompanyId),
   });
 
-  const isFirstAgent = !agents || agents.length === 0;
+  const isFirstAgent = !agentsLoading && !agentsError && !!agents && agents.length === 0;
   const effectiveRole = isFirstAgent ? "ceo" : role;
 
   useEffect(() => {
@@ -148,7 +157,11 @@ export function NewAgent() {
   }
 
   function handleSubmit() {
-    if (!selectedCompanyId || !name.trim()) return;
+    if (!selectedCompanyId || createAgent.isPending) return;
+    if (!name.trim()) {
+      setFormError("Agent name is required.");
+      return;
+    }
     setFormError(null);
     if (configValues.adapterType === "opencode_local") {
       const selectedModel = configValues.model.trim();
@@ -219,11 +232,39 @@ export function NewAgent() {
         </p>
       </div>
 
+      {(agentsError || companySkillsError) && (
+        <div
+          role="alert"
+          className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-destructive/30 bg-destructive/5 px-4 py-2.5 text-sm text-destructive"
+        >
+          <span>
+            {agentsError instanceof Error
+              ? agentsError.message
+              : companySkillsError instanceof Error
+                ? companySkillsError.message
+                : "Failed to load agent metadata."}
+          </span>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={() => {
+              if (agentsError) void refetchAgents();
+              if (companySkillsError) void refetchSkills();
+            }}
+          >
+            Retry
+          </Button>
+        </div>
+      )}
+
       <div className="border border-border">
         {/* Name */}
         <div className="px-4 pt-4 pb-2">
           <input
-            className="w-full text-lg font-semibold bg-transparent outline-none placeholder:text-muted-foreground/50"
+            aria-label="Agent name"
+            required
+            className="w-full text-lg font-semibold bg-transparent outline-none placeholder:text-muted-foreground/70"
             placeholder="Agent name"
             value={name}
             onChange={(e) => setName(e.target.value)}
@@ -234,7 +275,8 @@ export function NewAgent() {
         {/* Title */}
         <div className="px-4 pb-2">
           <input
-            className="w-full bg-transparent outline-none text-sm text-muted-foreground placeholder:text-muted-foreground/40"
+            aria-label="Agent title"
+            className="w-full bg-transparent outline-none text-sm text-muted-foreground placeholder:text-muted-foreground/60"
             placeholder="Title (e.g. VP of Engineering)"
             value={title}
             onChange={(e) => setTitle(e.target.value)}
@@ -246,6 +288,9 @@ export function NewAgent() {
           <Popover open={roleOpen} onOpenChange={setRoleOpen}>
             <PopoverTrigger asChild>
               <button
+                type="button"
+                aria-label="Agent role"
+                aria-expanded={roleOpen}
                 className={cn(
                   "inline-flex items-center gap-1.5 rounded-md border border-border px-2 py-1 text-xs hover:bg-accent/50 transition-colors",
                   isFirstAgent && "opacity-60 cursor-not-allowed"
@@ -259,6 +304,7 @@ export function NewAgent() {
             <PopoverContent className="w-36 p-1" align="start">
               {AGENT_ROLES.map((r) => (
                 <button
+                  type="button"
                   key={r}
                   className={cn(
                     "flex items-center gap-2 w-full px-2 py-1.5 text-xs rounded hover:bg-accent/50",
@@ -332,15 +378,17 @@ export function NewAgent() {
             <p className="text-xs text-muted-foreground mb-2">This will be the CEO</p>
           )}
           {formError && (
-            <p className="text-xs text-destructive mb-2">{formError}</p>
+            <p role="alert" className="text-xs text-destructive mb-2">{formError}</p>
           )}
           <div className="flex items-center justify-end gap-2">
-            <Button variant="outline" size="sm" onClick={() => navigate("/agents")}>
+            <Button type="button" variant="outline" size="sm" onClick={() => navigate("/agents")}>
               Cancel
             </Button>
             <Button
+              type="button"
               size="sm"
               disabled={!name.trim() || createAgent.isPending}
+              aria-busy={createAgent.isPending}
               onClick={handleSubmit}
             >
               {createAgent.isPending ? "Creating…" : "Create agent"}
