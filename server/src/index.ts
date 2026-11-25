@@ -50,6 +50,7 @@ import detectPort from "detect-port";
 import { createApp } from "./app.js";
 import { loadConfig } from "./config.js";
 import { logger, redirectStdioToServerLog } from "./middleware/logger.js";
+import { configureDiagnosticReport } from "./services/diagnostic-report.js";
 import { setupLiveEventsWebSocketServer } from "./realtime/live-events-ws.js";
 import { trainingRouter, setupTrainingWebSocket } from "./training/training-routes.js";
 import { heartbeatService, reconcilePersistedRuntimeServicesOnStartup, routineService, scheduledIssueWakeupService } from "./services/index.js";
@@ -106,6 +107,13 @@ export interface StartedServer {
 export async function startServer(): Promise<StartedServer> {
   if (process.env.PAPERCLIP_LOG_STDOUT !== "true" && !process.env.VITEST) {
     redirectStdioToServerLog();
+  }
+  if (!process.env.VITEST) {
+    const diagReport = configureDiagnosticReport();
+    logger.info(
+      { reportOnFatalError: diagReport.enabled, reportDirectory: diagReport.directory },
+      "Node diagnostic report configured",
+    );
   }
   let config = loadConfig();
   if (process.env.PAPERCLIP_SECRETS_PROVIDER === undefined) {

@@ -14,6 +14,7 @@ const os = require('os');
 const LOG_DIR =
   process.env.PAPERCLIP_PM2_LOG_DIR ||
   path.join(os.homedir(), '.paperclip', 'logs');
+const CRASH_REPORT_DIR = path.join(LOG_DIR, 'crash-reports').replace(/\\/g, '/');
 
 module.exports = {
   apps: [
@@ -27,7 +28,7 @@ module.exports = {
       // Restart policy
       autorestart: true,
       watch: false,
-      max_memory_restart: '1G',
+      max_memory_restart: '2G',
       // 2026-08-01: min_uptime 30s -> 120s. Sự cố cạn pooler 31/07: khi DB kẹt, paperclip sống
       // ~40s (quét khởi động 67s bị cắt giữa chừng) rồi chết. min_uptime=30s < 40s ⇒ PM2 coi mỗi
       // lần là "start thành công rồi mới sập" ⇒ reset bộ đếm ⇒ max_restarts=10 KHÔNG BAO GIỜ kích
@@ -47,6 +48,7 @@ module.exports = {
 
       env: {
         NODE_ENV: 'development',
+        NODE_OPTIONS: `--max-old-space-size=4096 --report-on-fatalerror --report-directory="${CRASH_REPORT_DIR}"`,
         // Force ANSI colors from pino-pretty even though stdout isn't a TTY
         // (PM2 captures stdout into a file, which would normally disable colors).
         FORCE_COLOR: '1',

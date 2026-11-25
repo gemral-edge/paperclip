@@ -314,12 +314,12 @@ export class ZaloListener extends EventEmitter {
     const subCmd = data.readUInt8(3);
     const payload = data.slice(4);
 
-    console.log(`[ZaloListener] Frame: cmd=${cmd} subCmd=${subCmd} len=${data.length}`);
-
-    // Ping/Pong (cmd=2, any subCmd)
+    // Ping/Pong (cmd=2, any subCmd) — skip logging to avoid 77MB+ server.log spam (GEM-2737)
     if (cmd === WS_CMD.PONG.cmd || cmd === WS_CMD.PING.cmd) {
       return;
     }
+
+    console.log(`[ZaloListener] Frame: cmd=${cmd} subCmd=${subCmd} len=${data.length}`);
 
     // Cipher key handshake (cmd=1, subCmd=1)
     if (cmd === WS_CMD.CIPHER_KEY_HANDSHAKE.cmd && subCmd === WS_CMD.CIPHER_KEY_HANDSHAKE.subCmd) {
