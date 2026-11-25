@@ -3880,9 +3880,15 @@ export function heartbeatService(db: Db) {
         }
       }
 
+      const isTransientDbInfra =
+        /read-only transaction|SQLSTATE 25006|25006|Connection terminated|ECONNRESET|ETIMEDOUT|connection timeout|too many clients|deadlock detected/i.test(
+          message,
+        );
+      const catchErrorCode = isTransientDbInfra ? "db_transient_error" : "adapter_failed";
+
       const failedRun = await setRunStatus(run.id, "failed", {
         error: message,
-        errorCode: "adapter_failed",
+        errorCode: catchErrorCode,
         finishedAt: new Date(),
         stdoutExcerpt,
         stderrExcerpt,
@@ -3927,16 +3933,42 @@ export function heartbeatService(db: Db) {
         }
       }
 
-      await finalizeAgentStatus(agent.id, "failed");
+      let catchQuotaRetry: unknown = null;
+      if (isTransientDbInfra && failedRun) {
+        catchQuotaRetry = await syncQuotaRetryAfterRun({
+          agent,
+          run: failedRun,
+          context,
+          issueId,
+          outcome: "failed",
+          adapterResult: {
+            exitCode: null,
+            signal: null,
+            timedOut: false,
+            errorMessage: message,
+            errorCode: catchErrorCode,
+          },
+          nextSeq: () => seq++,
+        }).catch(() => null);
+      }
+
+      await finalizeAgentStatus(agent.id, "failed", {
+        retryScheduled: catchQuotaRetry !== null,
+        infraFault: isTransientDbInfra,
+      });
     }
     } catch (outerErr) {
           // Setup code before adapter.execute threw (e.g. ensureRuntimeState, resolveWorkspaceForRun).
           // The inner catch did not fire, so we must record the failure here.
           const message = outerErr instanceof Error ? outerErr.message : "Unknown setup failure";
+          const isOuterTransientDb =
+            /read-only transaction|SQLSTATE 25006|25006|Connection terminated|ECONNRESET|ETIMEDOUT|connection timeout|too many clients|deadlock detected/i.test(
+              message,
+            );
           logger.error({ err: outerErr, runId }, "heartbeat execution setup failed");
           await setRunStatus(runId, "failed", {
             error: message,
-            errorCode: "adapter_failed",
+            errorCode: isOuterTransientDb ? "db_transient_error" : "adapter_failed",
             finishedAt: new Date(),
           }).catch(() => undefined);
           await setWakeupStatus(run.wakeupRequestId, "failed", {

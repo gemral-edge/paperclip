@@ -28,6 +28,11 @@ export const QUOTA_RETRY_MAX_ATTEMPTS = QUOTA_RETRY_BACKOFF_MIN.length;
  */
 export const TRANSIENT_RETRY_ERROR_CODES: ReadonlySet<string> = new Set([
   "antigravity_transient_disconnect",
+  // GEM-2707: pre-model / transient backend errors that can outlast the 70s in-process retry
+  // and previously fell through to errorCode="adapter_failed" with zero retry (stranding COMMENT-WAKE-ONLY agents).
+  "antigravity_empty_conversation_id",
+  "antigravity_zero_token_budget",
+  "db_transient_error",
   // GEM-1307: model printed its plan then ended the turn without acting — a stall,
   // not an agent bug; a fresh turn usually completes. Short backoff keeps slot agents
   // (Yinyang 16:15) inside their window. Capped at 2 attempts like any transient.

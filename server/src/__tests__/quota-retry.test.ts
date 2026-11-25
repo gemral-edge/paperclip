@@ -263,4 +263,50 @@ describe("rotateAntigravityAccountOnQuota & computeMaxAccountRotations (AGY-SW-0
     expect(res.alreadyRotatedByPeer).toBe(true);
     expect(res.newEmail).toBe("acc3@gmail.com");
   });
+
+  it("plans short 10m/20m transient retry (preserving issueId) for agy pre-model & db transient errors (GEM-2707)", () => {
+    const now = new Date("2026-11-25T05:00:00.000Z");
+    for (const code of [
+      "antigravity_empty_conversation_id",
+      "antigravity_zero_token_budget",
+      "db_transient_error",
+    ]) {
+      const p1 = planQuotaRetry({
+        errorCode: code,
+        priorAttempts: 0,
+        source: "assignment",
+        issueId: "cbfc7d1a-5d02-486b-b11c-3c89f7f888e4",
+        context: { issueId: "cbfc7d1a-5d02-486b-b11c-3c89f7f888e4" },
+        now,
+        random: () => 0,
+      });
+      expect(p1).not.toBeNull();
+      expect(p1?.attempt).toBe(1);
+      expect((new Date(p1!.retryAt).getTime() - now.getTime()) / 60_000).toBe(10);
+      expect(p1?.issueId).toBe("cbfc7d1a-5d02-486b-b11c-3c89f7f888e4");
+
+      const p2 = planQuotaRetry({
+        errorCode: code,
+        priorAttempts: 1,
+        source: "assignment",
+        issueId: "cbfc7d1a-5d02-486b-b11c-3c89f7f888e4",
+        context: { issueId: "cbfc7d1a-5d02-486b-b11c-3c89f7f888e4" },
+        now,
+        random: () => 0,
+      });
+      expect(p2?.attempt).toBe(2);
+      expect((new Date(p2!.retryAt).getTime() - now.getTime()) / 60_000).toBe(20);
+
+      const p3 = planQuotaRetry({
+        errorCode: code,
+        priorAttempts: 2,
+        source: "assignment",
+        issueId: "cbfc7d1a-5d02-486b-b11c-3c89f7f888e4",
+        context: { issueId: "cbfc7d1a-5d02-486b-b11c-3c89f7f888e4" },
+        now,
+        random: () => 0,
+      });
+      expect(p3).toBeNull();
+    }
+  });
 });

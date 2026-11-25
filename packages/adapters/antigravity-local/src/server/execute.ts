@@ -1283,7 +1283,16 @@ export async function execute(ctx: AdapterExecutionContext): Promise<AdapterExec
       errorCode = "antigravity_transient_disconnect";
       errorMessage = stderrLine || "Antigravity agent stream disconnected mid-response.";
     } else if (!exitOk) {
-      errorMessage = stderrLine || `Antigravity (agy) exited with code ${attempt.proc.exitCode ?? -1}`;
+      const procStderr = attempt.proc.stderr ?? "";
+      if (detectAntigravityEmptyConversationId({ stderr: procStderr }).emptyConversationId) {
+        errorCode = "antigravity_empty_conversation_id";
+        errorMessage = stderrLine || "Antigravity backend returned an empty conversation id.";
+      } else if (detectAntigravityZeroTokenBudget({ stderr: procStderr }).zeroBudget) {
+        errorCode = "antigravity_zero_token_budget";
+        errorMessage = stderrLine || "Antigravity reported maxMessageTokens must be positive, got 0.";
+      } else {
+        errorMessage = stderrLine || `Antigravity (agy) exited with code ${attempt.proc.exitCode ?? -1}`;
+      }
     } else if (!summary) {
       // exit 0 but no reply found in ANY brain for this run's turnMarker → genuine
       // failure (agy timed out / didn't flush / auth or MCP error mid-run).
