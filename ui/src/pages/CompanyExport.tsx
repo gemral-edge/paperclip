@@ -918,6 +918,29 @@ export function CompanyExport() {
     return <PageSkeleton variant="detail" />;
   }
 
+  if (exportPreviewMutation.isError && !exportData) {
+    return (
+      <div
+        role="alert"
+        className="mx-auto my-8 max-w-md rounded-lg border border-destructive/30 bg-destructive/5 p-6 text-center space-y-3"
+      >
+        <p className="text-sm text-destructive">
+          {exportPreviewMutation.error instanceof Error
+            ? exportPreviewMutation.error.message
+            : "Failed to load export data."}
+        </p>
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          onClick={() => exportPreviewMutation.mutate()}
+        >
+          Retry
+        </Button>
+      </div>
+    );
+  }
+
   if (!exportData) {
     return <EmptyState icon={Package} message="Loading export data..." />;
   }

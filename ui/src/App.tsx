@@ -49,6 +49,8 @@ import { DelegationLogPage } from "./pages/delegations/DelegationLogPage";
 import { DelegationCard } from "./pages/delegations/DelegationCard";
 import { Inbox } from "./pages/Inbox";
 import { CompanySettings } from "./pages/CompanySettings";
+import { CompanyExport } from "./pages/CompanyExport";
+import { CompanyImport } from "./pages/CompanyImport";
 import { DesignGuide } from "./pages/DesignGuide";
 import { ZaloPersonalPage } from "./pages/channels/ZaloPersonalPage";
 import { ZaloPersonalChat } from "./pages/channels/ZaloPersonalChat";
@@ -205,6 +207,8 @@ function boardRoutes() {
       <Route path="onboarding" element={<OnboardingRoutePage />} />
       <Route path="companies" element={<Companies />} />
       <Route path="company/settings" element={<CompanySettings />} />
+      <Route path="company/export/*" element={<CompanyExport />} />
+      <Route path="company/import" element={<CompanyImport />} />
       <Route path="settings" element={<LegacySettingsRedirect />} />
       <Route path="settings/*" element={<LegacySettingsRedirect />} />
       <Route path="plugins/:pluginId" element={<PluginPage />} />
@@ -475,6 +479,11 @@ export function App() {
             <Route path="plugins/:pluginId" element={<PluginSettings />} />
           </Route>
           <Route path="companies" element={<UnprefixedBoardRedirect />} />
+          <Route path="company/settings" element={<UnprefixedBoardRedirect />} />
+          <Route path="company/export" element={<UnprefixedBoardRedirect />} />
+          <Route path="company/export/*" element={<UnprefixedBoardRedirect />} />
+          <Route path="company/import" element={<UnprefixedBoardRedirect />} />
+          <Route path="org" element={<UnprefixedBoardRedirect />} />
           <Route path="issues" element={<UnprefixedBoardRedirect />} />
           <Route path="issues/:issueId" element={<UnprefixedBoardRedirect />} />
           <Route path="routines" element={<UnprefixedBoardRedirect />} />

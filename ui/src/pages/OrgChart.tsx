@@ -292,18 +292,18 @@ export function OrgChart() {
   return (
     <div className="flex flex-col h-full">
     <div className="mb-2 flex items-center justify-start gap-2 shrink-0">
-      <Link to="/company/import">
-        <Button variant="outline" size="sm">
+      <Button variant="outline" size="sm" asChild>
+        <Link to="/company/import">
           <Upload className="mr-1.5 h-3.5 w-3.5" />
           Import company
-        </Button>
-      </Link>
-      <Link to="/company/export">
-        <Button variant="outline" size="sm">
+        </Link>
+      </Button>
+      <Button variant="outline" size="sm" asChild>
+        <Link to="/company/export">
           <Download className="mr-1.5 h-3.5 w-3.5" />
           Export company
-        </Button>
-      </Link>
+        </Link>
+      </Button>
     </div>
     <div
       ref={containerRef}
