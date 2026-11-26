@@ -562,6 +562,7 @@ function SkillPane({
           </div>
           {detail.editable ? (
             <button
+              type="button"
               className="inline-flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground"
               onClick={() => setEditMode(!editMode)}
             >
@@ -581,10 +582,20 @@ function SkillPane({
                 <SourceIcon className="h-3.5 w-3.5 text-muted-foreground" />
                 {detail.sourcePath ? (
                   <button
+                    type="button"
+                    aria-label="Copy source path to clipboard"
                     className="truncate hover:text-foreground text-muted-foreground transition-colors cursor-pointer"
-                    onClick={() => {
-                      navigator.clipboard.writeText(detail.sourcePath!);
-                      pushToast({ title: "Copied path to workspace" });
+                    onClick={async () => {
+                      try {
+                        await navigator.clipboard.writeText(detail.sourcePath!);
+                        pushToast({ title: "Copied path to workspace" });
+                      } catch (err) {
+                        pushToast({
+                          tone: "error",
+                          title: "Could not copy path",
+                          body: err instanceof Error ? err.message : "Clipboard access denied.",
+                        });
+                      }
                     }}
                   >
                     {source.label}
@@ -1060,7 +1071,7 @@ export function CompanySkills() {
       </Dialog>
 
       <div className="grid min-h-[calc(100vh-12rem)] gap-0 xl:grid-cols-[19rem_minmax(0,1fr)]">
-        <aside className="border-r border-border">
+        <aside className="border-b xl:border-b-0 xl:border-r border-border">
           <div className="border-b border-border px-4 py-3">
             <div className="flex items-center justify-between gap-2">
               <div>
@@ -1076,21 +1087,29 @@ export function CompanySkills() {
                   onClick={() => scanProjects.mutate()}
                   disabled={scanProjects.isPending}
                   title="Scan project workspaces for skills"
+                  aria-label="Scan project workspaces for skills"
                 >
                   <RefreshCw className={cn("h-4 w-4", scanProjects.isPending && "animate-spin")} />
                 </Button>
-                <Button variant="ghost" size="icon-sm" onClick={() => setCreateOpen((value) => !value)}>
+                <Button
+                  variant="ghost"
+                  size="icon-sm"
+                  onClick={() => setCreateOpen((value) => !value)}
+                  title={createOpen ? "Close new skill form" : "New skill"}
+                  aria-label={createOpen ? "Close new skill form" : "New skill"}
+                >
                   <Plus className="h-4 w-4" />
                 </Button>
               </div>
             </div>
 
             <div className="mt-3 flex items-center gap-2 border-b border-border pb-2">
-              <Search className="h-4 w-4 text-muted-foreground" />
+              <Search className="h-4 w-4 text-muted-foreground" aria-hidden="true" />
               <input
                 value={skillFilter}
                 onChange={(event) => setSkillFilter(event.target.value)}
                 placeholder="Filter skills"
+                aria-label="Filter skills"
                 className="w-full bg-transparent text-sm outline-none placeholder:text-muted-foreground"
               />
             </div>
@@ -1099,7 +1118,14 @@ export function CompanySkills() {
               <input
                 value={source}
                 onChange={(event) => setSource(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter") {
+                    event.preventDefault();
+                    handleAddSkillSource();
+                  }
+                }}
                 placeholder="Paste path, GitHub URL, or skills.sh command"
+                aria-label="Skill source path, GitHub URL, or skills.sh command"
                 className="w-full bg-transparent text-sm outline-none placeholder:text-muted-foreground"
               />
               <Button
@@ -1129,7 +1155,12 @@ export function CompanySkills() {
           {skillsQuery.isLoading ? (
             <PageSkeleton variant="list" />
           ) : skillsQuery.error ? (
-            <div className="px-4 py-6 text-sm text-destructive">{skillsQuery.error.message}</div>
+            <div role="alert" className="px-4 py-6 space-y-2 text-sm text-destructive">
+              <p>{skillsQuery.error.message}</p>
+              <Button size="xs" variant="outline" onClick={() => void skillsQuery.refetch()}>
+                Retry
+              </Button>
+            </div>
           ) : (
             <SkillList
               skills={skillsQuery.data ?? []}
@@ -1155,7 +1186,7 @@ export function CompanySkills() {
           )}
         </aside>
 
-        <div className="min-w-0 pl-6">
+        <div className="min-w-0 pt-4 xl:pt-0 xl:pl-6">
           <SkillPane
             loading={skillsQuery.isLoading || detailQuery.isLoading}
             detail={activeDetail}

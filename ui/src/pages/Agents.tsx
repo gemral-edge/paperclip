@@ -419,8 +419,10 @@ export function Agents() {
         case "name-asc": return a.name.localeCompare(b.name);
         case "name-desc": return b.name.localeCompare(a.name);
         case "recent": {
-          const timeA = a.lastHeartbeatAt ? new Date(a.lastHeartbeatAt).getTime() : 0;
-          const timeB = b.lastHeartbeatAt ? new Date(b.lastHeartbeatAt).getTime() : 0;
+          const rawA = a.lastHeartbeatAt ? new Date(a.lastHeartbeatAt).getTime() : 0;
+          const rawB = b.lastHeartbeatAt ? new Date(b.lastHeartbeatAt).getTime() : 0;
+          const timeA = Number.isNaN(rawA) ? 0 : rawA;
+          const timeB = Number.isNaN(rawB) ? 0 : rawB;
           return timeB - timeA;
         }
         case "status": return a.status.localeCompare(b.status);
@@ -441,6 +443,7 @@ export function Agents() {
     if (over && active.id !== over.id) {
       const oldIndex = filtered.findIndex((a) => a.id === active.id);
       const newIndex = filtered.findIndex((a) => a.id === over.id);
+      if (oldIndex === -1 || newIndex === -1) return;
       
       const newArray = arrayMove(filtered, oldIndex, newIndex);
       const newOrder = newArray.map((a) => a.id);
@@ -503,19 +506,24 @@ export function Agents() {
           {/* Filters */}
           <div className="relative">
             <button
+              type="button"
+              aria-expanded={filtersOpen}
               className={cn(
                 "flex items-center gap-1.5 px-2 py-1.5 text-xs transition-colors border border-border",
                 filtersOpen || showTerminated ? "text-foreground bg-accent" : "text-muted-foreground hover:bg-accent/50"
               )}
               onClick={() => setFiltersOpen(!filtersOpen)}
             >
-              <SlidersHorizontal className="h-3 w-3" />
+              <SlidersHorizontal className="h-3 w-3" aria-hidden="true" />
               Filters
               {showTerminated && <span className="ml-0.5 px-1 bg-foreground/10 rounded text-[10px]">1</span>}
             </button>
             {filtersOpen && (
               <div className="absolute right-0 top-full mt-1 z-50 w-48 border border-border bg-popover shadow-md p-1">
                 <button
+                  type="button"
+                  role="checkbox"
+                  aria-checked={showTerminated}
                   className="flex items-center gap-2 w-full px-2 py-1.5 text-xs text-left hover:bg-accent/50 transition-colors"
                   onClick={() => setShowTerminated(!showTerminated)}
                 >
@@ -534,6 +542,10 @@ export function Agents() {
           {!forceListView && (
             <div className="flex items-center border border-border">
               <button
+                type="button"
+                aria-label="List view"
+                aria-pressed={effectiveView === "list"}
+                title="List view"
                 className={cn(
                   "p-1.5 transition-colors",
                   effectiveView === "list" ? "bg-accent text-foreground" : "text-muted-foreground hover:bg-accent/50"
@@ -543,9 +555,13 @@ export function Agents() {
                   localStorage.setItem("paperclip_agent_view", "list");
                 }}
               >
-                <List className="h-3.5 w-3.5" />
+                <List className="h-3.5 w-3.5" aria-hidden="true" />
               </button>
               <button
+                type="button"
+                aria-label="Org chart view"
+                aria-pressed={effectiveView === "org"}
+                title="Org chart view"
                 className={cn(
                   "p-1.5 transition-colors",
                   effectiveView === "org" ? "bg-accent text-foreground" : "text-muted-foreground hover:bg-accent/50"
@@ -555,7 +571,7 @@ export function Agents() {
                   localStorage.setItem("paperclip_agent_view", "org");
                 }}
               >
-                <GitBranch className="h-3.5 w-3.5" />
+                <GitBranch className="h-3.5 w-3.5" aria-hidden="true" />
               </button>
             </div>
           )}
@@ -570,7 +586,18 @@ export function Agents() {
         <p className="text-xs text-muted-foreground">{filtered.length} agent{filtered.length !== 1 ? "s" : ""}</p>
       )}
 
-      {error && <p className="text-sm text-destructive">{error.message}</p>}
+      {error && (
+        <div role="alert" className="flex items-center justify-between gap-3 rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+          <span>{error.message}</span>
+          <Button
+            size="xs"
+            variant="outline"
+            onClick={() => void queryClient.invalidateQueries({ queryKey: queryKeys.agents.list(selectedCompanyId!) })}
+          >
+            Retry
+          </Button>
+        </div>
+      )}
 
       {agents && agents.length === 0 && (
         <EmptyState
@@ -617,9 +644,22 @@ export function Agents() {
       )}
 
       {effectiveView === "list" && agents && agents.length > 0 && filtered.length === 0 && (
-        <p className="text-sm text-muted-foreground text-center py-8">
-          No agents match the selected filter.
-        </p>
+        <div className="text-center py-8 space-y-2">
+          <p className="text-sm text-muted-foreground">
+            No agents match the selected filter.
+          </p>
+          <Button
+            size="xs"
+            variant="outline"
+            onClick={() => {
+              setShowTerminated(false);
+              setSearchQuery("");
+              if (tab !== "all") navigate("/agents/all");
+            }}
+          >
+            Reset filters
+          </Button>
+        </div>
       )}
 
       {/* Org chart view */}
@@ -1154,6 +1194,7 @@ export function AgentModelQuickEdit({
               <Input
                 type="text"
                 placeholder="Tìm hoặc nhập mã model..."
+                aria-label="Tìm hoặc nhập mã model"
                 value={modelSearch}
                 onChange={(e) => setModelSearch(e.target.value)}
                 onKeyDown={(e) => {

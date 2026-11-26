@@ -148,7 +148,7 @@ function TriggerEditor({
           {trigger.label ?? trigger.kind}
         </div>
         <span className="text-xs text-muted-foreground">
-          {trigger.kind === "schedule" && trigger.nextRunAt
+          {trigger.kind === "schedule" && trigger.nextRunAt && !Number.isNaN(new Date(trigger.nextRunAt).getTime())
             ? `Next: ${new Date(trigger.nextRunAt).toLocaleString()}`
             : trigger.kind === "webhook"
               ? "Webhook"
@@ -272,7 +272,7 @@ export function RoutineDetail() {
   });
   const activeTab = useMemo(() => getRoutineTabFromSearch(location.search), [location.search]);
 
-  const { data: routine, isLoading, error } = useQuery({
+  const { data: routine, isLoading, error, refetch } = useQuery({
     queryKey: queryKeys.routines.detail(routineId!),
     queryFn: () => routinesApi.get(routineId!),
     enabled: !!routineId,
@@ -603,9 +603,14 @@ export function RoutineDetail() {
 
   if (error || !routine) {
     return (
-      <p className="pt-6 text-sm text-destructive">
-        {error instanceof Error ? error.message : "Routine not found"}
-      </p>
+      <div role="alert" className="pt-6 space-y-3">
+        <p className="text-sm text-destructive">
+          {error instanceof Error ? error.message : "Routine not found"}
+        </p>
+        <Button size="sm" variant="outline" onClick={() => void refetch()}>
+          Retry
+        </Button>
+      </div>
     );
   }
 
@@ -615,7 +620,7 @@ export function RoutineDetail() {
   const automationLabelClassName = routine.status === "archived"
     ? "text-muted-foreground"
     : automationEnabled
-      ? "text-emerald-400"
+      ? "text-emerald-600 dark:text-emerald-400"
       : "text-muted-foreground";
 
   return (
@@ -624,6 +629,7 @@ export function RoutineDetail() {
       <div className="flex items-start gap-4">
         <textarea
           ref={titleInputRef}
+          aria-label="Routine title"
           className="flex-1 min-w-0 resize-none overflow-hidden bg-transparent text-xl font-bold outline-none placeholder:text-muted-foreground/50"
           placeholder="Routine title"
           rows={1}
@@ -857,7 +863,7 @@ export function RoutineDetail() {
       {/* Save bar */}
       <div className="flex items-center justify-between">
         {isEditDirty ? (
-          <span className="text-xs text-amber-600">Unsaved changes</span>
+          <span className="text-xs text-amber-700 dark:text-amber-400">Unsaved changes</span>
         ) : (
           <span />
         )}
