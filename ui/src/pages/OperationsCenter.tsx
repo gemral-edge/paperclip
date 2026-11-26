@@ -16,27 +16,27 @@ export function OperationsCenter() {
       </div>
 
       {/* Row 1: Channels + Agents */}
-      <div className="grid grid-cols-2 gap-4">
-        <div className="rounded-xl border bg-card p-4">
+      <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+        <div className="min-w-0 rounded-xl border bg-card p-4">
           <ChannelStatusCards />
         </div>
-        <div className="rounded-xl border bg-card p-4">
+        <div className="min-w-0 rounded-xl border bg-card p-4">
           <AgentStatusGrid />
         </div>
       </div>
 
       {/* Row 2: CRM Pipeline + Activity Feed */}
-      <div className="grid grid-cols-5 gap-4">
-        <div className="col-span-3 rounded-xl border bg-card p-4">
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-5">
+        <div className="min-w-0 rounded-xl border bg-card p-4 lg:col-span-3">
           <CRMPipelineCard />
         </div>
-        <div className="col-span-2 rounded-xl border bg-card p-4">
+        <div className="min-w-0 rounded-xl border bg-card p-4 lg:col-span-2">
           <ActivityFeed />
         </div>
       </div>
 
       {/* Row 3: Capabilities */}
-      <div className="rounded-xl border bg-card p-4">
+      <div className="min-w-0 rounded-xl border bg-card p-4">
         <CapabilitiesGrid />
       </div>
     </div>

@@ -9,6 +9,7 @@ import { StatusIcon } from "../components/StatusIcon";
 import { EntityRow } from "../components/EntityRow";
 import { EmptyState } from "../components/EmptyState";
 import { PageSkeleton } from "../components/PageSkeleton";
+import { Button } from "@/components/ui/button";
 import { formatDate } from "../lib/utils";
 import { ListTodo } from "lucide-react";
 
@@ -20,8 +21,8 @@ export function MyIssues() {
     setBreadcrumbs([{ label: "My Issues" }]);
   }, [setBreadcrumbs]);
 
-  const { data: issues, isLoading, error } = useQuery({
-    queryKey: queryKeys.issues.list(selectedCompanyId!),
+  const { data: issues, isLoading, error, refetch } = useQuery({
+    queryKey: queryKeys.issues.list(selectedCompanyId ?? ""),
     queryFn: () => issuesApi.list(selectedCompanyId!),
     enabled: !!selectedCompanyId,
   });
@@ -41,14 +42,33 @@ export function MyIssues() {
 
   return (
     <div className="space-y-4">
-      {error && <p className="text-sm text-destructive">{error.message}</p>}
+      <div className="flex items-center justify-between gap-3">
+        <h1 className="text-lg font-semibold">My Issues</h1>
+        {!error && (
+          <span className="text-xs text-muted-foreground tabular-nums">
+            {myIssues.length} open
+          </span>
+        )}
+      </div>
 
-      {myIssues.length === 0 && (
+      {error && (
+        <div
+          role="alert"
+          className="flex flex-wrap items-center justify-between gap-3 rounded-md border border-destructive/40 bg-destructive/5 px-3 py-2 text-sm text-destructive"
+        >
+          <span>{error instanceof Error ? error.message : "Failed to load issues."}</span>
+          <Button type="button" variant="outline" size="sm" onClick={() => void refetch()}>
+            Retry
+          </Button>
+        </div>
+      )}
+
+      {!error && myIssues.length === 0 && (
         <EmptyState icon={ListTodo} message="No issues assigned to you." />
       )}
 
-      {myIssues.length > 0 && (
-        <div className="border border-border">
+      {!error && myIssues.length > 0 && (
+        <div className="border border-border rounded-md overflow-hidden">
           {myIssues.map((issue) => (
             <EntityRow
               key={issue.id}
@@ -59,7 +79,7 @@ export function MyIssues() {
                 <StatusIcon status={issue.status} />
               }
               trailing={
-                <span className="text-xs text-muted-foreground">
+                <span className="text-xs text-muted-foreground tabular-nums">
                   {formatDate(issue.createdAt)}
                 </span>
               }
