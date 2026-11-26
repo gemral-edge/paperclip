@@ -691,6 +691,18 @@ const QUOTA_EXHAUSTED_RE =
 // succeeds on a fresh run minutes later (GEM-1017: 11 runs/day by 27/09).
 const TRANSIENT_DISCONNECT_RE =
   /(?:connection to the agent was interrupted|subscriber fell behind updates|stalled for \d+s)/i;
+// GEM-2818 (27/11/2026): agy kiểm tài khoản với Google TRƯỚC khi gọi model (oauth2/userinfo, ảnh đại diện,
+// loadCodeAssist). Đo 60 ngày: 14 lượt `adapter_failed` — 9 lỗi 5xx (`UNAVAILABLE (code 503)`, `code 502`,
+// `500 Internal Server Error`), 2 `…/userinfo": EOF`, 2 `dial tcp …: connectex`; 0 lượt 4xx. Cùng lớp với
+// đứt luồng: lỗi phía mạng/Google, lượt mới chạy được. 4xx (401/403) là lỗi tài khoản thật → KHÔNG nhận.
+const ELIGIBILITY_TRANSIENT_RE =
+  /Eligibility check failed:.*(?:\(code 5\d\d\)|\b5\d\d (?:Internal Server Error|Bad Gateway|Service Unavailable|Gateway Timeout)\b|\bUNAVAILABLE\b|:\s*EOF\b|connection reset|i\/o timeout|TLS handshake timeout|\bdial tcp\b|\bconnectex\b)/i;
+const ELIGIBILITY_CLIENT_ERROR_RE = /\(code 4\d\d\)|\b4\d\d (?:Unauthorized|Forbidden|Bad Request|Not Found)\b|PERMISSION_DENIED|UNAUTHENTICATED/i;
+
+function isTransientDisconnectLine(line: string): boolean {
+  if (TRANSIENT_DISCONNECT_RE.test(line)) return true;
+  return ELIGIBILITY_TRANSIENT_RE.test(line) && !ELIGIBILITY_CLIENT_ERROR_RE.test(line);
+}
 
 function scanLines(stdout: string, stderr: string): string[] {
   return `${stdout}\n${stderr}`
@@ -727,7 +739,7 @@ export function detectAntigravityQuotaExhausted(input: {
 export function detectAntigravityTransientDisconnect(input: { stderr: string }): { transient: boolean } {
   const transient = scanLines("", input.stderr)
     .filter((line) => !line.startsWith("[paperclip]"))
-    .some((line) => TRANSIENT_DISCONNECT_RE.test(line));
+    .some(isTransientDisconnectLine);
   return { transient };
 }
 

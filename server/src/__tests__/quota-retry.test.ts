@@ -115,6 +115,34 @@ describe("detectAntigravityTransientDisconnect", () => {
       expect(detectAntigravityTransientDisconnect({ stderr }).transient).toBe(false);
     }
   });
+
+  // GEM-2818 — real agy stderr lines from heartbeat_runs (28/09 → 26/11), all `adapter_failed` before the fix.
+  it("flags pre-model Eligibility check network/5xx failures", () => {
+    for (const stderr of [
+      'error: Eligibility check failed: Get "https://www.googleapis.com/oauth2/v2/userinfo": EOF',
+      "error: Eligibility check failed: UNAVAILABLE (code 503): The service is currently unavailable.",
+      "error: Eligibility check failed: failed to get load code assist response: UNAVAILABLE (code 503): The service is currently unavailable.",
+      'error: Eligibility check failed: request failed (code 502): HTML response "Error 502 (Server Error)!!1"',
+      "error: Eligibility check failed: failed to fetch user info: 500 Internal Server Error",
+      'error: Eligibility check failed: failed to get profile picture: Get "https://lh3.googleusercontent.com/a/x=s96-c": dial tcp 142.250.4.132:443: connectex: A connection attempt failed',
+      'error: Eligibility check failed: Get "https://www.googleapis.com/oauth2/v2/userinfo": read tcp 10.0.0.2:5123->142.250.4.95:443: wsarecv: connection reset by peer',
+      'error: Eligibility check failed: Get "https://www.googleapis.com/oauth2/v2/userinfo": dial tcp: lookup www.googleapis.com: i/o timeout',
+    ]) {
+      expect(detectAntigravityTransientDisconnect({ stderr }).transient, stderr).toBe(true);
+    }
+  });
+
+  it("keeps Eligibility check 4xx (real account/auth errors) and unrelated EOF lines out", () => {
+    for (const stderr of [
+      "error: Eligibility check failed: 401 Unauthorized",
+      "error: Eligibility check failed: request failed (code 401): invalid authentication credentials",
+      "error: Eligibility check failed: PERMISSION_DENIED (code 403): caller does not have permission",
+      "error: unexpected EOF while reading tool output",
+      "[paperclip] Eligibility check failed: UNAVAILABLE (code 503) (diagnostic)",
+    ]) {
+      expect(detectAntigravityTransientDisconnect({ stderr }).transient, stderr).toBe(false);
+    }
+  });
 });
 
 describe("planQuotaRetry — transient disconnect (slot-window agents)", () => {
