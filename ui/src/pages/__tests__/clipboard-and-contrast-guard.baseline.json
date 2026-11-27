@@ -1,0 +1,36 @@
+{
+  "_note": "SSOT baseline (shrink-only) cho clipboard-and-contrast-guard.test.ts và scripts/audit_paperclip_runtime_deps.py (R10, GEM-2861). File mới/sạch phải giữ 0. darkOnlySurfaceFiles là các DevTools overlay nền tối cứng (#0c0c10/#131316/#09090b); các trường hợp nền tối cục bộ khác dùng inline comment /* dark-surface-ok */.",
+  "clipboardWriteTextLegacy": {
+    "components/ops/PlannerBoard.tsx": 2,
+    "components/sop-engine/GlobalRegistrySearch.tsx": 1,
+    "components/sop/SopExecutionStream.tsx": 1,
+    "components/transcript/RunTranscriptView.tsx": 2,
+    "pages/AgentDetail.tsx": 5,
+    "pages/agents/AgentEditPage.tsx": 1,
+    "pages/agents/CustomerChatDrawer.tsx": 1,
+    "pages/analytics/SocialAnalyticsPage.tsx": 1,
+    "pages/channels/ZaloPersonalChat.tsx": 1,
+    "pages/channels/components/CustomerSidebar.tsx": 1,
+    "pages/config/ConfigHubPage.tsx": 2,
+    "pages/content-center/CCAIGen.jsx": 1,
+    "pages/content-center/CCAnalytics.jsx": 2,
+    "pages/content-center/CCEmailCampaignDetail.jsx": 1,
+    "pages/content-center/CCRepurpose.jsx": 2,
+    "pages/content-center/JobLogViewerPanel.jsx": 3,
+    "pages/content-center/components/ContentMetaShared.jsx": 1,
+    "pages/ops/AffiliatePage.tsx": 1,
+    "pages/ops/ScannerPage.tsx": 1,
+    "pages/ops/components/GenerationJobsBlock.tsx": 1,
+    "pages/ops/sop-engine/CronLogDrawer.tsx": 1,
+    "pages/ops/tabs/LinksTab.tsx": 1,
+    "pages/ops/tabs/PipelineTab.tsx": 1,
+    "pages/ops/tabs/SkillsMemoryTab.tsx": 1
+  },
+  "darkOnlySurfaceFiles": [
+    "components/devtools/DevToolsOverlay.tsx",
+    "components/devtools/ServerRoutesPane.tsx"
+  ],
+  "lightEmeraldLegacy": {
+    "components/BudgetPolicyCard.tsx": 1
+  }
+}
