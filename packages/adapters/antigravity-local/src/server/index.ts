@@ -19,6 +19,8 @@ export {
   detectAntigravityEmptyConversationId,
   detectAntigravityModelNotAvailable,
   detectAntigravityAccountDisabled,
+  detectAntigravityInvalidRequest,
+  inspectAntigravityRunState,
   shouldAntigravityFallback,
   countAntigravityActionCalls,
   ANTIGRAVITY_READ_ONLY_TOOLS,

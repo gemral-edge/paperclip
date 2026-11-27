@@ -1,5 +1,5 @@
 const BENIGN_STDERR_PREAMBLE_RE =
-    /^(?:warning:\s+conversation\s+["']?[^"'\r\n]+["']?\s+not found\b|\[paperclip\]\s*(?:info|warn|warning)\s*:)/i;
+    /^(?:warning:\s+conversation\s+["']?[^"'\r\n]+["']?\s+not found\b|root\s+agent\s+idle;\s+waiting\s+up\s+to\b|\[paperclip\]\s*(?:info|warn|warning)\s*:)/i;
 
 export function firstNonEmptyLine(text: string): string {
     const lines = text

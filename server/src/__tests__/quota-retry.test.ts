@@ -143,6 +143,19 @@ describe("detectAntigravityTransientDisconnect", () => {
       expect(detectAntigravityTransientDisconnect({ stderr }).transient, stderr).toBe(false);
     }
   });
+
+  // GEM-2887 — đứt stream/HTTP2/TLS giữa lượt với AGY_ERROR retryable hoặc thông báo mạng
+  it("flags mid-turn stream idle timeout / HTTP2 GOAWAY / TLS handshake timeout", () => {
+    for (const stderr of [
+      'error: agent executor error: generating and executing: request failed: stream idle timeout (5m0s): context deadline exceeded',
+      'AGY_ERROR: {"short_error":"stream idle timeout","status":"DEADLINE_EXCEEDED","error_code":4,"code_kind":"grpc","retryable":true}',
+      'error: agent executor error: pre-invocation hook: stream reading error: http2: server sent GOAWAY and closed the connection',
+      'error: There was a network issue connecting to the server, please try again.',
+      'AGY_ERROR: {"short_error":"Post \\"https://daily-cloudcode-pa.googleapis.com\\": net/http: TLS handshake timeout","status":"UNKNOWN","error_code":2,"retryable":true}',
+    ]) {
+      expect(detectAntigravityTransientDisconnect({ stderr }).transient, stderr).toBe(true);
+    }
+  });
 });
 
 describe("planQuotaRetry — transient disconnect (slot-window agents)", () => {
@@ -297,6 +310,7 @@ describe("rotateAntigravityAccountOnQuota & computeMaxAccountRotations (AGY-SW-0
     for (const code of [
       "antigravity_empty_conversation_id",
       "antigravity_zero_token_budget",
+      "antigravity_invalid_request",
       "db_transient_error",
     ]) {
       const p1 = planQuotaRetry({

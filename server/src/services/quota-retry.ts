@@ -39,6 +39,8 @@ export const TRANSIENT_RETRY_ERROR_CODES: ReadonlySet<string> = new Set([
   "antigravity_no_action",
   // GEM-1307 tái phát 22/10: turn ended on a promise to continue, 0 file writes.
   "antigravity_unfinished_turn",
+  // GEM-2887 (28/11): lỗi HTTP 400/404 chung giữa hội thoại — xoá session cũ + chạy lại ngắn.
+  "antigravity_invalid_request",
 ]);
 export const TRANSIENT_RETRY_BACKOFF_MIN = [10, 20] as const;
 

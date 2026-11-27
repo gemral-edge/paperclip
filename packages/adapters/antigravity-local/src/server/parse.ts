@@ -698,9 +698,14 @@ const TRANSIENT_DISCONNECT_RE =
 const ELIGIBILITY_TRANSIENT_RE =
   /Eligibility check failed:.*(?:\(code 5\d\d\)|\b5\d\d (?:Internal Server Error|Bad Gateway|Service Unavailable|Gateway Timeout)\b|\bUNAVAILABLE\b|:\s*EOF\b|connection reset|i\/o timeout|TLS handshake timeout|\bdial tcp\b|\bconnectex\b)/i;
 const ELIGIBILITY_CLIENT_ERROR_RE = /\(code 4\d\d\)|\b4\d\d (?:Unauthorized|Forbidden|Bad Request|Not Found)\b|PERMISSION_DENIED|UNAUTHENTICATED/i;
+// GEM-2887 (28/11/2026): agy đứt stream/HTTP2/TLS giữa lượt với AGY_ERROR retryable hoặc thông báo
+// mạng (9a085424/1dc339bc stream idle timeout, 70626eb4 http2 GOAWAY, 26b9cb37 TLS handshake timeout).
+const AGENT_EXECUTOR_TRANSIENT_RE =
+  /(?:stream idle timeout\b.*context deadline exceeded|http2:\s*server sent GOAWAY|network issue connecting to the server|net\/http:\s*TLS handshake timeout|"status"\s*:\s*"DEADLINE_EXCEEDED"[^}]*"retryable"\s*:\s*true)/i;
 
 function isTransientDisconnectLine(line: string): boolean {
   if (TRANSIENT_DISCONNECT_RE.test(line)) return true;
+  if (AGENT_EXECUTOR_TRANSIENT_RE.test(line) && !ELIGIBILITY_CLIENT_ERROR_RE.test(line)) return true;
   return ELIGIBILITY_TRANSIENT_RE.test(line) && !ELIGIBILITY_CLIENT_ERROR_RE.test(line);
 }
 
@@ -818,4 +823,67 @@ export function detectAntigravityModelNotAvailable(input: { stderr?: string | nu
     if (m) return { notAvailable: true, model: m[1] ?? null };
   }
   return { notAvailable: false, model: null };
+}
+
+// GEM-2887 (28/11/2026): lỗi HTTP 400/404 chung giữa hội thoại (13250442 INVALID_ARGUMENT,
+// 0cd3d78c NOT_FOUND) làm kẹt session hiện tại nhưng lượt mới chạy được ngay. Loại trừ lỗi
+// schema tĩnh (GenerateContentRequest.tools / function_declarations / cannot be empty).
+const INVALID_REQUEST_GENERIC_RE =
+  /(?:INVALID_ARGUMENT\s*\(code 400\):\s*Request contains an invalid argument\b|NOT_FOUND\s*\(code 404\):\s*Requested entity was not found\b)/i;
+const STATIC_SCHEMA_ERROR_RE =
+  /(?:GenerateContentRequest\.tools|function_declarations|cannot be empty)/i;
+
+export function detectAntigravityInvalidRequest(input: { stderr?: string | null }): {
+  invalidRequest: boolean;
+  line: string | null;
+} {
+  const lines = scanLines("", input.stderr ?? "").filter((line) => !line.startsWith("[paperclip]"));
+  if (lines.some((line) => STATIC_SCHEMA_ERROR_RE.test(line))) {
+    return { invalidRequest: false, line: null };
+  }
+  const line = lines.find((l) => INVALID_REQUEST_GENERIC_RE.test(l)) ?? null;
+  return { invalidRequest: line !== null, line };
+}
+
+export async function inspectAntigravityRunState(
+  turnMarker: string,
+  opts: { knownBrainId?: string | null; modifiedSinceMs?: number } = {},
+): Promise<{
+  found: boolean;
+  brainId: string;
+  lastEntryKind: AntigravityNormEntry["agyKind"] | null;
+  lastActivityMs: number | null;
+  reply: string;
+}> {
+  try {
+    const res = await findAntigravityRunByTurnMarker(turnMarker, {
+      attempts: 1,
+      delayMs: 0,
+      scanLimit: 25,
+      modifiedSinceMs: opts.modifiedSinceMs,
+      knownBrainId: opts.knownBrainId || undefined,
+    });
+    if (!res.found) {
+      return { found: false, brainId: "", lastEntryKind: null, lastActivityMs: null, reply: "" };
+    }
+    let lastActivityMs: number | null = null;
+    if (res.brainId) {
+      try {
+        const st = await fs.stat(antigravityTranscriptPath(res.brainId));
+        lastActivityMs = st.mtimeMs;
+      } catch {
+        // ignore stat errors
+      }
+    }
+    const last = res.entries.length > 0 ? res.entries[res.entries.length - 1] : null;
+    return {
+      found: true,
+      brainId: res.brainId,
+      lastEntryKind: last?.agyKind ?? null,
+      lastActivityMs,
+      reply: res.reply,
+    };
+  } catch {
+    return { found: false, brainId: "", lastEntryKind: null, lastActivityMs: null, reply: "" };
+  }
 }

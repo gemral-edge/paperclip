@@ -50,6 +50,7 @@ import {
   isAntigravityWaitPromise,
   detectAntigravityModelNotAvailable,
   detectAntigravityAccountDisabled,
+  detectAntigravityInvalidRequest,
   ANTIGRAVITY_IDLE_AFTER_ANSWER_DEFAULT_SEC,
   shouldReapAntigravityIdleAfterAnswer,
   normalizeProcessExitCode,
@@ -1245,6 +1246,7 @@ export async function execute(ctx: AdapterExecutionContext): Promise<AdapterExec
     let errorCode: string | null = null;
     let errorMessage: string | null = null;
     let errorMeta: Record<string, unknown> | undefined;
+    let clearSession = false;
     const modelGap = !exitOk ? detectAntigravityModelNotAvailable({ stderr: attempt.proc.stderr }) : null;
     const accountDisabled = !exitOk ? detectAntigravityAccountDisabled({ stderr: attempt.proc.stderr }) : null;
     if (accountDisabled?.disabled) {
@@ -1290,6 +1292,12 @@ export async function execute(ctx: AdapterExecutionContext): Promise<AdapterExec
       } else if (detectAntigravityZeroTokenBudget({ stderr: procStderr }).zeroBudget) {
         errorCode = "antigravity_zero_token_budget";
         errorMessage = stderrLine || "Antigravity reported maxMessageTokens must be positive, got 0.";
+      } else if (detectAntigravityInvalidRequest({ stderr: procStderr }).invalidRequest) {
+        errorCode = "antigravity_invalid_request";
+        errorMessage =
+          stderrLine ||
+          "Antigravity rejected the turn request (INVALID_ARGUMENT/NOT_FOUND) — resetting session for fresh retry.";
+        clearSession = true;
       } else {
         errorMessage = stderrLine || `Antigravity (agy) exited with code ${attempt.proc.exitCode ?? -1}`;
       }
@@ -1343,7 +1351,7 @@ export async function execute(ctx: AdapterExecutionContext): Promise<AdapterExec
 
     // Persist the REAL brain id (agy's auto-created or resumed id) so the next
     // heartbeat resumes the SAME brain (+ personaHash for invalidation).
-    const persistedSessionId = realBrainId || null;
+    const persistedSessionId = clearSession ? null : (realBrainId || null);
     const sessionParams: Record<string, unknown> | null = persistedSessionId
       ? {
           sessionId: persistedSessionId,
@@ -1383,7 +1391,7 @@ export async function execute(ctx: AdapterExecutionContext): Promise<AdapterExec
         ...(modelsTried.length > 1 ? { modelsTried, modelFallback: true } : {}),
       },
       summary,
-      clearSession: false,
+      clearSession,
     };
   };
 

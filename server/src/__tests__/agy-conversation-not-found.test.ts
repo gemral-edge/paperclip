@@ -58,6 +58,23 @@ describe("antigravity conversation not found root fix (GEM-2194)", () => {
 
     expect(firstNonEmptyLine("  error: real error line\nsecond line")).toBe("error: real error line");
     expect(firstNonEmptyLine("   \n  \n")).toBe("");
+
+    // GEM-2887: bỏ qua dòng trạng thái nền "root agent idle; waiting up to 24h0m0s..." để lộ lỗi thật ở dòng 2+
+    const masked400 =
+      "root agent idle; waiting up to 24h0m0s for 1 background task(s)\n" +
+      "error: INVALID_ARGUMENT (code 400): Request contains an invalid argument.\n";
+    expect(firstNonEmptyLine(masked400)).toBe(
+      "error: INVALID_ARGUMENT (code 400): Request contains an invalid argument.",
+    );
+    const masked404 =
+      "root agent idle; waiting up to 24h0m0s for 2 background task(s)\n" +
+      "error: NOT_FOUND (code 404): Requested entity was not found.\n";
+    expect(firstNonEmptyLine(masked404)).toBe(
+      "error: NOT_FOUND (code 404): Requested entity was not found.",
+    );
+    expect(
+      firstNonEmptyLine("root agent idle; waiting up to 24h0m0s for 1 background task(s)\n"),
+    ).toBe("root agent idle; waiting up to 24h0m0s for 1 background task(s)");
   });
 
   it("execute.ts không còn gán conversationId = runId ở nhánh mở phiên mới / retry", () => {

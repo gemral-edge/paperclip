@@ -41,7 +41,12 @@ import {
 } from "./fleet-throttle.js";
 import { lookupAgentConfirmed } from "./agent-lookup-confirm.js";
 import { getRunLogStore, type RunLogHandle } from "./run-log-store.js";
-import { getServerAdapter, runningProcesses, terminateProcessTree } from "../adapters/index.js";
+import { getServerAdapter, killProcessTree, runningProcesses, terminateProcessTree } from "../adapters/index.js";
+import {
+  ANTIGRAVITY_IDLE_AFTER_ANSWER_DEFAULT_SEC,
+  inspectAntigravityRunState,
+  isAntigravityWaitPromise,
+} from "@paperclipai/adapter-antigravity-local/server";
 import type { AdapterExecutionResult, AdapterInvocationMeta, AdapterSessionCodec, UsageSummary } from "../adapters/index.js";
 import { createLocalAgentJwt } from "../agent-auth-jwt.js";
 import { parseObject, asBoolean, asNumber, asString, appendWithCap, MAX_EXCERPT_BYTES } from "../adapters/utils.js";
@@ -97,6 +102,64 @@ const DETACHED_PROCESS_ERROR_CODE = "process_detached";
 // Tiền tố message event lifecycle khi run bị detached — dấu vết BỀN (event không bị xoá khi
 // clearDetachedRunWarning dọn errorCode), reaper dựa vào đây để không retry lượt từng detached.
 const DETACHED_EVENT_MESSAGE_PREFIX = "Lost in-memory process handle";
+
+export const DETACHED_AGY_IDLE_AFTER_ANSWER_MS = ANTIGRAVITY_IDLE_AFTER_ANSWER_DEFAULT_SEC * 1000;
+export const DETACHED_AGY_HARD_STALE_MS = 60 * 60_000;
+
+export type DetachedAntigravityReapDecision =
+  | { action: "keep" }
+  | { action: "reap_succeeded"; reply: string }
+  | { action: "reap_unfinished"; reply: string }
+  | { action: "reap_stale"; reason: string };
+
+export function decideDetachedAntigravityReap(input: {
+  adapterType: string;
+  detachedAtMs: number | null;
+  nowMs: number;
+  transcriptFound: boolean;
+  lastEntryKind: string | null;
+  lastActivityMs: number | null;
+  reply: string;
+}): DetachedAntigravityReapDecision {
+  if (input.adapterType !== "antigravity_local") return { action: "keep" };
+  if (input.detachedAtMs == null || !Number.isFinite(input.detachedAtMs)) return { action: "keep" };
+  const detachedAgeMs = input.nowMs - input.detachedAtMs;
+  if (detachedAgeMs < DETACHED_AGY_IDLE_AFTER_ANSWER_MS) return { action: "keep" };
+
+  if (input.transcriptFound && input.lastEntryKind === "assistant") {
+    const refMs = input.lastActivityMs ?? input.detachedAtMs;
+    if (input.nowMs - refMs >= DETACHED_AGY_IDLE_AFTER_ANSWER_MS) {
+      const reply = input.reply.trim();
+      if (reply && isAntigravityWaitPromise(reply)) {
+        return { action: "reap_unfinished", reply };
+      }
+      if (reply) {
+        return { action: "reap_succeeded", reply };
+      }
+    }
+    return { action: "keep" };
+  }
+
+  const staleRefMs =
+    input.transcriptFound && input.lastActivityMs != null
+      ? Math.max(input.detachedAtMs, input.lastActivityMs)
+      : input.detachedAtMs;
+  if (input.nowMs - staleRefMs >= DETACHED_AGY_HARD_STALE_MS) {
+    return {
+      action: "reap_stale",
+      reason: input.transcriptFound
+        ? "Detached antigravity process hung with no transcript activity for >=60m after server restart"
+        : "Detached antigravity process had no transcript activity for >=60m after server restart",
+    };
+  }
+  return { action: "keep" };
+}
+
+export function isTransientDbInfraError(message: string): boolean {
+  return /read-only transaction|SQLSTATE 25006|25006|Connection terminated|ECONNRESET|ETIMEDOUT|CONNECT_TIMEOUT|CONNECTION_ENDED|CONNECTION_CLOSED|EAI_AGAIN|EPIPE|connection timeout|too many clients|deadlock detected/i.test(
+    message,
+  );
+}
 const startLocksByAgent = new Map<string, Promise<void>>();
 const REPO_ONLY_CWD_SENTINEL = "/__paperclip_repo_only__";
 const MANAGED_WORKSPACE_GIT_CLONE_TIMEOUT_MS = 10 * 60 * 1000;
@@ -2549,6 +2612,145 @@ export function heartbeatService(db: Db) {
       }
 
       if (tracksLocalChild && run.processPid && isProcessAlive(run.processPid)) {
+        const detachedAtRaw = readNonEmptyString(parseObject(run.contextSnapshot).processDetachedAt);
+        const detachedAtMs = detachedAtRaw ? Date.parse(detachedAtRaw) : Number.NaN;
+        if (detachedAtRaw && Number.isFinite(detachedAtMs) && adapterType === "antigravity_local") {
+          if (now.getTime() - detachedAtMs >= DETACHED_AGY_IDLE_AFTER_ANSWER_MS) {
+            const inspected = await inspectAntigravityRunState(`agy_prompt_${run.id}.md`, {
+              knownBrainId: run.sessionIdAfter ?? run.sessionIdBefore ?? null,
+              modifiedSinceMs: run.startedAt ? new Date(run.startedAt).getTime() - 5_000 : undefined,
+            });
+            const decision = decideDetachedAntigravityReap({
+              adapterType,
+              detachedAtMs,
+              nowMs: now.getTime(),
+              transcriptFound: inspected.found,
+              lastEntryKind: inspected.lastEntryKind,
+              lastActivityMs: inspected.lastActivityMs,
+              reply: inspected.reply,
+            });
+            if (decision.action !== "keep") {
+              killProcessTree(run.processPid, "SIGTERM");
+              if (decision.action === "reap_succeeded") {
+                const reapedRun = await setRunStatus(
+                  run.id,
+                  "succeeded",
+                  {
+                    error: null,
+                    errorCode: null,
+                    exitCode: 0,
+                    finishedAt: now,
+                    resultJson: {
+                      ...parseObject(run.resultJson),
+                      summary: decision.reply,
+                      detachedReapedAfterAnswer: true,
+                    },
+                  },
+                  { expectedStatus: "running" },
+                );
+                if (reapedRun) {
+                  await setWakeupStatus(run.wakeupRequestId, "completed", { finishedAt: now, error: null });
+                  await appendRunEvent(reapedRun, await nextRunEventSeq(reapedRun.id), {
+                    eventType: "lifecycle",
+                    stream: "system",
+                    level: "info",
+                    message: "Detached antigravity run finished after answer (background task wait >=30m after server restart)",
+                    payload: { processPid: run.processPid, brainId: inspected.brainId || null },
+                  });
+                  await releaseIssueExecutionAndPromote(reapedRun);
+                  await finalizeAgentStatus(run.agentId, "succeeded");
+                  await startNextQueuedRunForAgent(run.agentId);
+                  runningProcesses.delete(run.id);
+                  reaped.push(run.id);
+                }
+                continue;
+              }
+              if (decision.action === "reap_unfinished") {
+                const unfinishedMsg = `Detached antigravity run ended on background-wait promise after server restart -- terminated pid ${run.processPid}`;
+                const reapedRun = await setRunStatus(
+                  run.id,
+                  "failed",
+                  {
+                    error: unfinishedMsg,
+                    errorCode: "antigravity_unfinished_turn",
+                    finishedAt: now,
+                  },
+                  { expectedStatus: "running" },
+                );
+                if (reapedRun) {
+                  await setWakeupStatus(run.wakeupRequestId, "failed", { finishedAt: now, error: unfinishedMsg });
+                  await appendRunEvent(reapedRun, await nextRunEventSeq(reapedRun.id), {
+                    eventType: "lifecycle",
+                    stream: "system",
+                    level: "warn",
+                    message: unfinishedMsg,
+                    payload: { processPid: run.processPid, brainId: inspected.brainId || null },
+                  });
+                  await releaseIssueExecutionAndPromote(reapedRun);
+                  const agent = await getAgentConfirmed(run.agentId, run.id);
+                  let quotaRetry: QuotaRetryPlan | null = null;
+                  if (agent) {
+                    const ctx = parseObject(run.contextSnapshot);
+                    const ctxIssueId = readNonEmptyString(ctx.issueId);
+                    let nextSeq = await nextRunEventSeq(reapedRun.id);
+                    quotaRetry = await syncQuotaRetryAfterRun({
+                      agent,
+                      run: reapedRun,
+                      context: ctx,
+                      issueId: ctxIssueId,
+                      outcome: "failed",
+                      adapterResult: {
+                        exitCode: null,
+                        signal: null,
+                        timedOut: false,
+                        errorMessage: unfinishedMsg,
+                        errorCode: "antigravity_unfinished_turn",
+                      },
+                      nextSeq: () => nextSeq++,
+                    });
+                  }
+                  await finalizeAgentStatus(run.agentId, "failed", {
+                    retryScheduled: quotaRetry !== null,
+                    infraFault: true,
+                  });
+                  await startNextQueuedRunForAgent(run.agentId);
+                  runningProcesses.delete(run.id);
+                  reaped.push(run.id);
+                }
+                continue;
+              }
+              // reap_stale
+              const staleMsg = `${decision.reason} -- terminated pid ${run.processPid}`;
+              const reapedRun = await setRunStatus(
+                run.id,
+                "failed",
+                {
+                  error: staleMsg,
+                  errorCode: "process_lost",
+                  finishedAt: now,
+                },
+                { expectedStatus: "running" },
+              );
+              if (reapedRun) {
+                await setWakeupStatus(run.wakeupRequestId, "failed", { finishedAt: now, error: staleMsg });
+                await appendRunEvent(reapedRun, await nextRunEventSeq(reapedRun.id), {
+                  eventType: "lifecycle",
+                  stream: "system",
+                  level: "error",
+                  message: staleMsg,
+                  payload: { processPid: run.processPid },
+                });
+                await releaseIssueExecutionAndPromote(reapedRun);
+                await finalizeAgentStatus(run.agentId, "failed", { infraFault: true });
+                await startNextQueuedRunForAgent(run.agentId);
+                runningProcesses.delete(run.id);
+                reaped.push(run.id);
+              }
+              continue;
+            }
+          }
+          continue;
+        }
         if (run.errorCode !== DETACHED_PROCESS_ERROR_CODE) {
           const detachedMessage = `${DETACHED_EVENT_MESSAGE_PREFIX}, but child pid ${run.processPid} is still alive`;
           // Dấu vết BỀN ghi CÙNG lệnh UPDATE (atomic) vào contextSnapshot — clearDetachedRunWarning
@@ -3880,10 +4082,7 @@ export function heartbeatService(db: Db) {
         }
       }
 
-      const isTransientDbInfra =
-        /read-only transaction|SQLSTATE 25006|25006|Connection terminated|ECONNRESET|ETIMEDOUT|connection timeout|too many clients|deadlock detected/i.test(
-          message,
-        );
+      const isTransientDbInfra = isTransientDbInfraError(message);
       const catchErrorCode = isTransientDbInfra ? "db_transient_error" : "adapter_failed";
 
       const failedRun = await setRunStatus(run.id, "failed", {
@@ -3961,10 +4160,7 @@ export function heartbeatService(db: Db) {
           // Setup code before adapter.execute threw (e.g. ensureRuntimeState, resolveWorkspaceForRun).
           // The inner catch did not fire, so we must record the failure here.
           const message = outerErr instanceof Error ? outerErr.message : "Unknown setup failure";
-          const isOuterTransientDb =
-            /read-only transaction|SQLSTATE 25006|25006|Connection terminated|ECONNRESET|ETIMEDOUT|connection timeout|too many clients|deadlock detected/i.test(
-              message,
-            );
+          const isOuterTransientDb = isTransientDbInfraError(message);
           logger.error({ err: outerErr, runId }, "heartbeat execution setup failed");
           await setRunStatus(runId, "failed", {
             error: message,
@@ -3987,9 +4183,36 @@ export function heartbeatService(db: Db) {
             }).catch(() => undefined);
             await releaseIssueExecutionAndPromote(failedRun).catch(() => undefined);
           }
+          let outerQuotaRetry: QuotaRetryPlan | null = null;
+          if (isOuterTransientDb && failedRun) {
+            const outerAgent = await getAgentConfirmed(run.agentId, runId).catch(() => null);
+            if (outerAgent) {
+              const outerCtx = parseObject(failedRun.contextSnapshot);
+              const outerIssueId = readNonEmptyString(outerCtx.issueId);
+              let outerSeq = 2;
+              outerQuotaRetry = await syncQuotaRetryAfterRun({
+                agent: outerAgent,
+                run: failedRun,
+                context: outerCtx,
+                issueId: outerIssueId,
+                outcome: "failed",
+                adapterResult: {
+                  exitCode: null,
+                  signal: null,
+                  timedOut: false,
+                  errorMessage: message,
+                  errorCode: "db_transient_error",
+                },
+                nextSeq: () => outerSeq++,
+              }).catch(() => null);
+            }
+          }
           // Ensure the agent is not left stuck in "running" if the inner catch handler's
           // DB calls threw (e.g. a transient DB error in finalizeAgentStatus).
-          await finalizeAgentStatus(run.agentId, "failed").catch(() => undefined);
+          await finalizeAgentStatus(run.agentId, "failed", {
+            retryScheduled: outerQuotaRetry !== null,
+            infraFault: isOuterTransientDb,
+          }).catch(() => undefined);
         } finally {
           // Safety net: ensure the issue execution lock is always released even
           // if the success path, inner catch, or outer catch threw before reaching
