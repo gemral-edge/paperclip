@@ -30,6 +30,7 @@ import { StatusBadge } from "../components/StatusBadge";
 import { agentStatusDot, agentStatusDotDefault } from "../lib/status-colors";
 import { MarkdownBody } from "../components/MarkdownBody";
 import { CopyText } from "../components/CopyText";
+import { copyToClipboard } from "@/lib/clipboard";
 import { EntityRow } from "../components/EntityRow";
 import { Identity } from "../components/Identity";
 import { PageSkeleton } from "../components/PageSkeleton";
@@ -898,7 +899,7 @@ export function AgentDetail() {
               <button
                 className="flex items-center gap-2 w-full px-2 py-1.5 text-xs rounded hover:bg-accent/50"
                 onClick={() => {
-                  navigator.clipboard.writeText(agent.id);
+                  void copyToClipboard(agent.id);
                   setMoreOpen(false);
                 }}
               >
@@ -1762,7 +1763,7 @@ function SkillsTab({ agent }: { agent: Agent }) {
               <div
                 key={f.name}
                 className={`rounded-md border px-3 py-2 text-sm cursor-pointer hover:bg-muted/40 transition-colors ${f.exists ? 'border-border bg-muted/20' : 'border-dashed border-border/50 opacity-50'}`}
-                onClick={() => f.path && navigator.clipboard.writeText(f.path)}
+                onClick={() => { if (f.path) void copyToClipboard(f.path); }}
                 title={f.path || 'No path'}
               >
                 <div className="flex items-center gap-1.5">
@@ -1861,7 +1862,7 @@ function ResourceSection({ title, subtitle, count, children }: { title: string; 
       {subtitle && (
         <p
           className="text-[10px] text-muted-foreground font-mono break-all cursor-pointer hover:text-foreground transition-colors"
-          onClick={() => navigator.clipboard.writeText(subtitle)}
+          onClick={() => { void copyToClipboard(subtitle); }}
           title="Click to copy path"
         >{subtitle}</p>
       )}
@@ -1878,7 +1879,7 @@ function CopyableFileRow({ name, path, size, missing }: { name: string; path?: s
   return (
     <div
       className={`flex items-center justify-between rounded-md border px-3 py-1.5 text-xs cursor-pointer hover:bg-muted/40 transition-colors ${missing ? 'border-dashed opacity-50' : 'border-border bg-muted/20'}`}
-      onClick={() => path && navigator.clipboard.writeText(path)}
+      onClick={() => { if (path) void copyToClipboard(path); }}
       title={path || name}
     >
       <span className="font-mono truncate">{name}</span>
@@ -3200,9 +3201,11 @@ function KeysTab({ agentId, companyId }: { agentId: string; companyId?: string }
 
   function copyToken() {
     if (!newToken) return;
-    navigator.clipboard.writeText(newToken);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
+    void copyToClipboard(newToken).then((ok) => {
+      if (!ok) return;
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    });
   }
 
   const activeKeys = (keys ?? []).filter((k: AgentKey) => !k.revokedAt);
