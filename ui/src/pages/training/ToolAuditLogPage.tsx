@@ -42,7 +42,10 @@ const STATUS_OPTIONS = [
 ];
 
 function timeAgo(d: string): string {
+  if (!d) return "—";
   const ms = Date.now() - new Date(d).getTime();
+  if (Number.isNaN(ms)) return "—";
+  if (ms < 0) return "vừa xong";
   if (ms < 60_000) return Math.round(ms / 1_000) + "s trước";
   if (ms < 3_600_000) return Math.round(ms / 60_000) + " phút trước";
   if (ms < 86_400_000) return Math.round(ms / 3_600_000) + " giờ trước";
@@ -64,7 +67,7 @@ export function ToolAuditLogPage() {
   const [toolFilter, setToolFilter] = useState<string>("");
   const [successFilter, setSuccessFilter] = useState<"" | "true" | "false">("");
 
-  const { data: entries = [], isLoading, refetch, isFetching } = useQuery({
+  const { data: entries = [], isLoading, isError, error, refetch, isFetching } = useQuery({
     queryKey: ["training", "audit-log", agentFilter, toolFilter, successFilter],
     queryFn: () =>
       trainingApi.listAuditLog({
@@ -76,41 +79,47 @@ export function ToolAuditLogPage() {
     refetchInterval: 10_000,
   });
 
+  const hasActiveFilter = Boolean(agentFilter || toolFilter || successFilter);
+
   return (
-    <div className="min-h-[calc(100vh-48px)] bg-[#0A0B1A] p-5">
+    <div className="min-h-[calc(100vh-48px)] bg-background p-4 sm:p-5 text-foreground">
       {/* Header */}
       <div className="mb-4">
-        <h1 className="text-[20px] font-bold text-white mb-1">Tool Audit Log</h1>
-        <p className="text-[12px] text-white/40">
+        <h1 className="text-[20px] font-bold text-foreground mb-1">Tool Audit Log</h1>
+        <p className="text-[12px] text-muted-foreground">
           Mọi tool call agent thực hiện (verify customer, lookup order, create ticket...).
           Audit + debug + compliance trail cho từng action.
         </p>
       </div>
 
       {/* Filters */}
-      <div className="bg-[rgba(15,16,48,0.35)] rounded-xl p-3.5 mb-4 flex items-center gap-3 flex-wrap">
-        <Filter size={14} className="text-white/40" />
+      <div className="rounded-xl border border-border bg-card p-3.5 mb-4 flex items-center gap-3 flex-wrap">
+        <Filter size={14} className="text-muted-foreground" aria-hidden="true" />
 
         <div className="flex items-center gap-2">
-          <span className="text-[11px] font-semibold text-white/40 uppercase">Agent</span>
+          <label htmlFor="audit-agent-filter" className="text-[11px] font-semibold text-muted-foreground uppercase">Agent</label>
           <div className="relative">
-            <Search size={12} className="absolute left-2 top-1/2 -translate-y-1/2 text-white/30" />
+            <Search size={12} className="absolute left-2 top-1/2 -translate-y-1/2 text-muted-foreground" aria-hidden="true" />
             <input
+              id="audit-agent-filter"
+              aria-label="Lọc theo agent"
               type="text"
               value={agentFilter}
               onChange={(e) => setAgentFilter(e.target.value)}
               placeholder="sales-closer"
-              className="h-8 w-40 pl-7 pr-2.5 text-[12px] bg-white/[0.04] border border-white/[0.06] rounded-lg text-white placeholder:text-white/25 focus:border-[#6A5BFF]/40 focus:outline-none transition-colors"
+              className="h-9 sm:h-8 w-44 pl-7 pr-2.5 text-base sm:text-xs bg-background border border-input rounded-lg text-foreground placeholder:text-muted-foreground focus:border-primary focus:outline-none transition-colors"
             />
           </div>
         </div>
 
         <div className="flex items-center gap-2">
-          <span className="text-[11px] font-semibold text-white/40 uppercase">Tool</span>
+          <label htmlFor="audit-tool-filter" className="text-[11px] font-semibold text-muted-foreground uppercase">Tool</label>
           <select
+            id="audit-tool-filter"
+            aria-label="Lọc theo tool"
             value={toolFilter}
             onChange={(e) => setToolFilter(e.target.value)}
-            className="h-8 px-2.5 text-[12px] bg-white/[0.04] border border-white/[0.06] rounded-lg text-white focus:border-[#6A5BFF]/40 focus:outline-none"
+            className="h-9 sm:h-8 px-2.5 text-base sm:text-xs bg-background border border-input rounded-lg text-foreground focus:border-primary focus:outline-none"
           >
             {TOOL_OPTIONS.map((t) => (
               <option key={t.value} value={t.value}>
@@ -121,11 +130,13 @@ export function ToolAuditLogPage() {
         </div>
 
         <div className="flex items-center gap-2">
-          <span className="text-[11px] font-semibold text-white/40 uppercase">Trạng thái</span>
+          <label htmlFor="audit-status-filter" className="text-[11px] font-semibold text-muted-foreground uppercase">Trạng thái</label>
           <select
+            id="audit-status-filter"
+            aria-label="Lọc theo trạng thái"
             value={successFilter}
             onChange={(e) => setSuccessFilter(e.target.value as "" | "true" | "false")}
-            className="h-8 px-2.5 text-[12px] bg-white/[0.04] border border-white/[0.06] rounded-lg text-white focus:border-[#6A5BFF]/40 focus:outline-none"
+            className="h-9 sm:h-8 px-2.5 text-base sm:text-xs bg-background border border-input rounded-lg text-foreground focus:border-primary focus:outline-none"
           >
             {STATUS_OPTIONS.map((s) => (
               <option key={s.value} value={s.value}>
@@ -135,41 +146,56 @@ export function ToolAuditLogPage() {
           </select>
         </div>
 
+        {hasActiveFilter && (
+          <button
+            type="button"
+            onClick={() => {
+              setAgentFilter("");
+              setToolFilter("");
+              setSuccessFilter("");
+            }}
+            className="h-9 sm:h-8 px-2.5 text-xs font-medium rounded-md border border-border bg-background text-muted-foreground hover:bg-accent hover:text-foreground transition-colors"
+          >
+            Xoá lọc
+          </button>
+        )}
+
         <div className="flex-1" />
 
-        <span className="text-[11px] text-white/30">{entries.length} bản ghi</span>
+        <span className="text-[11px] text-muted-foreground tabular-nums">{entries.length} bản ghi</span>
 
         <button
+          type="button"
           onClick={() => refetch()}
           disabled={isFetching}
-          className="h-8 px-3 text-[11px] font-semibold rounded-md border border-white/10 bg-transparent text-white/60 hover:bg-white/5 hover:text-white transition-colors cursor-pointer inline-flex items-center gap-1 disabled:opacity-50"
+          className="h-9 sm:h-8 px-3 text-[11px] font-semibold rounded-md border border-border bg-background text-foreground hover:bg-accent transition-colors cursor-pointer inline-flex items-center gap-1.5 disabled:opacity-50"
         >
-          <RefreshCw size={12} className={isFetching ? "animate-spin" : ""} />
+          <RefreshCw size={12} className={isFetching ? "animate-spin" : ""} aria-hidden="true" />
           Refresh
         </button>
       </div>
 
       {/* Table */}
-      <div className="overflow-x-auto rounded-xl bg-[rgba(15,16,48,0.2)]">
+      <div className="overflow-x-auto rounded-xl border border-border bg-card">
         <table className="w-full border-collapse text-[12px]">
           <thead>
             <tr>
-              <th className="text-left p-2.5 text-[10px] font-bold uppercase tracking-wider text-white/35 border-b border-white/[0.04] whitespace-nowrap">
+              <th scope="col" className="text-left p-2.5 text-[10px] font-bold uppercase tracking-wider text-muted-foreground border-b border-border whitespace-nowrap">
                 Thời gian
               </th>
-              <th className="text-left p-2.5 text-[10px] font-bold uppercase tracking-wider text-white/35 border-b border-white/[0.04] whitespace-nowrap">
+              <th scope="col" className="text-left p-2.5 text-[10px] font-bold uppercase tracking-wider text-muted-foreground border-b border-border whitespace-nowrap">
                 Agent
               </th>
-              <th className="text-left p-2.5 text-[10px] font-bold uppercase tracking-wider text-white/35 border-b border-white/[0.04] whitespace-nowrap">
+              <th scope="col" className="text-left p-2.5 text-[10px] font-bold uppercase tracking-wider text-muted-foreground border-b border-border whitespace-nowrap">
                 Tool
               </th>
-              <th className="text-left p-2.5 text-[10px] font-bold uppercase tracking-wider text-white/35 border-b border-white/[0.04]">
+              <th scope="col" className="text-left p-2.5 text-[10px] font-bold uppercase tracking-wider text-muted-foreground border-b border-border">
                 Args
               </th>
-              <th className="text-left p-2.5 text-[10px] font-bold uppercase tracking-wider text-white/35 border-b border-white/[0.04]">
+              <th scope="col" className="text-left p-2.5 text-[10px] font-bold uppercase tracking-wider text-muted-foreground border-b border-border">
                 Result
               </th>
-              <th className="text-center p-2.5 text-[10px] font-bold uppercase tracking-wider text-white/35 border-b border-white/[0.04] whitespace-nowrap">
+              <th scope="col" className="text-center p-2.5 text-[10px] font-bold uppercase tracking-wider text-muted-foreground border-b border-border whitespace-nowrap">
                 Status
               </th>
             </tr>
@@ -177,18 +203,38 @@ export function ToolAuditLogPage() {
           <tbody>
             {isLoading && (
               <tr>
-                <td colSpan={6} className="text-center py-10 text-white/30 text-[12px]">
+                <td colSpan={6} className="text-center py-10 text-muted-foreground text-[12px]">
                   Đang tải...
                 </td>
               </tr>
             )}
-            {!isLoading && entries.length === 0 && (
+            {!isLoading && isError && (
+              <tr>
+                <td colSpan={6} className="text-center py-10 px-4">
+                  <div role="alert" className="inline-flex flex-col items-center gap-2 text-sm text-destructive">
+                    <span>Không thể tải tool audit log: {(error as Error)?.message || "Lỗi kết nối"}</span>
+                    <button
+                      type="button"
+                      onClick={() => refetch()}
+                      className="min-h-[36px] rounded-md border border-destructive/40 px-3 py-1.5 text-xs font-medium hover:bg-destructive/10"
+                    >
+                      Thử lại
+                    </button>
+                  </div>
+                </td>
+              </tr>
+            )}
+            {!isLoading && !isError && entries.length === 0 && (
               <tr>
                 <td colSpan={6} className="text-center py-10">
-                  <Wrench size={32} className="mx-auto mb-2 text-white/10" />
-                  <div className="text-[14px] text-white/35">Chưa có tool call nào</div>
-                  <div className="text-[12px] text-white/20 mt-1">
-                    Khi agent gọi tool, nó sẽ xuất hiện ở đây
+                  <Wrench size={32} className="mx-auto mb-2 text-muted-foreground/30" aria-hidden="true" />
+                  <div className="text-[14px] text-muted-foreground">
+                    {hasActiveFilter ? "Không có tool call khớp bộ lọc" : "Chưa có tool call nào"}
+                  </div>
+                  <div className="text-[12px] text-muted-foreground/70 mt-1">
+                    {hasActiveFilter
+                      ? "Thử thay đổi hoặc xoá bộ lọc để xem thêm."
+                      : "Khi agent gọi tool, nó sẽ xuất hiện ở đây"}
                   </div>
                 </td>
               </tr>
@@ -209,33 +255,33 @@ interface AuditRowProps {
 
 function AuditRow({ entry }: AuditRowProps) {
   return (
-    <tr className="hover:[&>td]:bg-white/[0.02]">
-      <td className="p-2.5 text-white/60 border-b border-white/[0.02] align-middle whitespace-nowrap">
+    <tr className="hover:[&>td]:bg-muted/30">
+      <td className="p-2.5 text-muted-foreground border-b border-border/50 align-middle whitespace-nowrap tabular-nums">
         {timeAgo(entry.ts)}
       </td>
-      <td className="p-2.5 border-b border-white/[0.02] align-middle whitespace-nowrap">
-        <span className="inline-flex items-center h-[22px] px-2 text-[10px] font-semibold rounded bg-[#6A5BFF]/12 text-[#6A5BFF]">
+      <td className="p-2.5 border-b border-border/50 align-middle whitespace-nowrap">
+        <span className="inline-flex items-center h-[22px] px-2 text-[10px] font-semibold rounded bg-indigo-500/10 text-indigo-700 dark:text-indigo-300">
           {entry.agent_slug}
         </span>
       </td>
-      <td className="p-2.5 border-b border-white/[0.02] align-middle whitespace-nowrap">
-        <span className="text-[#FFBD59] font-semibold text-[12px]">{entry.tool_name}</span>
+      <td className="p-2.5 border-b border-border/50 align-middle whitespace-nowrap">
+        <span className="text-amber-700 dark:text-amber-400 font-semibold text-[12px]">{entry.tool_name}</span>
       </td>
-      <td className="p-2.5 text-white/60 border-b border-white/[0.02] align-middle font-mono text-[11px]">
+      <td className="p-2.5 text-muted-foreground border-b border-border/50 align-middle font-mono text-[11px]">
         {formatArgs(entry.args)}
       </td>
-      <td className="p-2.5 text-white/60 border-b border-white/[0.02] align-middle">
+      <td className="p-2.5 text-muted-foreground border-b border-border/50 align-middle">
         {entry.error ? (
-          <span className="text-[#FF6B6B] text-[11px]">{entry.error.slice(0, 80)}</span>
+          <span className="text-red-600 dark:text-red-400 text-[11px]">{entry.error.slice(0, 80)}</span>
         ) : (
-          <span className="text-white/50 text-[11px]">{entry.result_summary || "—"}</span>
+          <span className="text-muted-foreground text-[11px]">{entry.result_summary || "—"}</span>
         )}
       </td>
-      <td className="p-2.5 border-b border-white/[0.02] align-middle text-center">
+      <td className="p-2.5 border-b border-border/50 align-middle text-center">
         {entry.success ? (
-          <CheckCircle size={14} className="text-[#3AF7A6] mx-auto" />
+          <CheckCircle size={14} className="text-emerald-600 dark:text-emerald-400 mx-auto" aria-label="Thành công" />
         ) : (
-          <XCircle size={14} className="text-[#FF6B6B] mx-auto" />
+          <XCircle size={14} className="text-red-600 dark:text-red-400 mx-auto" aria-label="Lỗi" />
         )}
       </td>
     </tr>

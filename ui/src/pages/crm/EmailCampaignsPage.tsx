@@ -14,6 +14,8 @@ import { readJsonOrThrow } from "./components/readJsonOrThrow";
 function timeAgo(d?: string): string {
   if (!d) return '—';
   const ms = Date.now() - new Date(d).getTime();
+  if (Number.isNaN(ms)) return '—';
+  if (ms < 0) return 'vừa xong';
   if (ms < 86400000) return Math.round(ms / 3600000) + ' giờ trước';
   return Math.round(ms / 86400000) + ' ngày trước';
 }
@@ -45,20 +47,17 @@ const defaultForm = { name: '', subject: '', template: 'welcome', segment: 'all'
  * @archetype form
  */
 export function EmailCampaignsPage() {
-  const [errors, setErrors] = useState({});
-  const [isSubmitting, setIsSubmitting] = useState(false);
-
-
   const qc = useQueryClient();
   const [showCreate, setShowCreate] = useState(false);
   const [form, setForm] = useState(defaultForm);
+  const [errors, setErrors] = useState<{ name?: string; subject?: string; scheduledAt?: string }>({});
+  const [sendingId, setSendingId] = useState<string | null>(null);
 
-  const { data: campaigns, isLoading } = useQuery({
+  const { data: campaigns, isLoading, isError, error, refetch } = useQuery({
     queryKey: ['crm', 'campaigns'],
     queryFn: async () => {
       const res = await fetch('/api/channels/crm/campaigns');
-      if (!res.ok) return [];
-      return res.json();
+      return readJsonOrThrow(res, 'Không thể tải danh sách campaign');
     },
     staleTime: 30_000,
   });
@@ -73,17 +72,20 @@ export function EmailCampaignsPage() {
       return readJsonOrThrow(res, 'Lỗi tạo campaign');
     },
     // Chỉ đóng modal + xoá form khi API thành công; lỗi → giữ nguyên dữ liệu nhập, báo lỗi trong modal.
-    onSuccess: () => { setShowCreate(false); setForm(defaultForm); },
+    onSuccess: () => { setShowCreate(false); setForm(defaultForm); setErrors({}); },
     onSettled: () => { qc.invalidateQueries({ queryKey: ['crm', 'campaigns'] }); },
   });
 
   const sendMut = useMutation({
     mutationFn: async (id: string) => {
+      setSendingId(id);
       const res = await fetch(`/api/channels/crm/campaigns/${id}/send`, { method: 'POST' });
-      if (!res.ok) { const err = await res.json().catch(() => ({})); throw new Error(err.error || 'Lỗi gửi'); }
-      return res.json();
+      return readJsonOrThrow(res, 'Lỗi gửi campaign');
     },
-    onSettled: () => qc.invalidateQueries({ queryKey: ['crm', 'campaigns'] }),
+    onSettled: () => {
+      setSendingId(null);
+      qc.invalidateQueries({ queryKey: ['crm', 'campaigns'] });
+    },
   });
 
   // Dirty-guard: modal tạo campaign đang mở và có ô khác giá trị mặc định (tên, tiêu đề, nội dung email...)
@@ -91,7 +93,7 @@ export function EmailCampaignsPage() {
     showCreate && (Object.keys(defaultForm) as (keyof typeof defaultForm)[]).some((k) => form[k] !== defaultForm[k]);
   useUnsavedChangesGuard(isDirty, createMut.isPending);
 
-  const list = campaigns || [];
+  const list = Array.isArray(campaigns) ? campaigns : [];
 
   // Stats
   const totalSent = list.reduce((s: number, c: any) => s + (c.sent_count || 0), 0);
@@ -100,89 +102,126 @@ export function EmailCampaignsPage() {
   const openRate = totalSent > 0 ? ((totalOpened / totalSent) * 100).toFixed(1) : '0';
   const clickRate = totalSent > 0 ? ((totalClicked / totalSent) * 100).toFixed(1) : '0';
 
+  const handleCreateSubmit = () => {
+    if (createMut.isPending) return;
+    const nextErrors: { name?: string; subject?: string; scheduledAt?: string } = {};
+    if (!form.name.trim()) nextErrors.name = 'Vui lòng nhập tên campaign.';
+    if (!form.subject.trim()) nextErrors.subject = 'Vui lòng nhập tiêu đề email.';
+    if (form.sendTime === 'schedule' && !form.scheduledAt) {
+      nextErrors.scheduledAt = 'Vui lòng chọn thời gian lên lịch gửi.';
+    }
+    if (Object.keys(nextErrors).length > 0) {
+      setErrors(nextErrors);
+      return;
+    }
+    setErrors({});
+    createMut.mutate(form);
+  };
+
   return (
-    <div className="space-y-4 p-6">
-      <div className="flex items-center justify-between">
+    <div className="space-y-4 p-4 sm:p-6">
+      <div className="flex flex-wrap items-center justify-between gap-3">
         <h1 className="text-2xl font-bold">Email Campaigns</h1>
-        <Button size="sm" onClick={() => { createMut.reset(); setForm(defaultForm); setShowCreate(true); }}>
-          <Plus className="mr-1.5 h-4 w-4" /> Tạo Campaign
+        <Button type="button" size="sm" onClick={() => { createMut.reset(); setErrors({}); setForm(defaultForm); setShowCreate(true); }}>
+          <Plus className="mr-1.5 h-4 w-4" aria-hidden="true" /> Tạo Campaign
         </Button>
       </div>
 
-      {sendMut.isError && <p role="alert" className="rounded-md bg-red-500/10 px-3 py-2 text-sm text-red-600">{sendMut.error.message}</p>}
+      {sendMut.isError && <p role="alert" className="rounded-md bg-red-500/10 px-3 py-2 text-sm text-red-600 dark:text-red-400">{(sendMut.error as Error)?.message || 'Lỗi gửi campaign'}</p>}
 
       {/* Stats */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
-        <Card className="p-4 text-center"><div className="text-2xl font-bold">{totalSent}</div><div className="text-xs text-muted-foreground">Tổng gửi</div></Card>
-        <Card className="p-4 text-center"><div className="text-2xl font-bold">{openRate}%</div><div className="text-xs text-muted-foreground">Tỉ lệ mở</div></Card>
-        <Card className="p-4 text-center"><div className="text-2xl font-bold">{clickRate}%</div><div className="text-xs text-muted-foreground">Tỉ lệ click</div></Card>
-        <Card className="p-4 text-center"><div className="text-2xl font-bold">{list.length}</div><div className="text-xs text-muted-foreground">Campaigns</div></Card>
+        <Card className="p-4 text-center"><div className="text-2xl font-bold tabular-nums">{totalSent}</div><div className="text-xs text-muted-foreground">Tổng gửi</div></Card>
+        <Card className="p-4 text-center"><div className="text-2xl font-bold tabular-nums">{openRate}%</div><div className="text-xs text-muted-foreground">Tỉ lệ mở</div></Card>
+        <Card className="p-4 text-center"><div className="text-2xl font-bold tabular-nums">{clickRate}%</div><div className="text-xs text-muted-foreground">Tỉ lệ click</div></Card>
+        <Card className="p-4 text-center"><div className="text-2xl font-bold tabular-nums">{list.length}</div><div className="text-xs text-muted-foreground">Campaigns</div></Card>
       </div>
 
       {/* List */}
       <Card>
         {isLoading ? (
           <div className="p-4 space-y-3">{Array.from({ length: 4 }).map((_, i) => <Skeleton key={i} className="h-12 w-full" />)}</div>
+        ) : isError ? (
+          <div role="alert" className="flex flex-col items-center gap-3 p-10 text-center text-sm text-destructive">
+            <span>Không thể tải danh sách campaign: {(error as Error)?.message || 'Lỗi kết nối'}</span>
+            <Button type="button" size="sm" variant="outline" onClick={() => refetch()}>
+              Thử lại
+            </Button>
+          </div>
         ) : list.length === 0 ? (
           <div className="flex flex-col items-center gap-3 p-12">
-            <Mail className="h-10 w-10 text-muted-foreground/40" />
+            <Mail className="h-10 w-10 text-muted-foreground/40" aria-hidden="true" />
             <p className="text-sm text-muted-foreground">Chưa có campaign nào.</p>
           </div>
         ) : (
-          <table className="w-full text-sm">
-            <thead><tr className="border-b bg-muted/30">
-              <th className="px-4 py-3 text-left font-medium text-muted-foreground">Campaign</th>
-              <th className="px-4 py-3 text-left font-medium text-muted-foreground">Template</th>
-              <th className="px-4 py-3 text-right font-medium text-muted-foreground">Gửi</th>
-              <th className="px-4 py-3 text-right font-medium text-muted-foreground">Mở</th>
-              <th className="px-4 py-3 text-right font-medium text-muted-foreground">Click</th>
-              <th className="px-4 py-3 text-left font-medium text-muted-foreground">Trạng thái</th>
-              <th className="px-4 py-3 text-right font-medium text-muted-foreground">Ngày</th>
-              <th className="px-4 py-3 text-right font-medium text-muted-foreground">Hành động</th>
-            </tr></thead>
-            <tbody>{list.map((c: any) => (
-              <tr key={c.id} className="border-b hover:bg-muted/30">
-                <td className="px-4 py-3 font-medium">{c.name}</td>
-                <td className="px-4 py-3 text-xs">{c.template}</td>
-                <td className="px-4 py-3 text-right tabular-nums">{c.sent_count || 0}</td>
-                <td className="px-4 py-3 text-right tabular-nums">{c.opened_count || 0}</td>
-                <td className="px-4 py-3 text-right tabular-nums">{c.clicked_count || 0}</td>
-                <td className="px-4 py-3"><span className={`rounded-full px-2 py-0.5 text-xs font-medium ${c.status === 'completed' ? 'bg-green-500/10 text-green-600' : c.status === 'sending' ? 'bg-yellow-500/10 text-yellow-700' : 'bg-gray-500/10 text-gray-600'}`}>{c.status}</span></td>
-                <td className="px-4 py-3 text-right text-xs text-muted-foreground">{timeAgo(c.created_at)}</td>
-                <td className="px-4 py-3 text-right">
-                  {(c.status === 'draft' || c.status === 'created') && (
-                    <Button size="sm" variant="outline" disabled={sendMut.isPending} onClick={(e) => { e.stopPropagation(); sendMut.mutate(c.id); }}>
-                      <Send className="h-3 w-3 mr-1" /> Gửi
-                    </Button>
-                  )}
-                </td>
-              </tr>
-            ))}</tbody>
-          </table>
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead><tr className="border-b bg-muted/30">
+                <th scope="col" className="px-4 py-3 text-left font-medium text-muted-foreground">Campaign</th>
+                <th scope="col" className="px-4 py-3 text-left font-medium text-muted-foreground">Template</th>
+                <th scope="col" className="px-4 py-3 text-right font-medium text-muted-foreground">Gửi</th>
+                <th scope="col" className="px-4 py-3 text-right font-medium text-muted-foreground">Mở</th>
+                <th scope="col" className="px-4 py-3 text-right font-medium text-muted-foreground">Click</th>
+                <th scope="col" className="px-4 py-3 text-left font-medium text-muted-foreground">Trạng thái</th>
+                <th scope="col" className="px-4 py-3 text-right font-medium text-muted-foreground">Ngày</th>
+                <th scope="col" className="px-4 py-3 text-right font-medium text-muted-foreground">Hành động</th>
+              </tr></thead>
+              <tbody>{list.map((c: any) => (
+                <tr key={c.id} className="border-b hover:bg-muted/30">
+                  <td className="px-4 py-3 font-medium">{c.name}</td>
+                  <td className="px-4 py-3 text-xs">{c.template}</td>
+                  <td className="px-4 py-3 text-right tabular-nums">{c.sent_count || 0}</td>
+                  <td className="px-4 py-3 text-right tabular-nums">{c.opened_count || 0}</td>
+                  <td className="px-4 py-3 text-right tabular-nums">{c.clicked_count || 0}</td>
+                  <td className="px-4 py-3"><span className={`rounded-full px-2 py-0.5 text-xs font-medium ${c.status === 'completed' ? 'bg-green-500/10 text-green-700 dark:text-green-400' : c.status === 'sending' ? 'bg-amber-500/10 text-amber-700 dark:text-amber-400' : 'bg-zinc-500/10 text-zinc-700 dark:text-zinc-300'}`}>{c.status}</span></td>
+                  <td className="px-4 py-3 text-right text-xs text-muted-foreground tabular-nums">{timeAgo(c.created_at)}</td>
+                  <td className="px-4 py-3 text-right">
+                    {(c.status === 'draft' || c.status === 'created') && (
+                      <Button type="button" size="sm" variant="outline" disabled={sendMut.isPending} onClick={(e) => { e.stopPropagation(); sendMut.mutate(c.id); }}>
+                        <Send className="h-3 w-3 mr-1" aria-hidden="true" /> {sendingId === c.id && sendMut.isPending ? 'Đang gửi...' : 'Gửi'}
+                      </Button>
+                    )}
+                  </td>
+                </tr>
+              ))}</tbody>
+            </table>
+          </div>
         )}
       </Card>
 
       {/* Create */}
       <SimpleModal open={showCreate} onClose={() => setShowCreate(false)} title="Tạo Email Campaign" footer={<>
-        <Button variant="outline" onClick={() => setShowCreate(false)}>Hủy</Button>
-        <Button disabled={!form.name.trim() || !form.subject.trim() || createMut.isPending} onClick={() => createMut.mutate(form)}>
-          <Send className="mr-1.5 h-4 w-4" /> {createMut.isPending ? 'Đang tạo...' : 'Tạo Campaign'}
+        <Button type="button" variant="outline" onClick={() => setShowCreate(false)}>Hủy</Button>
+        <Button type="button" disabled={createMut.isPending} onClick={handleCreateSubmit}>
+          <Send className="mr-1.5 h-4 w-4" aria-hidden="true" /> {createMut.isPending ? 'Đang tạo...' : 'Tạo Campaign'}
         </Button>
       </>}>
         <div className="space-y-4">
-          {createMut.isError && <p role="alert" className="rounded-md bg-red-500/10 px-3 py-2 text-sm text-red-600">{createMut.error.message}</p>}
-          <div><label className="text-sm font-medium">Tên campaign *</label><Input value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))} placeholder="VD: Welcome Q1 2026" /></div>
-          <div><label className="text-sm font-medium">Tiêu đề email *</label><Input value={form.subject} onChange={e => setForm(f => ({ ...f, subject: e.target.value }))} placeholder="VD: Chào mừng bạn đến Gemral!" /></div>
-          <div><label className="text-sm font-medium">Template</label>
-            <select value={form.template} onChange={e => setForm(f => ({ ...f, template: e.target.value }))} className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm">
+          {createMut.isError && (
+            <p role="alert" className="rounded-md bg-red-500/10 px-3 py-2 text-sm text-red-600 dark:text-red-400">
+              {(createMut.error as Error)?.message}
+            </p>
+          )}
+          <div>
+            <label htmlFor="camp-name" className="text-sm font-medium">Tên campaign *</label>
+            <Input id="camp-name" aria-invalid={!!errors.name} value={form.name} onChange={e => { setForm(f => ({ ...f, name: e.target.value })); setErrors(er => ({ ...er, name: undefined })); }} placeholder="VD: Welcome Q1 2026" />
+            {errors.name && <p role="alert" className="mt-1 text-xs text-red-600 dark:text-red-400">{errors.name}</p>}
+          </div>
+          <div>
+            <label htmlFor="camp-subject" className="text-sm font-medium">Tiêu đề email *</label>
+            <Input id="camp-subject" aria-invalid={!!errors.subject} value={form.subject} onChange={e => { setForm(f => ({ ...f, subject: e.target.value })); setErrors(er => ({ ...er, subject: undefined })); }} placeholder="VD: Chào mừng bạn đến Gemral!" />
+            {errors.subject && <p role="alert" className="mt-1 text-xs text-red-600 dark:text-red-400">{errors.subject}</p>}
+          </div>
+          <div><label htmlFor="camp-template" className="text-sm font-medium">Template</label>
+            <select id="camp-template" value={form.template} onChange={e => setForm(f => ({ ...f, template: e.target.value }))} className="w-full rounded-md border border-input bg-background px-3 py-2 text-base sm:text-sm mt-1">
               {templates.map(t => <option key={t.value} value={t.value}>{t.label}</option>)}
             </select></div>
-          <div><label className="text-sm font-medium">Đối tượng</label>
-            <select value={form.segment} onChange={e => setForm(f => ({ ...f, segment: e.target.value }))} className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm mt-1">
+          <div><label htmlFor="camp-segment" className="text-sm font-medium">Đối tượng</label>
+            <select id="camp-segment" value={form.segment} onChange={e => setForm(f => ({ ...f, segment: e.target.value }))} className="w-full rounded-md border border-input bg-background px-3 py-2 text-base sm:text-sm mt-1">
               {SEGMENTS.map(s => <option key={s.value} value={s.value}>{s.label} — {s.desc}</option>)}
             </select></div>
           <div>
-            <label className="text-sm font-medium">Thời gian gửi</label>
+            <span className="text-sm font-medium">Thời gian gửi</span>
             <div className="flex gap-4 mt-1">
               <label className="flex items-center gap-2 text-sm cursor-pointer">
                 <input type="radio" name="sendTime" value="now" checked={form.sendTime === 'now'} onChange={() => setForm(f => ({ ...f, sendTime: 'now' }))} /> Gửi ngay
@@ -192,13 +231,17 @@ export function EmailCampaignsPage() {
               </label>
             </div>
             {form.sendTime === 'schedule' && (
-              <Input type="datetime-local" className="mt-2" value={form.scheduledAt} onChange={e => setForm(f => ({ ...f, scheduledAt: e.target.value }))} />
+              <>
+                <Input id="camp-scheduled-at" aria-label="Thời gian lên lịch gửi" aria-invalid={!!errors.scheduledAt} type="datetime-local" className="mt-2" value={form.scheduledAt} onChange={e => { setForm(f => ({ ...f, scheduledAt: e.target.value })); setErrors(er => ({ ...er, scheduledAt: undefined })); }} />
+                {errors.scheduledAt && <p role="alert" className="mt-1 text-xs text-red-600 dark:text-red-400">{errors.scheduledAt}</p>}
+              </>
             )}
           </div>
           <div>
-            <label className="text-sm font-medium">Nội dung email</label>
+            <label htmlFor="camp-body" className="text-sm font-medium">Nội dung email</label>
             <textarea
-              className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm min-h-[120px] mt-1 font-mono"
+              id="camp-body"
+              className="w-full rounded-md border border-input bg-background px-3 py-2 text-base sm:text-sm min-h-[120px] mt-1"
               placeholder="Nhập nội dung email hoặc chỉnh sửa template..."
               value={form.body}
               onChange={e => setForm(f => ({ ...f, body: e.target.value }))}

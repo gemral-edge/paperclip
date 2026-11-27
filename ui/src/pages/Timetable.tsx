@@ -41,15 +41,25 @@ function todayHCM(): string {
 }
 
 function shiftDay(date: string, days: number): string {
-  const [y, m, d] = date.split("-").map(Number);
-  const dt = new Date(Date.UTC(y!, (m ?? 1) - 1, (d ?? 1)));
+  const parts = date.split("-").map(Number);
+  const [y, m, d] = parts;
+  if (parts.length !== 3 || !Number.isFinite(y) || !Number.isFinite(m) || !Number.isFinite(d)) {
+    return todayHCM();
+  }
+  const dt = new Date(Date.UTC(y, m - 1, d));
+  if (Number.isNaN(dt.getTime())) return todayHCM();
   dt.setUTCDate(dt.getUTCDate() + days);
-  return dt.toISOString().slice(0, 10);
+  return Number.isNaN(dt.getTime()) ? todayHCM() : dt.toISOString().slice(0, 10);
 }
 
 function formatDateLabel(date: string): string {
-  const [y, m, d] = date.split("-").map(Number);
-  const dt = new Date(Date.UTC(y!, (m ?? 1) - 1, (d ?? 1)));
+  const parts = date.split("-").map(Number);
+  const [y, m, d] = parts;
+  if (parts.length !== 3 || !Number.isFinite(y) || !Number.isFinite(m) || !Number.isFinite(d)) {
+    return date || "—";
+  }
+  const dt = new Date(Date.UTC(y, m - 1, d));
+  if (Number.isNaN(dt.getTime())) return date || "—";
   const weekday = dt.toLocaleDateString("vi-VN", { timeZone: "UTC", weekday: "long" });
   const dmy = dt.toLocaleDateString("vi-VN", {
     timeZone: "UTC",
@@ -121,6 +131,7 @@ function TabBar({
           return (
             <button
               key={t.key}
+              type="button"
               role="tab"
               aria-selected={active}
               onClick={() => onChange(t.key)}
@@ -145,8 +156,12 @@ function TabBar({
   );
 }
 
-// ─── Main page ────────────────────────────────────────────────────────────
-
+/**
+ * @archetype list
+ * @capability-skip pagination: lịch theo từng ngày nên không phân trang
+ * @capability-skip delete-confirm: xem/lọc dòng lịch, thao tác sửa nằm ở tab/modal con
+ * @capability-skip bulk-actions: lịch theo dõi vận hành không xóa hàng loạt
+ */
 export function Timetable() {
   const { selectedCompanyId } = useCompany();
   const { setBreadcrumbs } = useBreadcrumbs();
@@ -259,15 +274,15 @@ export function Timetable() {
           <button
             type="button"
             onClick={() => setDate((d) => shiftDay(d, -1))}
-            className="rounded border border-border p-1.5 text-muted-foreground hover:bg-accent"
+            className="inline-flex min-h-[36px] min-w-[36px] sm:min-h-[32px] sm:min-w-[32px] items-center justify-center rounded border border-border p-1.5 text-muted-foreground hover:bg-accent"
             title="Hôm trước (phím ←)"
             aria-label="Hôm trước"
           >
-            <ChevronLeft size={14} />
+            <ChevronLeft size={14} aria-hidden="true" />
           </button>
           <input
             type="date"
-            className="rounded border border-border bg-background px-2 py-1 text-sm"
+            className="min-h-[36px] sm:min-h-[32px] rounded border border-border bg-background px-2 py-1 text-base sm:text-sm"
             value={date}
             onChange={(e) => setDate(e.target.value || todayHCM())}
             aria-label="Chọn ngày"
@@ -282,17 +297,17 @@ export function Timetable() {
           <button
             type="button"
             onClick={() => setDate((d) => shiftDay(d, 1))}
-            className="rounded border border-border p-1.5 text-muted-foreground hover:bg-accent"
+            className="inline-flex min-h-[36px] min-w-[36px] sm:min-h-[32px] sm:min-w-[32px] items-center justify-center rounded border border-border p-1.5 text-muted-foreground hover:bg-accent"
             title="Hôm sau (phím →)"
             aria-label="Hôm sau"
           >
-            <ChevronRight size={14} />
+            <ChevronRight size={14} aria-hidden="true" />
           </button>
           <button
             type="button"
             onClick={() => setDate(todayHCM())}
             disabled={isToday(date)}
-            className="rounded border border-border px-2 py-1 text-xs hover:bg-accent disabled:opacity-40"
+            className="min-h-[36px] sm:min-h-[32px] rounded border border-border px-2.5 py-1 text-xs hover:bg-accent disabled:opacity-40"
             title="Về hôm nay (phím T)"
           >
             Hôm nay
@@ -318,15 +333,15 @@ export function Timetable() {
             <button
               type="button"
               onClick={() => setAddOpen(true)}
-              className="inline-flex items-center gap-1 rounded px-2 py-1.5 text-xs hover:bg-accent sm:py-1"
+              className="inline-flex min-h-[36px] sm:min-h-[28px] items-center gap-1 rounded px-2.5 py-1.5 text-xs hover:bg-accent sm:py-1"
               title="Thêm dòng thủ công cho ngày đang xem"
             >
-              <Plus size={12} />
+              <Plus size={12} aria-hidden="true" />
               <span>Thêm dòng</span>
             </button>
           </div>
           <span className="text-xs text-muted-foreground">
-            Cập nhật: <span className="font-mono">{lastUpdated}</span>
+            Cập nhật: <span className="tabular-nums">{lastUpdated}</span>
           </span>
         </div>
 
@@ -341,14 +356,14 @@ export function Timetable() {
             {isLoading ? (
               <div className="px-4 py-16 text-center text-sm text-muted-foreground">Đang tải lịch…</div>
             ) : error ? (
-              <div className="px-4 py-16 text-center text-sm text-destructive">
-                Lỗi tải lịch: {(error as Error).message || "unknown"}
+              <div role="alert" className="flex flex-col items-center gap-3 px-4 py-12 text-center text-sm text-destructive">
+                <span>Lỗi tải lịch: {(error as Error).message || "unknown"}</span>
                 <button
                   type="button"
                   onClick={() => refetch()}
-                  className="ml-2 underline underline-offset-2"
+                  className="min-h-[36px] rounded-md border border-destructive/40 px-3 py-1.5 text-xs font-medium hover:bg-destructive/10"
                 >
-                  thử lại
+                  Thử lại
                 </button>
               </div>
             ) : rows.length === 0 ? (
@@ -356,14 +371,16 @@ export function Timetable() {
                 Không có lịch cho {dateLabel}.
               </div>
             ) : filteredRows.length === 0 ? (
-              <div className="px-4 py-16 text-center text-sm text-muted-foreground">
-                Không có dòng nào khớp với <code className="rounded bg-muted/40 px-1">{query}</code>.{" "}
+              <div className="flex flex-col items-center gap-2 px-4 py-14 text-center text-sm text-muted-foreground">
+                <span>
+                  Không có dòng nào khớp với <code className="rounded bg-muted/40 px-1">{query}</code>.
+                </span>
                 <button
                   type="button"
                   onClick={() => setQuery("")}
-                  className="underline underline-offset-2"
+                  className="min-h-[36px] rounded border border-border px-3 py-1 text-xs font-medium text-foreground hover:bg-accent"
                 >
-                  xoá filter
+                  Xoá filter
                 </button>
               </div>
             ) : (
