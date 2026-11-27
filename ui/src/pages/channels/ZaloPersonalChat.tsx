@@ -6,6 +6,7 @@ import { useImageLightbox } from "@/components/ImageLightbox";
 import { channelsApi, type PendingMessage } from "@/api/channels";
 import { warRoomApi } from "@/api/warRoom";
 import { useToast } from "@/context/ToastContext";
+import { copyToClipboard } from "@/lib/clipboard";
 import { Button } from "@/components/ui/button";
 import {
   ArrowLeft,
@@ -560,8 +561,12 @@ export function ZaloPersonalChat() {
   const handleContextAction = useCallback((action: string) => {
     switch (action) {
       case "copy":
-        navigator.clipboard.writeText(contextMenu.messageBody).then(() => {
-          pushToast({ title: "Đã sao chép", body: "Tin nhắn đã được sao chép vào clipboard", tone: "success", ttlMs: 2000 });
+        void copyToClipboard(contextMenu.messageBody).then((ok) => {
+          pushToast(
+            ok
+              ? { title: "Đã sao chép", body: "Tin nhắn đã được sao chép vào clipboard", tone: "success", ttlMs: 2000 }
+              : { title: "Không thể sao chép", body: "Trình duyệt chặn quyền truy cập clipboard.", tone: "error", ttlMs: 3000 },
+          );
         });
         break;
       case "pin":

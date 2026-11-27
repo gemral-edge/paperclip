@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import { copyToClipboard } from '@/lib/clipboard';
 import {
   BarChart3,
   Eye,
@@ -1481,7 +1482,7 @@ function InsightActions({ type, data }) {
             <Sparkles size={13} /> Tạo nội dung từ insight
           </button>
           <button className={secondary} onClick={() => {
-            navigator.clipboard.writeText(data.content.join('\n'));
+            void copyToClipboard(data.content.join('\n'));
           }}>
             <Download size={13} /> Copy tóm tắt
           </button>
@@ -1519,7 +1520,7 @@ function InsightActions({ type, data }) {
             <ArrowRight size={13} /> Bắt đầu thực hiện
           </button>
           <button className={secondary} onClick={() => {
-            navigator.clipboard.writeText(data.content.join('\n'));
+            void copyToClipboard(data.content.join('\n'));
           }}>
             <Download size={13} /> Copy kế hoạch
           </button>

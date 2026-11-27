@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { SimpleModal } from "../../crm/components/SimpleModal";
 import { useToast } from "@/context/ToastContext";
+import { copyToClipboard } from "@/lib/clipboard";
 import { readJsonOrThrow } from "@/lib/readJsonOrThrow";
 
 const SKILL_FILES = [
@@ -94,7 +95,7 @@ export function SkillsMemoryTab() {
               <div className="flex gap-1">
                 <Button size="sm" variant="ghost" onClick={() => { setViewFile(f.name); setEditing(false); }}><Eye className="h-3 w-3" /></Button>
                 <Button size="sm" variant="ghost" onClick={() => { setViewFile(f.name); setEditing(true); }}><Pencil className="h-3 w-3" /></Button>
-                <Button size="sm" variant="ghost" onClick={() => navigator.clipboard.writeText(f.name).then(() => pushToast({ title: "Copied path", tone: "success" }))}><Copy className="h-3 w-3" /></Button>
+                <Button size="sm" variant="ghost" onClick={() => { void copyToClipboard(f.name).then((ok) => { pushToast(ok ? { title: "Copied path", tone: "success" } : { title: "Không thể sao chép", body: "Trình duyệt chặn quyền truy cập clipboard.", tone: "error" }); }); }}><Copy className="h-3 w-3" /></Button>
               </div>
             </div>
           ))}

@@ -1,4 +1,5 @@
 import React, { useState, useRef, useCallback, useEffect, useMemo } from 'react';
+import { copyToClipboard } from '@/lib/clipboard';
 import { useSearchParams } from 'next/navigation';
 import {
   Sparkles,
@@ -6766,8 +6767,8 @@ KHÔNG liệt kê tính năng / điểm mạnh / lợi ích khô khan. PHẢI vi
                   if (newsMetadata.metaDescription) parts.push(`Meta Description: ${newsMetadata.metaDescription}`);
                   if (newsMetadata.tags) parts.push(`Tags: ${newsMetadata.tags}`);
                   if (newsMetadata.tldr) parts.push(`TL;DR: ${newsMetadata.tldr}`);
-                  await navigator.clipboard.writeText(parts.join('\n'));
-                  addToast({ type: 'success', message: 'Đã sao chép metadata.' });
+                  const ok = await copyToClipboard(parts.join('\n'));
+                  addToast(ok ? { type: 'success', message: 'Đã sao chép metadata.' } : { type: 'error', message: 'Không thể sao chép.' });
                 }}>
                   Sao Chép Metadata
                 </Button>

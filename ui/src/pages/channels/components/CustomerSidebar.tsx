@@ -17,6 +17,7 @@ import type { CommandCrmProfile } from "@/components/crm-messaging/command-cente
 import { CommandCustomer360 } from "@/components/crm-messaging/command-center/CommandCustomer360";
 import { mapCrm } from "@/components/crm-messaging/command-center/adapters";
 import { useToast } from "@/context/ToastContext";
+import { copyToClipboard } from "@/lib/clipboard";
 import { fetchOk } from "@/lib/readJsonOrThrow";
 
 import { useConfirm } from "@/components/ConfirmDialog";
@@ -82,9 +83,11 @@ function EditableField({
   };
   const copy = () => {
     if (!current) return;
-    navigator.clipboard?.writeText(current);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 1200);
+    void copyToClipboard(current).then((ok) => {
+      if (!ok) return;
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1200);
+    });
   };
   return (
     <div className="group/field flex items-center gap-2 text-xs">

@@ -12,6 +12,7 @@
 //   <JobLogViewerPanel mode="modal"  jobId={...} open onClose={...} />
 
 import { useEffect, useRef, useState, useMemo } from 'react';
+import { copyToClipboard } from '@/lib/clipboard';
 
 // Stage colors — semi-transparent tints that work on both light & dark backgrounds.
 // Text uses foreground-aware variants so it never goes "light text on light bg".
@@ -363,7 +364,8 @@ function TextBlock({ label, text, defaultOpen = false }) {
   const [open, setOpen] = useState(defaultOpen);
   const copy = (e) => {
     e.stopPropagation();
-    navigator.clipboard?.writeText(text).then(() => {
+    void copyToClipboard(text).then((ok) => {
+      if (!ok) return;
       setCopied(true);
       setTimeout(() => setCopied(false), 1500);
     });
@@ -498,7 +500,8 @@ function PromptBlock({ text }) {
   const [copied, setCopied] = useState(false);
   const copy = (e) => {
     e.stopPropagation();
-    navigator.clipboard?.writeText(text).then(() => {
+    void copyToClipboard(text).then((ok) => {
+      if (!ok) return;
       setCopied(true);
       setTimeout(() => setCopied(false), 1500);
     });
@@ -668,7 +671,7 @@ function JobLogBody({ jobId, recentJobs, onSelectJob, embedded }) {
     [filtered]
   );
 
-  const handleCopy = () => navigator.clipboard?.writeText(transcript);
+  const handleCopy = () => { void copyToClipboard(transcript); };
   const handleDownload = () => {
     const blob = new Blob([transcript], { type: 'text/plain;charset=utf-8' });
     const url = URL.createObjectURL(blob);

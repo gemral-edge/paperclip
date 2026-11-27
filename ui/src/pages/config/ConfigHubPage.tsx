@@ -43,6 +43,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Textarea } from "@/components/ui/textarea";
 import { useUnsavedChangesGuard } from "@/hooks/useUnsavedChangesGuard";
 import { useToast } from "@/context/ToastContext";
+import { copyToClipboard } from "@/lib/clipboard";
 import { fetchOk } from "@/lib/readJsonOrThrow";
 import { useGuardedAction } from "@/lib/useGuardedAction";
 import {
@@ -1066,9 +1067,11 @@ function APIIntegrationTab() {
               </div>
               <div className="flex items-center gap-2">
                 <Button size="sm" variant="ghost" onClick={() => {
-                  navigator.clipboard.writeText(ep.url);
-                  setCopyFeedback(ep.source);
-                  setTimeout(() => setCopyFeedback(null), 2000);
+                  void copyToClipboard(ep.url).then((ok) => {
+                    if (!ok) return;
+                    setCopyFeedback(ep.source);
+                    setTimeout(() => setCopyFeedback(null), 2000);
+                  });
                 }}>
                   {copyFeedback === ep.source ? <CheckCircle2 className="h-3 w-3 text-green-600" /> : <Copy className="h-3 w-3" />}
                 </Button>
@@ -1206,9 +1209,11 @@ function EmailTemplatesTab() {
   };
 
   const handleCopy = (text: string, feedbackKey: string) => {
-    navigator.clipboard.writeText(text);
-    setCopyFeedback(feedbackKey);
-    setTimeout(() => setCopyFeedback(null), 2000);
+    void copyToClipboard(text).then((ok) => {
+      if (!ok) return;
+      setCopyFeedback(feedbackKey);
+      setTimeout(() => setCopyFeedback(null), 2000);
+    });
   };
 
   const handleSaveTemplate = (key: string) => {

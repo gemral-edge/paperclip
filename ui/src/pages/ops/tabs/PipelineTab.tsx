@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/context/ToastContext";
+import { copyToClipboard } from "@/lib/clipboard";
 import { fetchOk } from "@/lib/readJsonOrThrow";
 import { useGuardedAction } from "@/lib/useGuardedAction";
 
@@ -444,7 +445,7 @@ export function PipelineTab({ onSwitchTab }: { onSwitchTab?: (tab: string) => vo
                                 {/* Action buttons */}
                                 <div className="flex flex-wrap gap-1.5">
                                   {j.status === "completed" && <>
-                                    <Button size="sm" variant="outline" className="h-6 text-[10px]" onClick={() => { navigator.clipboard.writeText(outputText); pushToast({ title: "Đã sao chép", tone: "success" }); }}><Copy className="h-3 w-3 mr-0.5" /> Copy</Button>
+                                    <Button size="sm" variant="outline" className="h-6 text-[10px]" onClick={() => { void copyToClipboard(outputText).then((ok) => { pushToast(ok ? { title: "Đã sao chép", tone: "success" } : { title: "Không thể sao chép", body: "Trình duyệt chặn quyền truy cập clipboard.", tone: "error" }); }); }}><Copy className="h-3 w-3 mr-0.5" /> Copy</Button>
                                     {scriptId
                                       ? <Button size="sm" variant="outline" className="h-6 text-[10px]" onClick={() => navigate(`/GEM/cc/scripts/${scriptId}`)}><ExternalLink className="h-3 w-3 mr-0.5" /> Xem bài viết</Button>
                                       : <Button size="sm" variant="outline" className="h-6 text-[10px]" onClick={() => onSwitchTab?.("content")}><ExternalLink className="h-3 w-3 mr-0.5" /> Xem nội dung</Button>

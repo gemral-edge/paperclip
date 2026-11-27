@@ -15,6 +15,7 @@ import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { MarkdownBody } from '@/components/MarkdownBody';
 import { CopyButton } from '@/components/CopyButton';
+import { copyToClipboard } from '@/lib/clipboard';
 import { cn } from '@/lib/utils';
 
 // ─── Types ──────────────────────────────────────────────────────────
@@ -557,7 +558,7 @@ export function CustomerChatDrawer({
               <button
                 onClick={() => {
                   const text = data.messages.map(m => `[${fmtTime(m.timestamp)}] ${m.senderName}: ${extractActualMessage(m.content)}`).join('\n\n');
-                  navigator.clipboard.writeText(text);
+                  void copyToClipboard(text);
                 }}
                 className="hover:text-foreground underline-offset-2 hover:underline"
               >

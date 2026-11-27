@@ -4,6 +4,7 @@ import { Copy, ExternalLink } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { useToast } from "@/context/ToastContext";
+import { copyToClipboard } from "@/lib/clipboard";
 
 const LINKS = {
   "MAIN": [
@@ -47,7 +48,9 @@ const CTA_RULES = [
 export function LinksTab() {
   const { pushToast } = useToast();
   const copy = (text: string) => {
-    navigator.clipboard.writeText(text).then(() => pushToast({ title: 'Đã copy', tone: 'success' }));
+    void copyToClipboard(text).then((ok) => {
+      pushToast(ok ? { title: 'Đã copy', tone: 'success' } : { title: 'Không thể sao chép', body: 'Trình duyệt chặn quyền truy cập clipboard.', tone: 'error' });
+    });
   };
 
   return (

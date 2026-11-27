@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { copyToClipboard } from "@/lib/clipboard";
 import { useQuery } from "@tanstack/react-query";
 import {
   BarChart3,
@@ -93,9 +94,11 @@ function CopyBtn({ text }: { text: string }) {
     <button
       onClick={(e) => {
         e.stopPropagation();
-        navigator.clipboard.writeText(text);
-        setCopied(true);
-        setTimeout(() => setCopied(false), 1500);
+        void copyToClipboard(text).then((ok) => {
+          if (!ok) return;
+          setCopied(true);
+          setTimeout(() => setCopied(false), 1500);
+        });
       }}
       className="p-1 rounded hover:bg-muted transition-colors"
       title="Sao chép link"

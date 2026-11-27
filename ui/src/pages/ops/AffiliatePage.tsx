@@ -4,6 +4,7 @@ import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "@/lib/router";
 import { Users, Check, X, DollarSign, Mail, Copy, Pause, Play, Search, Plus, Loader2, Trash2 } from "lucide-react";
+import { copyToClipboard } from "@/lib/clipboard";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card } from "@/components/ui/card";
@@ -178,7 +179,7 @@ export function AffiliatePage() {
                   <td className="px-4 py-3 text-right tabular-nums">{formatVND(ctv.total_sales || 0)}</td>
                   <td className="px-4 py-3 text-right tabular-nums">{formatVND(ctv.total_commission || 0)}</td>
                   <td className="px-4 py-3">
-                    <button onClick={() => navigator.clipboard.writeText(ctv.referral_code || '')} className="text-xs text-primary hover:underline flex items-center gap-1">
+                    <button onClick={() => { void copyToClipboard(ctv.referral_code || ''); }} className="text-xs text-primary hover:underline flex items-center gap-1">
                       {ctv.referral_code || '—'} <Copy className="h-3 w-3" />
                     </button>
                   </td>

@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import { copyToClipboard } from '@/lib/clipboard';
 import { useParams, useNavigate } from '@/lib/router';
 import {
   ArrowLeft,
@@ -265,7 +266,8 @@ export default function CCEmailCampaignDetail() {
 
   const handleCopyHTML = useCallback(() => {
     if (!campaign?.html_body) return;
-    navigator.clipboard.writeText(campaign.html_body).then(() => {
+    void copyToClipboard(campaign.html_body).then((ok) => {
+      if (!ok) return;
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
     });

@@ -5,6 +5,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Search, X, Copy, ExternalLink } from 'lucide-react';
 import { useToast } from '@/context/ToastContext';
+import { copyToClipboard } from '@/lib/clipboard';
 
 interface SearchResult {
   entity: string;
@@ -104,8 +105,13 @@ export function GlobalRegistrySearch({
   const totalCount = Object.values(counts).reduce((a, b) => a + b, 0);
 
   const copyDiskPath = (path: string) => {
-    navigator.clipboard.writeText(path);
-    pushToast({ title: '📋 Copied', body: path, tone: 'success' });
+    void copyToClipboard(path).then((ok) => {
+      pushToast(
+        ok
+          ? { title: '📋 Copied', body: path, tone: 'success' }
+          : { title: 'Không thể sao chép', body: 'Trình duyệt chặn quyền truy cập clipboard.', tone: 'error' },
+      );
+    });
   };
 
   if (!open) return null;

@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Search, Play, Bell, Settings, BarChart3, Copy, Eye, TrendingUp, Loader2 } from "lucide-react";
+import { copyToClipboard } from "@/lib/clipboard";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card } from "@/components/ui/card";
@@ -154,7 +155,7 @@ export function ScannerPage() {
                   <td className="px-4 py-2 text-right text-xs">{p.score ? `${Math.round(p.score)}%` : '—'}</td>
                   <td className="px-4 py-2 text-right">
                     <div className="flex gap-1 justify-end">
-                      <Button size="sm" variant="ghost" onClick={() => navigator.clipboard.writeText(`${p.symbol} ${p.direction} ${p.pattern_name} ${p.timeframe} Entry: ${p.entry} SL: ${p.stop_loss} TP: ${p.take_profit}`)} title="Copy signal"><Copy className="h-3 w-3" /></Button>
+                      <Button size="sm" variant="ghost" onClick={() => { void copyToClipboard(`${p.symbol} ${p.direction} ${p.pattern_name} ${p.timeframe} Entry: ${p.entry} SL: ${p.stop_loss} TP: ${p.take_profit}`); }} title="Copy signal"><Copy className="h-3 w-3" /></Button>
                       <Button size="sm" variant="ghost" title="Gửi alert" onClick={() => alertMut.mutate(p)}><Bell className="h-3 w-3" /></Button>
                       <Button size="sm" variant="ghost" title="Chi tiết" onClick={() => setDetailPattern(p)}><Eye className="h-3 w-3" /></Button>
                     </div>

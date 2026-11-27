@@ -26,6 +26,7 @@ import { Button } from "../../components/ui/button";
 import { Skeleton } from "../../components/ui/skeleton";
 
 import { useToast } from "@/context/ToastContext";
+import { copyToClipboard } from "@/lib/clipboard";
 const PROVIDERS: AgentProvider[] = ["claude", "gemini", "antigravity", "openrouter"];
 
 export function AgentEditPage() {
@@ -549,10 +550,16 @@ export function AgentEditPage() {
                 if (form.extra_args) parts.push(form.extra_args);
                 cmd = parts.join(" ");
               }
-              navigator.clipboard.writeText(cmd);
+              void copyToClipboard(cmd).then((ok) => {
+                pushToast(
+                  ok
+                    ? { title: "Đã sao chép lệnh", tone: "success" }
+                    : { title: "Không thể sao chép", body: "Trình duyệt chặn quyền truy cập clipboard.", tone: "error" },
+                );
+              });
             }}
           >
-            Sao chập
+            Sao chép
           </button>
           <p className="text-[10px] text-muted-foreground mt-1">
             Lệnh thật từ <code>server/src/channels/router.ts</code> — Phase 1 pattern:

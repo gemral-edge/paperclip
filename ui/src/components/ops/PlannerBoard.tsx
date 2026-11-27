@@ -21,6 +21,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { useToast } from "@/context/ToastContext";
+import { copyToClipboard } from "@/lib/clipboard";
 import { readJsonOrThrow } from "@/lib/readJsonOrThrow";
 
 import { useConfirm } from "@/components/ConfirmDialog";
@@ -118,7 +119,13 @@ function ScriptCard({
 
   const handleCopy = (e: React.MouseEvent) => {
     e.stopPropagation();
-    if (script.body) { navigator.clipboard.writeText(script.body); setCopied(true); setTimeout(() => setCopied(false), 1500); }
+    if (script.body) {
+      void copyToClipboard(script.body).then((ok) => {
+        if (!ok) return;
+        setCopied(true);
+        setTimeout(() => setCopied(false), 1500);
+      });
+    }
   };
 
   const startEdit = (e: React.MouseEvent) => {
@@ -315,7 +322,7 @@ function ScriptExpandPanel({ script, onUpdate }: { script: any; onUpdate?: (id: 
                   </Button>
                 )}
                 <Button size="sm" variant="outline" className="h-5 text-[9px] px-1.5"
-                  onClick={() => { navigator.clipboard.writeText(script.body); pushToast({ title: "Đã copy", tone: "success" }); }}>
+                  onClick={() => { void copyToClipboard(script.body).then((ok) => { pushToast(ok ? { title: "Đã copy", tone: "success" } : { title: "Không thể sao chép", body: "Trình duyệt chặn quyền truy cập clipboard.", tone: "error" }); }); }}>
                   <Copy size={8} /> Copy
                 </Button>
               </div>

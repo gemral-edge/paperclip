@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Copy, CheckCircle, XCircle, Loader2, Terminal } from "lucide-react";
+import { copyToClipboard } from "@/lib/clipboard";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
@@ -168,7 +169,8 @@ export function SopExecutionStream({
       })
       .join("\n");
 
-    navigator.clipboard.writeText(text).then(() => {
+    void copyToClipboard(text).then((ok) => {
+      if (!ok) return;
       setCopied(true);
       setTimeout(() => setCopied(false), 1500);
     });

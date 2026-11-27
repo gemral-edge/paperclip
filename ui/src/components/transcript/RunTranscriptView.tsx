@@ -1,4 +1,5 @@
 import { useMemo, useState } from "react";
+import { copyToClipboard } from "@/lib/clipboard";
 import type { TranscriptEntry } from "../../adapters";
 import { MarkdownBody } from "../MarkdownBody";
 import { cn, formatTokens } from "../../lib/utils";
@@ -56,9 +57,11 @@ function CopyButton({ text }: { text: string }) {
       type="button"
       onClick={(e) => {
         e.stopPropagation();
-        navigator.clipboard.writeText(text);
-        setCopied(true);
-        setTimeout(() => setCopied(false), 2000);
+        void copyToClipboard(text).then((ok) => {
+          if (!ok) return;
+          setCopied(true);
+          setTimeout(() => setCopied(false), 2000);
+        });
       }}
       className="absolute top-2 right-2 p-1.5 bg-background/95 hover:bg-muted rounded-md text-muted-foreground hover:text-foreground transition-colors border border-border/50 shadow-sm opacity-0 group-hover:opacity-100 z-10"
       title="Copy to clipboard"
@@ -1478,9 +1481,11 @@ function CopyTranscriptButton({ blocks }: { blocks: TranscriptBlock[] }) {
       type="button"
       onClick={() => {
         const text = generateCleanTranscript(blocks);
-        navigator.clipboard.writeText(text);
-        setCopied(true);
-        setTimeout(() => setCopied(false), 2000);
+        void copyToClipboard(text).then((ok) => {
+          if (!ok) return;
+          setCopied(true);
+          setTimeout(() => setCopied(false), 2000);
+        });
       }}
       className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-muted-foreground hover:text-foreground bg-muted/50 hover:bg-muted border border-border/50 rounded-md transition-colors"
     >

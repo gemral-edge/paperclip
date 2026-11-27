@@ -1,4 +1,5 @@
 import React, { useState, useCallback, useMemo } from 'react';
+import { copyToClipboard } from '@/lib/clipboard';
 import {
   Repeat,
   ChevronDown,
@@ -576,9 +577,11 @@ export default function RepurposePage() {
   }, []);
 
   const handleCopy = useCallback((text, id) => {
-    navigator.clipboard.writeText(text);
-    setCopied(id);
-    setTimeout(() => setCopied(null), 2000);
+    void copyToClipboard(text).then((ok) => {
+      if (!ok) return;
+      setCopied(id);
+      setTimeout(() => setCopied(null), 2000);
+    });
   }, []);
 
   const handleGenerate = useCallback(async () => {
@@ -670,9 +673,11 @@ export default function RepurposePage() {
       results.questions.forEach((q) => { exportText += `[${q.context}]\n${q.question}\n\n---\n\n`; });
     }
 
-    navigator.clipboard.writeText(exportText);
-    setCopied('export-all');
-    setTimeout(() => setCopied(null), 2500);
+    void copyToClipboard(exportText).then((ok) => {
+      if (!ok) return;
+      setCopied('export-all');
+      setTimeout(() => setCopied(null), 2500);
+    });
   }, [results, selectedScript]);
 
   // =========================================================================

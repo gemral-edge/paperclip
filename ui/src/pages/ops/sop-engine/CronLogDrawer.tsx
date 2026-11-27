@@ -28,6 +28,7 @@ import {
   X,
 } from 'lucide-react';
 import { useToast } from '@/context/ToastContext';
+import { copyToClipboard } from '@/lib/clipboard';
 
 import { useConfirm } from "@/components/ConfirmDialog";
 import { fetchOk } from "@/lib/readJsonOrThrow";
@@ -169,7 +170,8 @@ function CopyButton({ text, size = 12 }: { text: string; size?: number }) {
       type="button"
       onClick={(e) => {
         e.stopPropagation();
-        navigator.clipboard.writeText(text).then(() => {
+        void copyToClipboard(text).then((ok) => {
+          if (!ok) return;
           setCopied(true);
           setTimeout(() => setCopied(false), 1200);
         });

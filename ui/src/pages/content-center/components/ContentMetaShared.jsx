@@ -7,6 +7,7 @@
  *   - MetaSelect    : Dropdown với inline add + localStorage persistence
  */
 import { useState, useMemo } from 'react';
+import { copyToClipboard } from '@/lib/clipboard';
 
 // ─── Constants ───────────────────────────────────────────────────
 // ─── URL Patterns theo content type ──────────────────────────────
@@ -51,7 +52,8 @@ export function SlugUrlHandle({ slug, contentType, baseUrl = null }) {
   const fullUrl = `${base}/${urlHandle}`;
 
   const copy = () => {
-    navigator.clipboard.writeText(fullUrl).then(() => {
+    void copyToClipboard(fullUrl).then((ok) => {
+      if (!ok) return;
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
     });

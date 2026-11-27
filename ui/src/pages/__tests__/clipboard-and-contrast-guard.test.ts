@@ -182,8 +182,9 @@ describe("GEM-2861: clipboard.writeText error handling & Light Mode text-emerald
     expect(findBareLightEmerald('// <span className="text-emerald-400">ok</span>')).toEqual([]);
   });
 
-  it("baseline.clipboardWriteTextLegacy chỉ trỏ file tồn tại và không có file nào vượt trần legacy", () => {
+  it("baseline.clipboardWriteTextLegacy đã dọn sạch 0 và không có file nào vượt trần", () => {
     const legacy = baseline.clipboardWriteTextLegacy as Record<string, number>;
+    expect(Object.keys(legacy)).toEqual([]);
     for (const rel of Object.keys(legacy)) {
       expect(existsSync(join(SRC, rel)), `File trong baseline không tồn tại: ${rel}`).toBe(true);
     }
