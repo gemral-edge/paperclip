@@ -40,7 +40,7 @@ export function BudgetIncidentCard({
             <div className="text-[11px] uppercase tracking-[0.22em] text-red-700 dark:text-red-200/80">
               {incident.scopeType} hard stop
             </div>
-            <CardTitle className="mt-1 text-base text-red-50">{incident.scopeName}</CardTitle>
+            <CardTitle className="mt-1 text-base text-red-950 dark:text-red-50">{incident.scopeName}</CardTitle>
             <CardDescription className="mt-1 text-red-800/80 dark:text-red-100/70">
               Spending reached {formatCents(incident.amountObserved)} against a limit of {formatCents(incident.amountLimit)}.
             </CardDescription>
@@ -51,7 +51,7 @@ export function BudgetIncidentCard({
         </div>
       </CardHeader>
       <CardContent className="space-y-4 px-5 pb-5 pt-0">
-        <div className="flex items-start gap-2 rounded-xl border border-red-400/20 bg-red-500/10 px-3 py-2 text-sm text-red-50/90">
+        <div className="flex items-start gap-2 rounded-xl border border-red-400/20 bg-red-500/10 px-3 py-2 text-sm text-red-900 dark:text-red-50/90">
           <PauseCircle className="mt-0.5 h-4 w-4 shrink-0" />
           <div>
             {incident.scopeType === "project"

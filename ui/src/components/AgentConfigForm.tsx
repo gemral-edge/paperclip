@@ -791,7 +791,7 @@ export function AgentConfigForm(props: AgentConfigFormProps) {
                   }}
                 />
               </Field>
-              <div className="rounded-md border border-sky-500/25 bg-sky-500/10 px-3 py-2 text-xs text-sky-100">
+              <div className="rounded-md border border-sky-500/25 bg-sky-500/10 px-3 py-2 text-xs text-sky-900 dark:text-sky-100">
                 Bootstrap prompt is only sent for fresh sessions. Put stable setup, habits, and longer reusable guidance here. Frequent changes reduce the value of session reuse because new sessions must replay it.
               </div>
               {(adapterType === "claude_local" || adapterType === "gemini_local" || adapterType === "ollama") && (
@@ -1051,34 +1051,34 @@ function SessionCompactionPolicyCard({
   return (
     <div className="rounded-md border border-sky-500/25 bg-sky-500/10 px-3 py-3 space-y-2">
       <div className="flex items-center justify-between gap-3">
-        <div className="text-xs font-medium text-sky-50">Session compaction</div>
-        <span className="rounded-full border border-sky-400/30 px-2 py-0.5 text-[11px] text-sky-100">
+        <div className="text-xs font-medium text-sky-950 dark:text-sky-50">Session compaction</div>
+        <span className="rounded-full border border-sky-400/30 px-2 py-0.5 text-[11px] text-sky-900 dark:text-sky-100">
           {sourceLabel}
         </span>
       </div>
-      <p className="text-xs text-sky-100/90">
+      <p className="text-xs text-sky-900/90 dark:text-sky-100/90">
         {nativeSummary}
       </p>
-      <p className="text-xs text-sky-100/80">
+      <p className="text-xs text-sky-900/80 dark:text-sky-100/80">
         {rotationDisabled
           ? "No Paperclip-managed fresh-session thresholds are active for this adapter."
           : "Paperclip will start a fresh session when one of these thresholds is reached."}
       </p>
-      <div className="grid grid-cols-3 gap-2 text-[11px] text-sky-100/85 tabular-nums">
+      <div className="grid grid-cols-3 gap-2 text-[11px] text-sky-900/85 dark:text-sky-100/85 tabular-nums">
         <div>
-          <div className="text-sky-100/60">Runs</div>
+          <div className="text-sky-800/75 dark:text-sky-100/60">Runs</div>
           <div>{formatSessionThreshold(policy.maxSessionRuns, "runs")}</div>
         </div>
         <div>
-          <div className="text-sky-100/60">Raw input</div>
+          <div className="text-sky-800/75 dark:text-sky-100/60">Raw input</div>
           <div>{formatSessionThreshold(policy.maxRawInputTokens, "tokens")}</div>
         </div>
         <div>
-          <div className="text-sky-100/60">Age</div>
+          <div className="text-sky-800/75 dark:text-sky-100/60">Age</div>
           <div>{formatSessionThreshold(policy.maxSessionAgeHours, "hours")}</div>
         </div>
       </div>
-      <p className="text-[11px] text-sky-100/75">
+      <p className="text-[11px] text-sky-900/75 dark:text-sky-100/75">
         A large cumulative raw token total does not mean the full session is resent on every heartbeat.
         {source === "agent_override" && " This agent has an explicit runtimeConfig session compaction override."}
       </p>
