@@ -1,9 +1,26 @@
 {
-  "_note": "SSOT baseline (shrink-only) cho clipboard-and-contrast-guard.test.ts và scripts/audit_paperclip_runtime_deps.py (R10, GEM-2861). clipboardWriteTextLegacy đã dọn sạch 0/0 (GEM-2881) — dùng copyToClipboard từ @/lib/clipboard. lightEmeraldLegacy đã dọn sạch 0/0 (GEM-2882) cho toàn bộ 5 họ màu trạng thái emerald|amber|red|green|yellow (100|200|300|400). darkOnlySurfaceFiles là các DevTools overlay nền tối cứng (#0c0c10/#131316/#09090b); các trường hợp nền tối cục bộ khác dùng inline comment /* dark-surface-ok */.",
+  "_note": "SSOT baseline (shrink-only) cho clipboard-and-contrast-guard.test.ts và scripts/audit_paperclip_runtime_deps.py (R10, GEM-2861, GEM-2916). clipboardWriteTextLegacy đã dọn sạch 0/0 (GEM-2881). lightEmeraldLegacy đã dọn sạch 0/0 (GEM-2882). hardcodedDarkBgLegacy đã dọn sạch 0/0 (GEM-2916). bareTextWhitePagesLegacy khoá shrink-only các chỗ text-white trên nền tối cha/avatar/lightbox/terminal trong pages/.",
   "clipboardWriteTextLegacy": {},
   "darkOnlySurfaceFiles": [
     "components/devtools/DevToolsOverlay.tsx",
     "components/devtools/ServerRoutesPane.tsx"
   ],
-  "lightEmeraldLegacy": {}
+  "lightEmeraldLegacy": {},
+  "hardcodedDarkBgLegacy": {},
+  "bareTextWhitePagesLegacy": {
+    "pages/channels/components/ChatHeader.tsx": 1,
+    "pages/channels/components/ConversationItem.tsx": 1,
+    "pages/channels/components/ConversationList.tsx": 1,
+    "pages/channels/components/CustomerSidebar.tsx": 1,
+    "pages/channels/components/MessageRenderer.tsx": 1,
+    "pages/channels/ContactsPage.tsx": 1,
+    "pages/channels/ZaloPersonalChat.tsx": 3,
+    "pages/content-center/CCFunnels.jsx": 1,
+    "pages/content-center/CCSettings.jsx": 1,
+    "pages/content-center/CCVideoReels.jsx": 1,
+    "pages/content-center/components/MediaGalleryGrid.jsx": 6,
+    "pages/ops/CommandConsolePage.tsx": 3,
+    "pages/ops/tabs/ContentTab.tsx": 1,
+    "pages/ops/tabs/PipelineTab.tsx": 2
+  }
 }

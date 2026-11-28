@@ -141,6 +141,61 @@ export function findBareLightStatusText(source: string): number[] {
 /** Giữ tương thích ngược cho caller cũ. */
 export const findBareLightEmerald = findBareLightStatusText;
 
+/** Trả về danh sách dòng (1-based) dùng nền tối cứng `bg-[#0A0B1A]` hoặc `bg-[rgba(15,16,48,...)]` thiếu tiền tố `dark:`. */
+export function findHardcodedDarkPageBg(source: string): number[] {
+  if (!/bg-\[(?:#0a0b1a|rgba\(\s*15\s*,\s*16\s*,\s*48)/i.test(source)) return [];
+  const rawLines = source.split("\n");
+  const cleanedLines = stripJsCommentsPreserveLines(source).split("\n");
+  const rx =
+    /(?<![:\w-])((?:[a-z0-9[\]_-]+:)*)bg-\[(?:#0a0b1a|rgba\(\s*15\s*,\s*16\s*,\s*48(?:\s*,\s*[\d.]+)?\s*\))\](?:\/[0-9.[\]]+)?(?![\w-])/gi;
+  const bad: number[] = [];
+
+  for (let idx = 0; idx < cleanedLines.length; idx++) {
+    if (rawLines[idx]?.includes("dark-surface-ok")) continue;
+    const line = cleanedLines[idx] ?? "";
+    rx.lastIndex = 0;
+    let m: RegExpExecArray | null;
+    while ((m = rx.exec(line))) {
+      const prefix = m[1] || "";
+      if (!prefix.includes("dark:")) {
+        bad.push(idx + 1);
+        break;
+      }
+    }
+  }
+  return bad;
+}
+
+const SOLID_DARK_BG_RX =
+  /(?<![:\w-])(?:(?:hover|focus|active|group-hover|disabled|data-\[[^\]]+\]):)*bg-(?:black|destructive|primary|success|cyan|gradient-|(?:red|green|emerald|amber|violet|indigo|blue|sky|teal|purple|pink|rose|orange|yellow)-(?:500|600|700|800|900|950)|(?:zinc|slate|gray|neutral|stone)-(?:700|800|900|950))(?:\/(?:[5-9]\d|100))?(?![\w-/])/;
+
+/** Trả về danh sách dòng (1-based) dùng `text-white` / `text-white/<opacity>` trần trên surface theo theme. */
+export function findBareTextWhite(source: string): number[] {
+  if (!source.includes("text-white")) return [];
+  const rawLines = source.split("\n");
+  const cleanedLines = stripJsCommentsPreserveLines(source).split("\n");
+  const rx = /(?<![:\w-])((?:[a-z0-9[\]_-]+:)*)text-white(?:\/(\d+|\[[^\]]+\]))?(?![\w-])/g;
+  const bad: number[] = [];
+
+  for (let idx = 0; idx < cleanedLines.length; idx++) {
+    if (rawLines[idx]?.includes("dark-surface-ok")) continue;
+    const line = cleanedLines[idx] ?? "";
+    const hasSolidBg = SOLID_DARK_BG_RX.test(line);
+    rx.lastIndex = 0;
+    let m: RegExpExecArray | null;
+    while ((m = rx.exec(line))) {
+      const prefix = m[1] || "";
+      const opacity = m[2];
+      if (prefix.includes("dark:")) continue;
+      if (opacity !== undefined || !hasSolidBg) {
+        bad.push(idx + 1);
+        break;
+      }
+    }
+  }
+  return bad;
+}
+
 function walkUiSrc(dir: string, out: string[] = []): string[] {
   for (const name of readdirSync(dir)) {
     const p = join(dir, name);
@@ -222,5 +277,82 @@ describe("GEM-2861: clipboard.writeText error handling & Light Mode text-emerald
       }
     }
     expect(offenders).toEqual([]);
+  });
+
+  it("findHardcodedDarkPageBg bắt đúng bg-[#0A0B1A]/bg-[rgba(15,16,48,...)] và thả dạng có dark:/comment", () => {
+    expect(findHardcodedDarkPageBg('<div className="bg-[#0A0B1A]">x</div>')).toEqual([1]);
+    expect(findHardcodedDarkPageBg('<div className="bg-[#0a0b1a]/90">x</div>')).toEqual([1]);
+    expect(findHardcodedDarkPageBg('<div className="bg-[rgba(15,16,48,0.35)]">x</div>')).toEqual([1]);
+
+    expect(findHardcodedDarkPageBg('<div className="bg-background dark:bg-[#0A0B1A]">x</div>')).toEqual([]);
+    expect(findHardcodedDarkPageBg('<div className="bg-[#0A0B1A]">x</div> {/* dark-surface-ok */}')).toEqual([]);
+    expect(findHardcodedDarkPageBg('// <div className="bg-[#0A0B1A]">x</div>')).toEqual([]);
+  });
+
+  it("findBareTextWhite bắt đúng text-white trần & text-white/XX, thả dạng có dark: hoặc nền đậm cùng dòng", () => {
+    expect(findBareTextWhite('<span className="text-white">x</span>')).toEqual([1]);
+    expect(findBareTextWhite('<button className="hover:text-white">x</button>')).toEqual([1]);
+    expect(findBareTextWhite('<p className="text-white/40">x</p>')).toEqual([1]);
+    expect(findBareTextWhite('<span className="bg-red-500/20 text-white">x</span>')).toEqual([1]);
+    expect(findBareTextWhite('<div className="bg-black/60 text-white/40">x</div>')).toEqual([1]);
+    expect(findBareTextWhite('<input className="bg-white/[0.04] text-white" />')).toEqual([1]);
+
+    expect(findBareTextWhite('<span className="text-foreground dark:text-white">x</span>')).toEqual([]);
+    expect(findBareTextWhite('<button className="dark:hover:text-white">x</button>')).toEqual([]);
+    expect(findBareTextWhite('<span className="bg-red-600 text-white">x</span>')).toEqual([]);
+    expect(findBareTextWhite('<button className="bg-green-700 text-white">x</button>')).toEqual([]);
+    expect(findBareTextWhite('<div className="bg-black/60 text-white">x</div>')).toEqual([]);
+    expect(findBareTextWhite('<button className="bg-destructive text-white">x</button>')).toEqual([]);
+    expect(findBareTextWhite('<span className="bg-zinc-900 text-white">x</span>')).toEqual([]);
+    expect(findBareTextWhite('<span className="text-white/70">x</span> {/* dark-surface-ok */}')).toEqual([]);
+    expect(findBareTextWhite('// <span className="text-white">x</span>')).toEqual([]);
+  });
+
+  it("không có file theo theme nào dùng bg-[#0A0B1A] hoặc bg-[rgba(15,16,48,...)]", () => {
+    const darkOnly = new Set(baseline.darkOnlySurfaceFiles as string[]);
+    const darkBgLegacy = (baseline.hardcodedDarkBgLegacy ?? {}) as Record<string, number>;
+    expect(Object.keys(darkBgLegacy)).toEqual([]);
+    const offenders: string[] = [];
+    for (const f of walkUiSrc(SRC)) {
+      const rel = relative(SRC, f).replace(/\\/g, "/");
+      if (darkOnly.has(rel)) continue;
+      const lines = findHardcodedDarkPageBg(readFileSync(f, "utf8"));
+      const allowed = darkBgLegacy[rel] ?? 0;
+      if (lines.length > allowed) {
+        offenders.push(`${rel}:${lines.join(",")} (actual=${lines.length} > allowed=${allowed})`);
+      }
+    }
+    expect(offenders).toEqual([]);
+  });
+
+  it("baseline.bareTextWhitePagesLegacy trong pages/ không vượt trần và không có entry stale/dangling", () => {
+    const darkOnly = new Set(baseline.darkOnlySurfaceFiles as string[]);
+    const legacy = (baseline.bareTextWhitePagesLegacy ?? {}) as Record<string, number>;
+    for (const rel of Object.keys(legacy)) {
+      expect(existsSync(join(SRC, rel)), `File trong bareTextWhitePagesLegacy không tồn tại: ${rel}`).toBe(true);
+    }
+
+    const actualCounts: Record<string, number> = {};
+    const offenders: string[] = [];
+    for (const f of walkUiSrc(join(SRC, "pages"))) {
+      const rel = relative(SRC, f).replace(/\\/g, "/");
+      if (darkOnly.has(rel)) continue;
+      const lines = findBareTextWhite(readFileSync(f, "utf8"));
+      actualCounts[rel] = lines.length;
+      const allowed = legacy[rel] ?? 0;
+      if (lines.length > allowed) {
+        offenders.push(`${rel}:${lines.join(",")} (actual=${lines.length} > allowed=${allowed})`);
+      }
+    }
+    expect(offenders).toEqual([]);
+
+    const stale: string[] = [];
+    for (const [rel, allowed] of Object.entries(legacy)) {
+      const actual = actualCounts[rel] ?? 0;
+      if (allowed > actual) {
+        stale.push(`${rel} (allowed=${allowed} > actual=${actual})`);
+      }
+    }
+    expect(stale).toEqual([]);
   });
 });
