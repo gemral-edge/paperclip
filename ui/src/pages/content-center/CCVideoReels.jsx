@@ -310,7 +310,7 @@ function getSentimentColor(sentiment) {
     case 'positive':
       return 'text-emerald';
     case 'negative':
-      return 'text-rose-400';
+      return 'text-rose-700 dark:text-rose-400';
     default:
       return 'text-txt-3';
   }
@@ -336,7 +336,7 @@ function getCutTypeColor(type) {
     case 'cta':
       return 'text-emerald bg-emerald/10';
     case 'emotional':
-      return 'text-rose-400 bg-rose-400/10';
+      return 'text-rose-700 dark:text-rose-400 bg-rose-400/10';
     default:
       return 'text-txt-3 bg-bg-4';
   }
@@ -575,7 +575,7 @@ function PipelineProgress({ steps }) {
                   ) : step.status === 'active' ? (
                     <Loader2 size={16} className="text-gold animate-spin" />
                   ) : step.status === 'error' ? (
-                    <XCircle size={16} className="text-rose-400" />
+                    <XCircle size={16} className="text-rose-600 dark:text-rose-400" />
                   ) : (
                     <Icon size={16} className="text-txt-3" />
                   )}
@@ -867,7 +867,7 @@ function VideoLibraryGrid({
                   <button className="p-1 rounded text-txt-3 hover:text-gold transition-all">
                     <Download size={12} />
                   </button>
-                  <button className="p-1 rounded text-txt-3 hover:text-rose-400 transition-all">
+                  <button className="p-1 rounded text-txt-3 hover:text-rose-600 dark:hover:text-rose-400 transition-all">
                     <Trash2 size={12} />
                   </button>
                 </div>
@@ -927,7 +927,7 @@ function VideoLibraryGrid({
                     <Loader2 size={12} className="animate-spin" /> Đang xử lý
                   </span>
                 ) : (
-                  <span className="text-xxs text-rose-400 flex items-center gap-1">
+                  <span className="text-xxs text-rose-700 dark:text-rose-400 flex items-center gap-1">
                     <XCircle size={12} /> Lỗi
                   </span>
                 )}
@@ -941,7 +941,7 @@ function VideoLibraryGrid({
                   <button className="p-1.5 rounded text-txt-3 hover:text-gold transition-all">
                     <Download size={14} />
                   </button>
-                  <button className="p-1.5 rounded text-txt-3 hover:text-rose-400 transition-all">
+                  <button className="p-1.5 rounded text-txt-3 hover:text-rose-600 dark:hover:text-rose-400 transition-all">
                     <Trash2 size={14} />
                   </button>
                 </div>
@@ -1107,7 +1107,7 @@ export default function VideoReelsPage() {
                       </h3>
                       <button
                         onClick={handleReset}
-                        className="text-txt-3 hover:text-rose-400 transition-all"
+                        className="text-txt-3 hover:text-rose-600 dark:hover:text-rose-400 transition-all"
                         title="Xóa và chọn file mới"
                       >
                         <X size={16} />

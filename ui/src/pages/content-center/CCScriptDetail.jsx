@@ -2283,8 +2283,8 @@ function ScriptDetailContent() {
         {/* Publish Buttons */}
         <div className="flex flex-wrap gap-2">
           {[
-            { name: 'Facebook', color: 'hover:bg-blue-500/10 hover:border-blue-400/40 hover:text-blue-400' },
-            { name: 'Instagram', color: 'hover:bg-pink-500/10 hover:border-pink-400/40 hover:text-pink-400' },
+            { name: 'Facebook', color: 'hover:bg-blue-500/10 hover:border-blue-400/40 hover:text-blue-600 dark:hover:text-blue-400' },
+            { name: 'Instagram', color: 'hover:bg-pink-500/10 hover:border-pink-400/40 hover:text-pink-600 dark:hover:text-pink-400' },
             { name: 'Threads', color: 'hover:bg-gray-400/10 hover:border-gray-300/40 hover:text-gray-300' },
           ].map(({ name, color }) => {
             const alreadyPublished = publishResults.some(r => r.platform === name);
@@ -2321,7 +2321,7 @@ function ScriptDetailContent() {
       {/* ===== Gửi Email qua Resend ===== */}
       <Card variant="glass" padding="md">
         <div className="flex items-center justify-between mb-3">
-          <h4 className="text-xs font-semibold text-violet-400 uppercase tracking-wider flex items-center gap-1.5">
+          <h4 className="text-xs font-semibold text-violet-700 dark:text-violet-400 uppercase tracking-wider flex items-center gap-1.5">
             <Mail size={14} />
             Gửi Email (Resend)
           </h4>
@@ -2380,7 +2380,7 @@ function ScriptDetailContent() {
 
             {isHtmlContent(mainContent) ? (
               <div className="p-2 rounded-card bg-violet-500/5 border border-violet-500/20">
-                <p className="text-xxs text-violet-400 flex items-center gap-1">
+                <p className="text-xxs text-violet-700 dark:text-violet-400 flex items-center gap-1">
                   <CheckCircle2 size={11} />
                   Nội dung HTML email sẽ được gửi định dạng đẹp.
                 </p>
@@ -2432,7 +2432,7 @@ function ScriptDetailContent() {
                   setEmailSending(false);
                 }
               }}
-              className="w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-card border border-violet-400/30 bg-violet-500/10 text-violet-400 hover:bg-violet-500/20 text-xs font-semibold transition-all disabled:opacity-50"
+              className="w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-card border border-violet-400/30 bg-violet-500/10 text-violet-700 dark:text-violet-400 hover:bg-violet-500/20 text-xs font-semibold transition-all disabled:opacity-50"
             >
               {emailSending ? <Loader2 size={14} className="animate-spin" /> : <Mail size={14} />}
               {emailSending ? 'Đang gửi...' : 'Gửi Email'}

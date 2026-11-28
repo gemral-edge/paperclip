@@ -257,7 +257,7 @@ function StreamLine({
   switch (e.type) {
     case "step_start":
       return (
-        <div className="text-blue-400 pt-1">
+        <div className="text-blue-400 pt-1">{/* dark-surface-ok */}
           ▶ <span className="font-semibold">Bước {e.stepOrder}:</span> {e.stepName}
         </div>
       );

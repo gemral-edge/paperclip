@@ -46,7 +46,7 @@ function formatTime(ts: string | null): string {
 const LABEL_CONFIG: Record<string, { text: string; color: string; bg: string }> = {
   hot: { text: "HOT", color: "text-red-500", bg: "bg-red-500/10" },
   warm: { text: "Ấm", color: "text-amber-500", bg: "bg-amber-500/10" },
-  cold: { text: "Lạnh", color: "text-blue-400", bg: "bg-blue-400/10" },
+  cold: { text: "Lạnh", color: "text-blue-700 dark:text-blue-400", bg: "bg-blue-400/10" },
   vip: { text: "VIP", color: "text-purple-500", bg: "bg-purple-500/10" },
   spam: { text: "Spam", color: "text-zinc-400", bg: "bg-zinc-400/10" },
   khach_hang: { text: "Khách hàng", color: "text-emerald-500", bg: "bg-emerald-500/10" },

@@ -6,7 +6,7 @@ const tempConfig: Record<string, { icon: typeof Flame; color: string; bg: string
   on_fire: { icon: Flame, color: "text-red-500", bg: "bg-red-500/10", label: "Nóng bỏng" },
   hot: { icon: Flame, color: "text-orange-500", bg: "bg-orange-500/10", label: "Nóng" },
   warm: { icon: Sun, color: "text-yellow-500", bg: "bg-yellow-500/10", label: "Ấm" },
-  cold: { icon: Snowflake, color: "text-blue-400", bg: "bg-blue-400/10", label: "Lạnh" },
+  cold: { icon: Snowflake, color: "text-blue-700 dark:text-blue-400", bg: "bg-blue-400/10", label: "Lạnh" },
 };
 
 export function LeadScoreBadge({

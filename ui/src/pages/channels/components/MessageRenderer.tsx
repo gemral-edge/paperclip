@@ -418,7 +418,7 @@ function TextMsg({ content, onDark }: { content: string; onDark?: boolean }) {
   // Color variants keyed by bubble background. On a dark bubble (outbound zinc-800)
   // brand `text-primary` + `bg-muted/50` are too dark to read → switch to light tones.
   const linkCls = onDark
-    ? "text-sky-300 underline underline-offset-2 hover:text-sky-200"
+    ? "text-sky-300 underline underline-offset-2 hover:text-sky-200" // dark-surface-ok
     : "text-primary underline underline-offset-2 hover:opacity-80";
   const codeCls = onDark
     ? "bg-white/15 text-zinc-50 px-1 py-0.5 rounded text-[13px] font-mono"

@@ -1060,14 +1060,14 @@ export function DesignGuide() {
           <div className="text-yellow-400">{/* dark-surface-ok */}[12:00:05] WARN  Rate limit approaching (80%)</div>
           <div className="text-foreground">[12:00:08] INFO  Task PAP-001 completed</div>
           <div className="text-red-400">{/* dark-surface-ok */}[12:00:12] ERROR Connection timeout to upstream service</div>
-          <div className="text-blue-300">[12:00:12] SYS   Retrying connection in 5s...</div>
+          <div className="text-blue-300">{/* dark-surface-ok */}[12:00:12] SYS   Retrying connection in 5s...</div>
           <div className="text-foreground">[12:00:17] INFO  Reconnected successfully</div>
           <div className="flex items-center gap-1.5">
             <span className="relative flex h-1.5 w-1.5">
               <span className="absolute inline-flex h-full w-full rounded-full bg-cyan-400 animate-pulse" />
               <span className="inline-flex h-full w-full rounded-full bg-cyan-400" />
             </span>
-            <span className="text-cyan-400">Live</span>
+            <span className="text-cyan-400">{/* dark-surface-ok */}Live</span>
           </div>
         </div>
       </Section>

@@ -4,7 +4,7 @@
 import { useState, useMemo } from "react";
 import {
   Search, SlidersHorizontal, Plus, X, Filter, RotateCcw,
-  Circle, CheckCircle, Pin, Flame, Thermometer, Snowflake, Star, User, Handshake, Briefcase, Ban, ShieldBan, Ticket, PanelLeftClose
+  Circle, CheckCircle, CheckCheck, Pin, Flame, Thermometer, Snowflake, Star, User, Handshake, Briefcase, Ban, ShieldBan, Ticket, PanelLeftClose
 } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 import { channelsApi, type ChannelSession } from "@/api/channels";
@@ -39,7 +39,7 @@ const LABEL_OPTIONS = [
   { key: "", label: "Tất cả phân loại", icon: null },
   { key: "hot", label: "Hot", icon: <Flame className="h-3 w-3 text-red-500" /> },
   { key: "warm", label: "Ấm", icon: <Thermometer className="h-3 w-3 text-orange-500" /> },
-  { key: "cold", label: "Lạnh", icon: <Snowflake className="h-3 w-3 text-blue-400" /> },
+  { key: "cold", label: "Lạnh", icon: <Snowflake className="h-3 w-3 text-blue-600 dark:text-blue-400" /> },
   { key: "vip", label: "VIP", icon: <Star className="h-3 w-3 text-amber-500" /> },
   { key: "khach_hang", label: "Khách hàng", icon: <User className="h-3 w-3 text-slate-500" /> },
   { key: "doi_tac", label: "Đối tác", icon: <Handshake className="h-3 w-3 text-teal-500" /> },
@@ -67,6 +67,20 @@ export function ConversationList({
   const [searchInput, setSearchInput] = useState("");
   const [showFilters, setShowFilters] = useState(false);
   const [showNewChat, setShowNewChat] = useState(false);
+  const [markingRead, setMarkingRead] = useState(false);
+
+  const handleMarkAllRead = async () => {
+    if (markingRead) return;
+    try {
+      setMarkingRead(true);
+      await channelsApi.markAllRead(filters.channel);
+      onAction();
+    } catch (err) {
+      console.error("Lỗi đánh dấu tất cả đã đọc:", err);
+    } finally {
+      setMarkingRead(false);
+    }
+  };
 
   // Count active filters
   const activeFilterCount = useMemo(() => {
@@ -132,6 +146,19 @@ export function ConversationList({
               </span>
             )}
           </button>
+
+          {/* Mark all as read button */}
+          {totalUnread > 0 && (
+            <button
+              onClick={handleMarkAllRead}
+              disabled={markingRead}
+              className="h-9 px-2.5 rounded-lg border border-border text-muted-foreground hover:bg-muted hover:text-emerald-500 transition-all shrink-0 flex items-center gap-1.5"
+              title="Đánh dấu tất cả là đã đọc"
+            >
+              <CheckCheck className="h-4 w-4 text-emerald-500" />
+              <span className="text-xs hidden sm:inline font-medium">{markingRead ? "..." : "Đã đọc"}</span>
+            </button>
+          )}
 
           {/* New chat button */}
           <button
@@ -300,8 +327,24 @@ export function ConversationList({
       <div className="px-3 py-2 border-t border-border bg-muted/20">
         <div className="flex items-center justify-between text-[11px] text-muted-foreground">
           <span>{conversations.length} hội thoại</span>
-          {totalUnread > 0 && (
-            <span className="text-red-500 font-medium">{totalUnread} chưa đọc</span>
+          {totalUnread > 0 ? (
+            <div className="flex items-center gap-2">
+              <span className="text-red-500 font-medium">{totalUnread} chưa đọc</span>
+              <button
+                onClick={handleMarkAllRead}
+                disabled={markingRead}
+                className="text-primary hover:underline font-semibold hover:text-primary/80 transition-colors flex items-center gap-1 cursor-pointer"
+                title="Đánh dấu tất cả hội thoại là đã đọc"
+              >
+                <CheckCheck className="h-3 w-3 text-emerald-500" />
+                <span>{markingRead ? "Đang xử lý..." : "Đánh dấu tất cả đã đọc"}</span>
+              </button>
+            </div>
+          ) : (
+            <span className="text-emerald-500 font-medium flex items-center gap-1">
+              <CheckCircle className="h-3 w-3" />
+              <span>Đã đọc hết</span>
+            </span>
           )}
         </div>
       </div>

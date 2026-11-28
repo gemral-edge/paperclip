@@ -294,7 +294,7 @@ const CATEGORIES = [
     name: 'Tích Hợp',
     description: '5 tối ưu hoá về kết nối và tích hợp bên ngoài',
     icon: Globe,
-    color: 'text-rose-400',
+    color: 'text-rose-700 dark:text-rose-400',
     borderColor: 'border-l-rose-400',
     optimizations: [
       {
@@ -443,7 +443,7 @@ function getStatusConfig(status) {
 function getPriorityConfig(priority) {
   switch (priority) {
     case 'critical':
-      return { label: 'Cực Kỳ Quan Trọng', className: 'bg-rose-400/10 text-rose-400' };
+      return { label: 'Cực Kỳ Quan Trọng', className: 'bg-rose-400/10 text-rose-700 dark:text-rose-400' };
     case 'high':
       return { label: 'Cao', className: 'bg-amber-400/10 text-amber-700 dark:text-amber-400' };
     case 'medium':
