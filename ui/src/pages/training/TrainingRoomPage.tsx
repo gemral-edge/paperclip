@@ -55,18 +55,12 @@ const AGENT_OPTIONS = [
 ];
 
 const DIFFICULTY_COLOR: Record<string, string> = {
-  easy: "bg-[#3AF7A6]/12 text-[#3AF7A6]",
-  medium: "bg-[#00F0FF]/12 text-[#00F0FF]",
-  hard: "bg-[#FFB800]/12 text-[#FFB800]",
-  critical: "bg-[#FF6B6B]/12 text-[#FF6B6B]",
+  easy: "bg-emerald-500/12 text-emerald-700 dark:text-emerald-400",
+  medium: "bg-cyan-500/12 text-cyan-700 dark:text-cyan-400",
+  hard: "bg-amber-500/12 text-amber-700 dark:text-amber-400",
+  critical: "bg-red-500/12 text-red-700 dark:text-red-400",
 };
 
-// WebSocket events from training-orchestrator. The orchestrator emits a generic
-// envelope: { type, session_id, data?: { ... } } where `type` is one of
-// "started" | "turn" | "completed" | "failed" | "cancelled". For "turn" events
-// the `data` payload contains the full TrainingTurn record. For terminal
-// statuses, `data` carries the final status info (and the reviewer rows arrive
-// separately via the next polling refetch).
 interface LiveEvent {
   type: "started" | "turn" | "completed" | "failed" | "cancelled" | "connected";
   session_id?: string;
@@ -85,7 +79,12 @@ export function TrainingRoomPage() {
   const wsRef = useRef<WebSocket | null>(null);
 
   // Recent sessions list (right of bottom panel)
-  const { data: sessions = [] } = useQuery({
+  const {
+    data: sessions = [],
+    isError: isSessionsError,
+    error: sessionsError,
+    refetch: refetchSessions,
+  } = useQuery({
     queryKey: ["training", "sessions"],
     queryFn: () => trainingApi.listSessions(20),
     refetchInterval: 5_000,
@@ -187,29 +186,31 @@ export function TrainingRoomPage() {
   const isRunning = liveStatus === "running" || startMutation.isPending;
 
   return (
-    <div className="min-h-[calc(100vh-48px)] bg-[#0A0B1A] p-5">
+    <div className="min-h-[calc(100vh-48px)] bg-background p-4 sm:p-5 text-foreground">
       {/* ── Header ─────────────────────────────────────────── */}
       <div className="mb-4">
-        <h1 className="text-[20px] font-bold text-white mb-1">
+        <h1 className="text-[20px] font-bold text-foreground mb-1">
           Phòng Training
         </h1>
-        <p className="text-[12px] text-white/40">
+        <p className="text-[12px] text-muted-foreground">
           CEO Gemini đóng vai khách hàng để test agent. Opus 4.6 review sau mỗi
           session theo 10 tiêu chí. Mỗi feedback tự động inject vào lần training kế tiếp.
         </p>
       </div>
 
       {/* ── Control bar ────────────────────────────────────── */}
-      <div className="bg-[rgba(15,16,48,0.35)] rounded-xl p-3.5 mb-4 flex items-center gap-3 flex-wrap">
+      <div className="rounded-xl border border-border bg-card p-3.5 mb-4 flex items-center gap-3 flex-wrap">
         <div className="flex items-center gap-2">
-          <span className="text-[11px] font-semibold text-white/40 uppercase">
+          <label htmlFor="training-scenario-select" className="text-[11px] font-semibold text-muted-foreground uppercase">
             Scenario
-          </span>
+          </label>
           <select
+            id="training-scenario-select"
+            aria-label="Chọn kịch bản training"
             value={selectedScenario}
             onChange={(e) => setSelectedScenario(e.target.value)}
             disabled={isRunning}
-            className="h-8 px-2.5 text-[12px] bg-white/[0.04] border border-white/[0.06] rounded-lg text-white focus:border-[#6A5BFF]/40 focus:outline-none disabled:opacity-50"
+            className="h-9 sm:h-8 px-2.5 text-base sm:text-xs bg-background border border-input rounded-lg text-foreground focus:border-primary focus:outline-none disabled:opacity-50"
           >
             {SCENARIO_OPTIONS.map((s) => (
               <option key={s.id} value={s.id}>
@@ -229,12 +230,16 @@ export function TrainingRoomPage() {
         </div>
 
         <div className="flex items-center gap-2">
-          <span className="text-[11px] font-semibold text-white/40 uppercase">Agent</span>
+          <label htmlFor="training-agent-select" className="text-[11px] font-semibold text-muted-foreground uppercase">
+            Agent
+          </label>
           <select
+            id="training-agent-select"
+            aria-label="Chọn agent training"
             value={selectedAgent}
             onChange={(e) => setSelectedAgent(e.target.value)}
             disabled={isRunning}
-            className="h-8 px-2.5 text-[12px] bg-white/[0.04] border border-white/[0.06] rounded-lg text-white focus:border-[#6A5BFF]/40 focus:outline-none disabled:opacity-50"
+            className="h-9 sm:h-8 px-2.5 text-base sm:text-xs bg-background border border-input rounded-lg text-foreground focus:border-primary focus:outline-none disabled:opacity-50"
           >
             {AGENT_OPTIONS.map((a) => (
               <option key={a.slug} value={a.slug}>
@@ -250,62 +255,72 @@ export function TrainingRoomPage() {
           <span
             className={`inline-flex items-center gap-1 h-[22px] px-2 text-[10px] font-bold rounded uppercase ${
               liveStatus === "running"
-                ? "bg-[#FFB800]/12 text-[#FFB800]"
+                ? "bg-amber-500/12 text-amber-700 dark:text-amber-400"
                 : liveStatus === "completed"
-                  ? "bg-[#3AF7A6]/12 text-[#3AF7A6]"
+                  ? "bg-emerald-500/12 text-emerald-700 dark:text-emerald-400"
                   : liveStatus === "reviewing"
-                    ? "bg-[#6A5BFF]/12 text-[#6A5BFF]"
-                    : "bg-[#FF6B6B]/12 text-[#FF6B6B]"
+                    ? "bg-indigo-500/12 text-indigo-700 dark:text-indigo-300"
+                    : "bg-red-500/12 text-red-700 dark:text-red-400"
             }`}
           >
-            {liveStatus === "running" && <Loader2 size={10} className="animate-spin" />}
-            {liveStatus === "completed" && <CheckCircle size={10} />}
-            {liveStatus === "failed" && <XCircle size={10} />}
+            {liveStatus === "running" && <Loader2 size={10} className="animate-spin" aria-hidden="true" />}
+            {liveStatus === "completed" && <CheckCircle size={10} aria-hidden="true" />}
+            {liveStatus === "failed" && <XCircle size={10} aria-hidden="true" />}
             {liveStatus}
           </span>
         )}
 
         <button
+          type="button"
           onClick={() => startMutation.mutate()}
           disabled={isRunning}
-          className="h-8 px-3.5 text-[12px] font-semibold rounded-lg border-none cursor-pointer inline-flex items-center gap-1.5 bg-[#FFBD59]/15 text-[#FFBD59] hover:bg-[#FFBD59]/25 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+          className="h-9 sm:h-8 px-3.5 text-[12px] font-semibold rounded-lg border border-amber-500/30 cursor-pointer inline-flex items-center gap-1.5 bg-amber-500/15 text-amber-800 dark:text-amber-300 hover:bg-amber-500/25 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
         >
           {isRunning ? (
-            <Loader2 size={14} className="animate-spin" />
+            <Loader2 size={14} className="animate-spin" aria-hidden="true" />
           ) : (
-            <Play size={14} />
+            <Play size={14} aria-hidden="true" />
           )}
           {isRunning ? "Đang chạy..." : "Bắt đầu session"}
         </button>
       </div>
 
+      {startMutation.isError && (
+        <div
+          role="alert"
+          className="mb-4 rounded-xl border border-destructive/40 bg-destructive/10 px-3.5 py-2.5 text-xs text-destructive"
+        >
+          Không thể bắt đầu session: {(startMutation.error as Error)?.message || "Lỗi kết nối"}
+        </div>
+      )}
+
       {/* ── Dual-column live stream ────────────────────────── */}
-      <div className="grid grid-cols-2 gap-3 mb-4">
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-3 mb-4">
         {/* CEO column */}
-        <div className="bg-[rgba(15,16,48,0.35)] rounded-xl p-3.5 min-h-[460px]">
-          <div className="flex items-center gap-2 mb-3 pb-2 border-b border-white/[0.06]">
-            <div className="w-8 h-8 rounded-lg bg-[#6A5BFF]/15 flex items-center justify-center">
-              <MessageSquare size={16} className="text-[#6A5BFF]" />
+        <div className="rounded-xl border border-border bg-card p-3.5 min-h-[460px]">
+          <div className="flex items-center gap-2 mb-3 pb-2 border-b border-border">
+            <div className="w-8 h-8 rounded-lg bg-indigo-500/12 flex items-center justify-center">
+              <MessageSquare size={16} className="text-indigo-700 dark:text-indigo-400" aria-hidden="true" />
             </div>
             <div>
-              <div className="text-[13px] font-bold text-white">CEO (Gemini 2.5 Flash)</div>
-              <div className="text-[10px] text-white/40">Đóng vai khách hàng</div>
+              <div className="text-[13px] font-bold text-foreground">CEO (Gemini 2.5 Flash)</div>
+              <div className="text-[10px] text-muted-foreground">Đóng vai khách hàng</div>
             </div>
           </div>
           <TurnList turns={mergedTurns.filter((t) => t.role === "ceo")} accent="purple" />
         </div>
 
         {/* Agent column */}
-        <div className="bg-[rgba(15,16,48,0.35)] rounded-xl p-3.5 min-h-[460px]">
-          <div className="flex items-center gap-2 mb-3 pb-2 border-b border-white/[0.06]">
-            <div className="w-8 h-8 rounded-lg bg-[#3AF7A6]/15 flex items-center justify-center">
-              <CheckCircle size={16} className="text-[#3AF7A6]" />
+        <div className="rounded-xl border border-border bg-card p-3.5 min-h-[460px]">
+          <div className="flex items-center gap-2 mb-3 pb-2 border-b border-border">
+            <div className="w-8 h-8 rounded-lg bg-emerald-500/12 flex items-center justify-center">
+              <CheckCircle size={16} className="text-emerald-700 dark:text-emerald-400" aria-hidden="true" />
             </div>
             <div>
-              <div className="text-[13px] font-bold text-white">
+              <div className="text-[13px] font-bold text-foreground">
                 {selectedAgent === "sales-closer" ? "Sales Closer (Ollama gemma4)" : selectedAgent}
               </div>
-              <div className="text-[10px] text-white/40">Reply tự nhiên + tool calls</div>
+              <div className="text-[10px] text-muted-foreground">Reply tự nhiên + tool calls</div>
             </div>
           </div>
           <TurnList turns={mergedTurns.filter((t) => t.role === "agent")} accent="green" />
@@ -313,29 +328,29 @@ export function TrainingRoomPage() {
       </div>
 
       {/* ── Bottom: Rubric scores + Recent sessions ─────────── */}
-      <div className="grid grid-cols-[1fr_320px] gap-3">
+      <div className="grid grid-cols-1 lg:grid-cols-[1fr_320px] gap-3">
         {/* Rubric scores */}
-        <div className="bg-[rgba(15,16,48,0.35)] rounded-xl p-3.5">
+        <div className="rounded-xl border border-border bg-card p-3.5">
           <div className="flex items-center gap-2 mb-3">
-            <Star size={14} className="text-[#FFBD59]" />
-            <h3 className="text-[13px] font-bold text-white">
+            <Star size={14} className="text-amber-600 dark:text-amber-400" aria-hidden="true" />
+            <h3 className="text-[13px] font-bold text-foreground">
               Rubric Opus 4.6 (10 tiêu chí)
             </h3>
             {mergedScores.length === 0 && (
-              <span className="text-[10px] text-white/30 ml-auto">
+              <span className="text-[10px] text-muted-foreground ml-auto">
                 (chờ Opus review sau khi session xong)
               </span>
             )}
           </div>
           {mergedScores.length === 0 ? (
             <div className="text-center py-8">
-              <Star size={32} className="mx-auto mb-2 text-white/10" />
-              <div className="text-[12px] text-white/30">
+              <Star size={32} className="mx-auto mb-2 text-muted-foreground/30" aria-hidden="true" />
+              <div className="text-[12px] text-muted-foreground">
                 Chưa có scores. Chạy 1 session để xem rubric.
               </div>
             </div>
           ) : (
-            <div className="grid grid-cols-2 gap-2">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
               {mergedScores.map((s) => (
                 <RubricRow key={s.rubric_key} score={s} />
               ))}
@@ -344,14 +359,25 @@ export function TrainingRoomPage() {
         </div>
 
         {/* Recent sessions */}
-        <div className="bg-[rgba(15,16,48,0.35)] rounded-xl p-3.5">
+        <div className="rounded-xl border border-border bg-card p-3.5">
           <div className="flex items-center gap-2 mb-3">
-            <History size={14} className="text-[#00F0FF]" />
-            <h3 className="text-[13px] font-bold text-white">Lịch sử gần đây</h3>
+            <History size={14} className="text-cyan-700 dark:text-cyan-400" aria-hidden="true" />
+            <h3 className="text-[13px] font-bold text-foreground">Lịch sử gần đây</h3>
           </div>
           <div className="space-y-1.5 max-h-[260px] overflow-y-auto">
-            {sessions.length === 0 ? (
-              <div className="text-[11px] text-white/30 text-center py-4">
+            {isSessionsError ? (
+              <div role="alert" className="text-center py-4 px-2 space-y-2 text-xs text-destructive">
+                <div>Không thể tải lịch sử: {(sessionsError as Error)?.message || "Lỗi kết nối"}</div>
+                <button
+                  type="button"
+                  onClick={() => refetchSessions()}
+                  className="min-h-[36px] rounded-md border border-destructive/40 px-3 py-1.5 text-xs font-medium hover:bg-destructive/10 cursor-pointer"
+                >
+                  Thử lại
+                </button>
+              </div>
+            ) : sessions.length === 0 ? (
+              <div className="text-[11px] text-muted-foreground text-center py-4">
                 Chưa có session nào
               </div>
             ) : (
@@ -382,17 +408,17 @@ function TurnList({ turns, accent }: TurnListProps) {
   if (turns.length === 0) {
     return (
       <div className="text-center py-10 px-3">
-        <MessageSquare size={28} className="mx-auto mb-2 text-white/10" />
-        <div className="text-[12px] text-white/30">Chưa có message</div>
-        <div className="text-[10px] text-white/20 mt-1">
+        <MessageSquare size={28} className="mx-auto mb-2 text-muted-foreground/30" aria-hidden="true" />
+        <div className="text-[12px] text-muted-foreground">Chưa có message</div>
+        <div className="text-[10px] text-muted-foreground/70 mt-1">
           Bắt đầu session để xem live stream
         </div>
       </div>
     );
   }
 
-  const accentBg = accent === "purple" ? "bg-[#6A5BFF]/8" : "bg-[#3AF7A6]/8";
-  const accentBorder = accent === "purple" ? "border-[#6A5BFF]/15" : "border-[#3AF7A6]/15";
+  const accentBg = accent === "purple" ? "bg-indigo-500/8" : "bg-emerald-500/8";
+  const accentBorder = accent === "purple" ? "border-indigo-500/20" : "border-emerald-500/20";
 
   return (
     <div className="space-y-2 max-h-[400px] overflow-y-auto pr-1">
@@ -405,16 +431,16 @@ function TurnList({ turns, accent }: TurnListProps) {
             className={`${accentBg} border ${accentBorder} rounded-lg p-2.5`}
           >
             <div className="flex items-center gap-2 mb-1">
-              <span className="text-[10px] font-bold text-white/40 uppercase">
+              <span className="text-[10px] font-bold text-muted-foreground uppercase tabular-nums">
                 Turn {t.turn_no}
               </span>
               {hasToolCalls && (
-                <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-[#00F0FF]">
-                  <Wrench size={10} /> {(t.tool_calls as unknown[]).length} tool call(s)
+                <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-cyan-700 dark:text-cyan-400">
+                  <Wrench size={10} aria-hidden="true" /> {(t.tool_calls as unknown[]).length} tool call(s)
                 </span>
               )}
             </div>
-            <div className="text-[12px] text-[#E0E0F0] leading-relaxed whitespace-pre-wrap">
+            <div className="text-[12px] text-foreground leading-relaxed whitespace-pre-wrap">
               {t.content || "(empty)"}
             </div>
           </div>
@@ -431,36 +457,38 @@ interface RubricRowProps {
 function RubricRow({ score }: RubricRowProps) {
   const color =
     score.score_0_100 >= 90
-      ? "text-[#3AF7A6]"
+      ? "text-emerald-700 dark:text-emerald-400"
       : score.score_0_100 >= 75
-        ? "text-[#00F0FF]"
+        ? "text-cyan-700 dark:text-cyan-400"
         : score.score_0_100 >= 60
-          ? "text-[#FFB800]"
-          : "text-[#FF6B6B]";
+          ? "text-amber-700 dark:text-amber-400"
+          : "text-red-700 dark:text-red-400";
 
   const barColor =
     score.score_0_100 >= 90
-      ? "bg-[#3AF7A6]"
+      ? "bg-emerald-600 dark:bg-emerald-400"
       : score.score_0_100 >= 75
-        ? "bg-[#00F0FF]"
+        ? "bg-cyan-600 dark:bg-cyan-400"
         : score.score_0_100 >= 60
-          ? "bg-[#FFB800]"
-          : "bg-[#FF6B6B]";
+          ? "bg-amber-500 dark:bg-amber-400"
+          : "bg-red-600 dark:bg-red-400";
+
+  const pct = Math.min(Math.max(score.score_0_100, 0), 100);
 
   return (
-    <div className="bg-white/[0.02] rounded-md p-2">
+    <div className="bg-muted/40 border border-border/50 rounded-md p-2">
       <div className="flex items-center justify-between mb-1">
-        <span className="text-[11px] font-semibold text-white/80">{score.rubric_key}</span>
-        <span className={`text-[12px] font-bold ${color}`}>{score.score_0_100}</span>
+        <span className="text-[11px] font-semibold text-foreground">{score.rubric_key}</span>
+        <span className={`text-[12px] font-bold tabular-nums ${color}`}>{score.score_0_100}</span>
       </div>
-      <div className="w-full h-1 bg-white/[0.06] rounded overflow-hidden mb-1">
+      <div className="w-full h-1 bg-muted rounded overflow-hidden mb-1">
         <div
           className={`h-full ${barColor} transition-all`}
-          style={{ width: `${score.score_0_100}%` }}
+          style={{ width: `${pct}%` }}
         />
       </div>
       {score.opus_feedback && (
-        <div className="text-[10px] text-white/40 line-clamp-2">{score.opus_feedback}</div>
+        <div className="text-[10px] text-muted-foreground line-clamp-2">{score.opus_feedback}</div>
       )}
     </div>
   );
@@ -475,33 +503,36 @@ interface SessionRowProps {
 function SessionRow({ session, active, onClick }: SessionRowProps) {
   const statusColor =
     session.status === "completed"
-      ? "text-[#3AF7A6]"
+      ? "text-emerald-700 dark:text-emerald-400"
       : session.status === "running"
-        ? "text-[#FFB800]"
+        ? "text-amber-700 dark:text-amber-400"
         : session.status === "reviewing"
-          ? "text-[#6A5BFF]"
-          : "text-[#FF6B6B]";
+          ? "text-indigo-700 dark:text-indigo-300"
+          : "text-red-700 dark:text-red-400";
 
   return (
     <button
+      type="button"
       onClick={onClick}
-      className={`w-full text-left rounded-md p-2 transition-colors border-none cursor-pointer ${
-        active ? "bg-[#FFBD59]/10" : "bg-white/[0.02] hover:bg-white/[0.04]"
+      className={`w-full text-left rounded-md p-2 transition-colors border cursor-pointer ${
+        active
+          ? "bg-amber-500/12 border-amber-500/30"
+          : "bg-muted/30 border-transparent hover:bg-muted/60"
       }`}
     >
       <div className="flex items-center justify-between mb-0.5">
-        <span className="text-[11px] font-semibold text-white truncate">
-          {session.scenario_focus.slice(0, 24)}
+        <span className="text-[11px] font-semibold text-foreground truncate">
+          {(session.scenario_focus || "—").slice(0, 24)}
         </span>
         {session.opus_score !== null && (
-          <span className="text-[11px] font-bold text-[#FFBD59] flex-shrink-0">
+          <span className="text-[11px] font-bold text-amber-700 dark:text-amber-400 flex-shrink-0 tabular-nums">
             {session.opus_score}
           </span>
         )}
       </div>
       <div className="flex items-center gap-2 text-[10px]">
         <span className={`font-semibold uppercase ${statusColor}`}>{session.status}</span>
-        <span className="text-white/30">{session.agent_slug}</span>
+        <span className="text-muted-foreground">{session.agent_slug}</span>
       </div>
     </button>
   );
