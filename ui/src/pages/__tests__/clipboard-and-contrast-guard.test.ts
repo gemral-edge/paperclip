@@ -1,6 +1,6 @@
 // GEM-2861 & GEM-2882: Bảo vệ 2 lớp cho Paperclip UI:
 // (1) Mọi lời gọi `navigator.clipboard.writeText(...)` phải bọc `try { await ... } catch` trong cùng function hoặc chuỗi `.catch(...)` / `.then(ok, err)`.
-// (2) Mọi class chữ sáng `text-(emerald|amber|red|green|yellow)-(100|200|300|400)` trên surface theo theme phải có tiền tố `dark:` (tránh mất tương phản trên Light Mode).
+// (2) Mọi class chữ sáng `text-(17 họ màu sắc tố)-(100|200|300|400)` trên surface theo theme phải có tiền tố `dark:` (tránh mất tương phản trên Light Mode).
 import { describe, it, expect } from "vitest";
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { join, relative } from "node:path";
@@ -114,12 +114,18 @@ function stripJsCommentsPreserveLines(src: string): string {
   return out.join("");
 }
 
-/** Trả về danh sách dòng (1-based) dùng `text-(emerald|amber|red|green|yellow)-(100|200|300|400)` mà thiếu tiền tố `dark:`. */
+const CHROMATIC_LIGHT_COLORS =
+  "emerald|amber|red|green|yellow|blue|cyan|sky|rose|violet|pink|indigo|purple|teal|orange|lime|fuchsia";
+
+/** Trả về danh sách dòng (1-based) dùng `text-(17 họ màu sắc tố)-(100|200|300|400)` mà thiếu tiền tố `dark:`. */
 export function findBareLightStatusText(source: string): number[] {
-  if (!/text-(?:emerald|amber|red|green|yellow)-/.test(source)) return [];
+  if (!new RegExp(`text-(?:${CHROMATIC_LIGHT_COLORS})-`).test(source)) return [];
   const rawLines = source.split("\n");
   const cleanedLines = stripJsCommentsPreserveLines(source).split("\n");
-  const rx = /(?<![:\w-])((?:[a-z0-9[\]_-]+:)*)text-(?:emerald|amber|red|green|yellow)-(?:100|200|300|400)(?![\w-])/g;
+  const rx = new RegExp(
+    `(?<![:\\w-])((?:[a-z0-9\\[\\]_-]+:)*)text-(?:${CHROMATIC_LIGHT_COLORS})-(?:100|200|300|400)(?![\\w-])`,
+    "g",
+  );
   const bad: number[] = [];
 
   for (let idx = 0; idx < cleanedLines.length; idx++) {
@@ -226,7 +232,7 @@ describe("GEM-2861: clipboard.writeText error handling & Light Mode text-emerald
     expect(findUnguardedClipboardWrites("if (typeof navigator.clipboard?.writeText === 'function') {}")).toEqual([]);
   });
 
-  it("findBareLightStatusText bắt đúng 5 họ màu sáng thiếu dark: và thả dạng có dark:/nền tối", () => {
+  it("findBareLightStatusText bắt đúng 17 họ màu sắc tố sáng thiếu dark: và thả dạng có dark:/nền tối", () => {
     expect(findBareLightStatusText('<span className="text-emerald-200">ok</span>')).toEqual([1]);
     expect(findBareLightStatusText('<span className="text-amber-300">ok</span>')).toEqual([1]);
     expect(findBareLightStatusText('<span className="text-red-100/70">ok</span>')).toEqual([1]);
@@ -234,9 +240,25 @@ describe("GEM-2861: clipboard.writeText error handling & Light Mode text-emerald
     expect(findBareLightStatusText('<span className="text-yellow-400">ok</span>')).toEqual([1]);
     expect(findBareLightStatusText('<span className="hover:text-red-400">ok</span>')).toEqual([1]);
     expect(findBareLightStatusText('<span className="text-amber-400 dark:text-amber-400">ok</span>')).toEqual([1]);
+    expect(findBareLightStatusText('<span className="text-blue-400">ok</span>')).toEqual([1]);
+    expect(findBareLightStatusText('<span className="text-cyan-400">ok</span>')).toEqual([1]);
+    expect(findBareLightStatusText('<span className="text-sky-300">ok</span>')).toEqual([1]);
+    expect(findBareLightStatusText('<a className="hover:text-sky-200">ok</a>')).toEqual([1]);
+    expect(findBareLightStatusText('<span className="text-rose-400">ok</span>')).toEqual([1]);
+    expect(findBareLightStatusText('<span className="text-violet-400">ok</span>')).toEqual([1]);
+    expect(findBareLightStatusText('<button className="hover:text-pink-400">ok</button>')).toEqual([1]);
+    expect(findBareLightStatusText('<span className="text-purple-300">ok</span>')).toEqual([1]);
+    expect(findBareLightStatusText('<span className="text-indigo-300">ok</span>')).toEqual([1]);
+    expect(findBareLightStatusText('<span className="text-teal-400">ok</span>')).toEqual([1]);
+    expect(findBareLightStatusText('<span className="text-orange-300">ok</span>')).toEqual([1]);
+    expect(findBareLightStatusText('<span className="text-lime-400">ok</span>')).toEqual([1]);
+    expect(findBareLightStatusText('<span className="text-fuchsia-300">ok</span>')).toEqual([1]);
 
     expect(findBareLightStatusText('<span className="text-emerald-700 dark:text-emerald-200">ok</span>')).toEqual([]);
     expect(findBareLightStatusText('<span className="text-amber-700 dark:text-amber-400">ok</span>')).toEqual([]);
+    expect(findBareLightStatusText('<span className="text-blue-700 dark:text-blue-400">ok</span>')).toEqual([]);
+    expect(findBareLightStatusText('<span className="text-rose-700 dark:text-rose-400">ok</span>')).toEqual([]);
+    expect(findBareLightStatusText('<span className="text-sky-300">ok</span> // dark-surface-ok')).toEqual([]);
     expect(findBareLightStatusText('<span className="dark:hover:text-amber-400">ok</span>')).toEqual([]);
     expect(findBareLightStatusText('<span className="bg-red-600/90 text-red-50">ok</span>')).toEqual([]);
     expect(findBareLightStatusText('<span className="text-green-400">ok</span> {/* dark-surface-ok */}')).toEqual([]);

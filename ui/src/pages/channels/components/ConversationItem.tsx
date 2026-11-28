@@ -48,7 +48,7 @@ const LABEL_CONFIG: Record<string, { text: string; color: string; bg: string }> 
   warm: { text: "Ấm", color: "text-amber-500", bg: "bg-amber-500/10" },
   cold: { text: "Lạnh", color: "text-blue-700 dark:text-blue-400", bg: "bg-blue-400/10" },
   vip: { text: "VIP", color: "text-purple-500", bg: "bg-purple-500/10" },
-  spam: { text: "Spam", color: "text-zinc-400", bg: "bg-zinc-400/10" },
+  spam: { text: "Spam", color: "text-zinc-600 dark:text-zinc-400", bg: "bg-zinc-400/10" },
   khach_hang: { text: "Khách hàng", color: "text-emerald-500", bg: "bg-emerald-500/10" },
   doi_tac: { text: "Đối tác", color: "text-blue-500", bg: "bg-blue-500/10" },
   ctv: { text: "CTV", color: "text-orange-500", bg: "bg-orange-500/10" },

@@ -32,7 +32,7 @@ export default function CCLayout() {
             onClick={() => setDarkMode(!darkMode)}
             className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-sm transition-colors ${
               darkMode
-                ? 'border-purple-500/30 text-purple-300 hover:bg-purple-500/10'
+                ? 'border-purple-500/30 text-purple-300 hover:bg-purple-500/10' // dark-surface-ok
                 : 'border-gray-300 text-gray-600 hover:bg-gray-100'
             }`}
           >

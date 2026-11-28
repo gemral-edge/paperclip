@@ -1,5 +1,5 @@
 {
-  "_note": "SSOT baseline (shrink-only) cho clipboard-and-contrast-guard.test.ts và scripts/audit_paperclip_runtime_deps.py (R10, GEM-2861, GEM-2916). clipboardWriteTextLegacy đã dọn sạch 0/0 (GEM-2881). lightEmeraldLegacy đã dọn sạch 0/0 (GEM-2882). hardcodedDarkBgLegacy đã dọn sạch 0/0 (GEM-2916). bareTextWhitePagesLegacy khoá shrink-only các chỗ text-white trên nền tối cha/avatar/lightbox/terminal trong pages/.",
+  "_note": "SSOT baseline (shrink-only) cho clipboard-and-contrast-guard.test.ts và scripts/audit_paperclip_runtime_deps.py (R10, GEM-2861, GEM-2916, GEM-2937). clipboardWriteTextLegacy đã dọn sạch 0/0 (GEM-2881). lightEmeraldLegacy đã dọn sạch 0/0 cho đủ 17 họ màu sắc tố Tailwind (GEM-2882, GEM-2937). hardcodedDarkBgLegacy đã dọn sạch 0/0 (GEM-2916). bareTextWhitePagesLegacy khoá shrink-only các chỗ text-white trên nền tối cha/avatar/lightbox/terminal trong pages/.",
   "clipboardWriteTextLegacy": {},
   "darkOnlySurfaceFiles": [
     "components/devtools/DevToolsOverlay.tsx",

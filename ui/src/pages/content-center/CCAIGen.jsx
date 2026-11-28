@@ -6583,7 +6583,7 @@ KHÔNG liệt kê tính năng / điểm mạnh / lợi ích khô khan. PHẢI vi
                 {[
                   { name: 'Facebook', color: 'hover:bg-blue-500/10 hover:border-blue-400/40 hover:text-blue-600 dark:hover:text-blue-400' },
                   { name: 'Instagram', color: 'hover:bg-pink-500/10 hover:border-pink-400/40 hover:text-pink-600 dark:hover:text-pink-400' },
-                  { name: 'Threads', color: 'hover:bg-gray-400/10 hover:border-gray-300/40 hover:text-gray-300' },
+                  { name: 'Threads', color: 'hover:bg-gray-400/10 hover:border-gray-300/40 hover:text-gray-700 dark:hover:text-gray-300' },
                 ].map(({ name, color }) => {
                   const alreadyPublished = publishResults.some(r => r.platform === name);
                   const isPublishing = publishing === name;
