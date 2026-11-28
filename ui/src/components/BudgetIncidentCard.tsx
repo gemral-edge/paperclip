@@ -37,15 +37,15 @@ export function BudgetIncidentCard({
       <CardHeader className="px-5 pt-5 pb-3">
         <div className="flex items-start justify-between gap-3">
           <div>
-            <div className="text-[11px] uppercase tracking-[0.22em] text-red-200/80">
+            <div className="text-[11px] uppercase tracking-[0.22em] text-red-700 dark:text-red-200/80">
               {incident.scopeType} hard stop
             </div>
             <CardTitle className="mt-1 text-base text-red-50">{incident.scopeName}</CardTitle>
-            <CardDescription className="mt-1 text-red-100/70">
+            <CardDescription className="mt-1 text-red-800/80 dark:text-red-100/70">
               Spending reached {formatCents(incident.amountObserved)} against a limit of {formatCents(incident.amountLimit)}.
             </CardDescription>
           </div>
-          <div className="rounded-full border border-red-400/30 bg-red-500/10 p-2 text-red-200">
+          <div className="rounded-full border border-red-400/30 bg-red-500/10 p-2 text-red-700 dark:text-red-200">
             <AlertOctagon className="h-4 w-4" />
           </div>
         </div>
@@ -83,7 +83,7 @@ export function BudgetIncidentCard({
             </Button>
           </div>
           {parsed !== null && parsed <= incident.amountObserved ? (
-            <p className="mt-2 text-xs text-red-200/80">
+            <p className="mt-2 text-xs text-red-700 dark:text-red-200/80">
               The new budget must exceed current observed spend.
             </p>
           ) : null}

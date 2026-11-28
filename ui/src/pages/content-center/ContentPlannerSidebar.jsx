@@ -670,7 +670,7 @@ export default function ContentPlannerSidebar({
                         <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity shrink-0">
                           <button onClick={() => onCopyToBrief?.(item.brief, item.type)} className="p-0.5 rounded hover:bg-gold/10 text-txt-3 hover:text-gold" title="Copy vào Brief"><Copy size={11} /></button>
                           <button onClick={() => startEdit(item)} className="p-0.5 rounded hover:bg-purple/10 text-txt-3 hover:text-purple" title="Sửa"><Pencil size={11} /></button>
-                          <button onClick={() => deleteEvent(item.id)} className="p-0.5 rounded hover:bg-red-500/10 text-txt-3 hover:text-red-400" title="Xóa"><Trash2 size={11} /></button>
+                          <button onClick={() => deleteEvent(item.id)} className="p-0.5 rounded hover:bg-red-500/10 text-txt-3 hover:text-red-600 dark:hover:text-red-400" title="Xóa"><Trash2 size={11} /></button>
                         </div>
                       </div>
                     </div>
@@ -693,7 +693,7 @@ export default function ContentPlannerSidebar({
                     'flex items-center gap-1 px-2 py-1 rounded text-[10px] font-semibold transition-all',
                     batchLoading ? 'opacity-50 cursor-wait' :
                     batchRunning
-                      ? 'bg-red-500/15 text-red-400 hover:bg-red-500/25 border border-red-500/20'
+                      ? 'bg-red-500/15 text-red-600 dark:text-red-400 hover:bg-red-500/25 border border-red-500/20'
                       : 'bg-emerald/10 text-emerald hover:bg-emerald/20 border border-emerald/20',
                   ].join(' ')}
                 >

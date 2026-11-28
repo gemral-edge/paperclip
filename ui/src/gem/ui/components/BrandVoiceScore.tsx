@@ -31,8 +31,8 @@ interface BrandVoiceScoreProps {
 
 const severityColors: Record<string, string> = {
   critical: 'text-danger',
-  high: 'text-amber-400',
-  medium: 'text-yellow-400',
+  high: 'text-amber-700 dark:text-amber-400',
+  medium: 'text-yellow-700 dark:text-yellow-400',
   low: 'text-txt-3',
 };
 
@@ -45,8 +45,8 @@ const severityLabels: Record<string, string> = {
 
 function getScoreColor(score: number): string {
   if (score >= 90) return 'text-success';
-  if (score >= 70) return 'text-amber-400';
-  if (score >= 50) return 'text-yellow-400';
+  if (score >= 70) return 'text-amber-700 dark:text-amber-400';
+  if (score >= 50) return 'text-yellow-700 dark:text-yellow-400';
   return 'text-danger';
 }
 

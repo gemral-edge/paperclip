@@ -584,7 +584,7 @@ export function PipelineTab({ onSwitchTab }: { onSwitchTab?: (tab: string) => vo
             <span className="text-xs font-mono">Output {runningScript ? `(${runningScript})` : ""}</span>
             <button onClick={() => { setShowOutput(false); setScriptOutput(""); }} className="text-xs hover:text-white">Đóng</button>
           </div>
-          <div className="bg-zinc-950 text-green-400 p-3 text-xs font-mono max-h-60 overflow-y-auto whitespace-pre-wrap">{scriptOutput || (runningScript ? "Đang khởi động..." : "Không có output")}</div>
+          <div className="bg-zinc-950 text-green-400 p-3 text-xs font-mono max-h-60 overflow-y-auto whitespace-pre-wrap">{/* dark-surface-ok */}{scriptOutput || (runningScript ? "Đang khởi động..." : "Không có output")}</div>
         </Card>
       )}
 

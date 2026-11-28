@@ -454,7 +454,7 @@ export function AgentEditPage() {
         </p>
         <div className="relative">
           <textarea
-            className="input-field font-mono text-xs min-h-[120px] resize-y bg-zinc-950 text-green-400 p-3 rounded-lg"
+            className={"input-field font-mono text-xs min-h-[120px] resize-y bg-zinc-950 text-green-400 p-3 rounded-lg" /* dark-surface-ok */}
             value={(() => {
               const s = form.slug || slug || "agent";
               // Phân tích extra_args: tách subcommands (không có --) khỏi flags (có --)

@@ -1202,7 +1202,7 @@ function FieldLabel({ label, tip, required = false, className = '' }) {
     <div className={`flex items-center gap-1.5 mb-1.5 ${className}`}>
       <label className="text-[11px] font-semibold text-txt-2">
         {label}
-        {required && <span className="text-red-400 ml-0.5">*</span>}
+        {required && <span className="text-red-600 dark:text-red-400 ml-0.5">*</span>}
       </label>
       {tip && (
         <span
@@ -4245,7 +4245,7 @@ KHÔNG liệt kê tính năng / điểm mạnh / lợi ích khô khan. PHẢI vi
                 title="Dừng Batch Processor"
                 className={[
                   'flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-semibold transition-all',
-                  batchLoading ? 'opacity-50 cursor-wait' : 'bg-red-500/15 text-red-400 hover:bg-red-500/25 border border-red-500/30'
+                  batchLoading ? 'opacity-50 cursor-wait' : 'bg-red-500/15 text-red-600 dark:text-red-400 hover:bg-red-500/25 border border-red-500/30'
                 ].join(' ')}
               >
                 {batchLoading ? <Loader2 size={14} className="animate-spin" /> : <Square size={14} />}
@@ -4384,7 +4384,7 @@ KHÔNG liệt kê tính năng / điểm mạnh / lợi ích khô khan. PHẢI vi
 
               {socialTopic === 'app_features' && (
                 <>
-                  <div className="text-xs p-2 rounded border border-amber-500/40 bg-amber-500/10 text-amber-300">
+                  <div className="text-xs p-2 rounded border border-amber-500/40 bg-amber-500/10 text-amber-800 dark:text-amber-300">
                     🔴 <b>USE-CASE FIRST</b>: AI sẽ viết theo kiểu lợi ích + cảm giác + thành công sau khi dùng,
                     KHÔNG liệt kê tính năng đơn thuần. Ba câu hỏi: (1) Trước khi dùng khổ thế nào? (2) Khi dùng làm gì cụ thể? (3) Kết quả + cảm giác ra sao?
                   </div>
@@ -5718,7 +5718,7 @@ KHÔNG liệt kê tính năng / điểm mạnh / lợi ích khô khan. PHẢI vi
                 disabled={generating || isTranscribing}
                 className={`flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-medium transition-all ${
                   isRecording
-                    ? 'bg-red-500/20 text-red-400 border border-red-500/40'
+                    ? 'bg-red-500/20 text-red-600 dark:text-red-400 border border-red-500/40'
                     : isTranscribing
                     ? 'bg-purple/20 text-purple border border-purple/40'
                     : 'bg-bg-3/60 text-txt-3 border border-border hover:text-gold hover:border-gold/30 hover:bg-gold/5'
@@ -5750,7 +5750,7 @@ KHÔNG liệt kê tính năng / điểm mạnh / lợi ích khô khan. PHẢI vi
                   <span className="w-1.5 h-1.5 rounded-full bg-red-400 animate-pulse" style={{ animationDelay: '0.2s' }} />
                   <span className="w-1 h-1 rounded-full bg-red-300 animate-pulse" style={{ animationDelay: '0.4s' }} />
                 </div>
-                <span className="text-[11px] text-red-400 font-medium">Đang ghi âm... Nói xong bấm Dừng</span>
+                <span className="text-[11px] text-red-600 dark:text-red-400 font-medium">Đang ghi âm... Nói xong bấm Dừng</span>
                 <span className="text-[11px] text-txt-3 ml-auto tabular-nums">{Math.floor(recordingTime / 60)}:{String(recordingTime % 60).padStart(2, '0')}</span>
               </div>
             )}

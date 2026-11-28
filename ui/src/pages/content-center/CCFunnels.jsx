@@ -467,7 +467,7 @@ function CTARuleCard({ rule }) {
     },
     high: {
       label: 'Cao',
-      color: 'text-amber-400',
+      color: 'text-amber-700 dark:text-amber-400',
       bg: 'bg-amber-400/10',
       border: 'border-l-amber-400',
       icon: AlertTriangle,

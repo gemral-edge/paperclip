@@ -279,7 +279,7 @@ export function CommandConsolePage() {
       <h1 className="text-2xl font-bold flex items-center gap-2">
         <Terminal className="h-6 w-6" /> Command Console
       </h1>
-      <Card className="bg-zinc-950 text-green-400 font-mono text-sm overflow-hidden">
+      <Card className={"bg-zinc-950 text-green-400 font-mono text-sm overflow-hidden" /* dark-surface-ok */}>
         <div
           className="max-h-[600px] overflow-y-auto p-4 space-y-1"
           onClick={() => inputRef.current?.focus()}
@@ -291,10 +291,10 @@ export function CommandConsolePage() {
                 l.type === "input"
                   ? "text-white font-bold"
                   : l.type === "error"
-                    ? "text-red-400"
+                    ? "text-red-400" // dark-surface-ok
                     : l.type === "system"
                       ? "text-zinc-500"
-                      : "text-green-400"
+                      : "text-green-400" // dark-surface-ok
               }`}
             >
               <span className="text-zinc-600 text-xs mr-2">[{l.time}]</span>

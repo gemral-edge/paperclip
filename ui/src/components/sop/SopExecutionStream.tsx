@@ -216,7 +216,7 @@ export function SopExecutionStream({
           className="text-zinc-400 hover:text-zinc-200"
           onClick={handleCopy}
         >
-          {copied ? <CheckCircle className="h-3.5 w-3.5 text-green-400" /> : <Copy className="h-3.5 w-3.5" />}
+          {copied ? <CheckCircle className="h-3.5 w-3.5 text-green-400" /> : <Copy className="h-3.5 w-3.5" />}{/* dark-surface-ok */}
         </Button>
       </div>
 
@@ -265,7 +265,7 @@ function StreamLine({
       return <div className="text-zinc-300 pl-3 whitespace-pre-wrap">{e.text}</div>;
     case "step_complete":
       return (
-        <div className={cn("pl-3", e.exitCode === 0 ? "text-green-400" : "text-yellow-400")}>
+        <div className={cn("pl-3", /* dark-surface-ok */ e.exitCode === 0 ? "text-green-400" : "text-yellow-400")}>
           ✓ Bước {e.stepOrder} hoàn thành
           {e.exitCode != null && e.exitCode !== 0 && ` (exit=${e.exitCode})`}
         </div>
@@ -273,7 +273,7 @@ function StreamLine({
     case "approval_gate":
       return (
         <div className="my-1 rounded bg-amber-900/30 border border-amber-700/50 px-3 py-2">
-          <div className="text-amber-300 mb-1.5">⏸ Chờ duyệt: {e.stepName}</div>
+          <div className="text-amber-300 mb-1.5">{/* dark-surface-ok */}⏸ Chờ duyệt: {e.stepName}</div>
           {isPendingApproval && (
             <div className="flex gap-2">
               <Button size="xs" className="bg-green-600 hover:bg-green-700 text-white" onClick={onApprove}>
@@ -289,9 +289,9 @@ function StreamLine({
         </div>
       );
     case "error":
-      return <div className="text-red-400 pl-3">✗ {e.error || e.text}</div>;
+      return <div className="text-red-400 pl-3">{/* dark-surface-ok */}✗ {e.error || e.text}</div>;
     case "done":
-      return <div className="text-green-400 pt-1 border-t border-zinc-700/40 mt-1">● Kết thúc</div>;
+      return <div className="text-green-400 pt-1 border-t border-zinc-700/40 mt-1">{/* dark-surface-ok */}● Kết thúc</div>;
     default:
       return <div className="text-zinc-500 pl-3">{e.text}</div>;
   }

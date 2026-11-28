@@ -112,7 +112,7 @@ export function CronJobsTable() {
                   </span>
                   <span className="flex items-center justify-center gap-1.5">
                     <span className={`h-2 w-2 rounded-full ${job.active ? "bg-green-500" : "bg-red-400"}`} />
-                    <span className={`text-xs ${job.active ? "text-green-600" : "text-red-400"}`}>
+                    <span className={`text-xs ${job.active ? "text-green-700 dark:text-green-400" : "text-red-600 dark:text-red-400"}`}>
                       {job.active ? "Bật" : "Tắt"}
                     </span>
                   </span>

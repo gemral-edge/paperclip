@@ -44,7 +44,7 @@ const LABEL_OPTIONS = [
   { key: "khach_hang", label: "Khách hàng", icon: <User className="h-3 w-3 text-slate-500" /> },
   { key: "doi_tac", label: "Đối tác", icon: <Handshake className="h-3 w-3 text-teal-500" /> },
   { key: "ctv", label: "CTV", icon: <Briefcase className="h-3 w-3 text-violet-500" /> },
-  { key: "spam", label: "Spam", icon: <Ban className="h-3 w-3 text-red-400" /> },
+  { key: "spam", label: "Spam", icon: <Ban className="h-3 w-3 text-red-600 dark:text-red-400" /> },
   // 03/10: hội thoại "Chặn" ẩn khỏi Hộp thư chính — xem lại + bỏ chặn ở đây.
   { key: "blocked", label: "Đã chặn", icon: <ShieldBan className="h-3 w-3 text-red-500" /> },
 ] as const;

@@ -344,7 +344,7 @@ const CATEGORIES = [
     name: 'Dữ Liệu',
     description: '4 tối ưu hoá về quản lý và xử lý dữ liệu',
     icon: Database,
-    color: 'text-amber-400',
+    color: 'text-amber-700 dark:text-amber-400',
     borderColor: 'border-l-amber-400',
     optimizations: [
       {
@@ -445,7 +445,7 @@ function getPriorityConfig(priority) {
     case 'critical':
       return { label: 'Cực Kỳ Quan Trọng', className: 'bg-rose-400/10 text-rose-400' };
     case 'high':
-      return { label: 'Cao', className: 'bg-amber-400/10 text-amber-400' };
+      return { label: 'Cao', className: 'bg-amber-400/10 text-amber-700 dark:text-amber-400' };
     case 'medium':
       return { label: 'Trung Bình', className: 'bg-blue/10 text-blue' };
     case 'low':

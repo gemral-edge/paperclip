@@ -1,11 +1,9 @@
 {
-  "_note": "SSOT baseline (shrink-only) cho clipboard-and-contrast-guard.test.ts và scripts/audit_paperclip_runtime_deps.py (R10, GEM-2861). clipboardWriteTextLegacy đã dọn sạch 0/0 (GEM-2881) — dùng copyToClipboard từ @/lib/clipboard. darkOnlySurfaceFiles là các DevTools overlay nền tối cứng (#0c0c10/#131316/#09090b); các trường hợp nền tối cục bộ khác dùng inline comment /* dark-surface-ok */.",
+  "_note": "SSOT baseline (shrink-only) cho clipboard-and-contrast-guard.test.ts và scripts/audit_paperclip_runtime_deps.py (R10, GEM-2861). clipboardWriteTextLegacy đã dọn sạch 0/0 (GEM-2881) — dùng copyToClipboard từ @/lib/clipboard. lightEmeraldLegacy đã dọn sạch 0/0 (GEM-2882) cho toàn bộ 5 họ màu trạng thái emerald|amber|red|green|yellow (100|200|300|400). darkOnlySurfaceFiles là các DevTools overlay nền tối cứng (#0c0c10/#131316/#09090b); các trường hợp nền tối cục bộ khác dùng inline comment /* dark-surface-ok */.",
   "clipboardWriteTextLegacy": {},
   "darkOnlySurfaceFiles": [
     "components/devtools/DevToolsOverlay.tsx",
     "components/devtools/ServerRoutesPane.tsx"
   ],
-  "lightEmeraldLegacy": {
-    "components/BudgetPolicyCard.tsx": 1
-  }
+  "lightEmeraldLegacy": {}
 }

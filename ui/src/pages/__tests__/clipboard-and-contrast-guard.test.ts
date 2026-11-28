@@ -1,6 +1,6 @@
-// GEM-2861 (UX-1127-S3-06-a9692b): Bảo vệ 2 lớp cho Paperclip UI:
+// GEM-2861 & GEM-2882: Bảo vệ 2 lớp cho Paperclip UI:
 // (1) Mọi lời gọi `navigator.clipboard.writeText(...)` phải bọc `try { await ... } catch` trong cùng function hoặc chuỗi `.catch(...)` / `.then(ok, err)`.
-// (2) Mọi class chữ sáng `text-emerald-(200|300|400)` trên surface theo theme phải có tiền tố `dark:` (tránh mất tương phản trên Light Mode).
+// (2) Mọi class chữ sáng `text-(emerald|amber|red|green|yellow)-(100|200|300|400)` trên surface theo theme phải có tiền tố `dark:` (tránh mất tương phản trên Light Mode).
 import { describe, it, expect } from "vitest";
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { join, relative } from "node:path";
@@ -114,12 +114,12 @@ function stripJsCommentsPreserveLines(src: string): string {
   return out.join("");
 }
 
-/** Trả về danh sách dòng (1-based) dùng `text-emerald-(200|300|400)` mà thiếu tiền tố `dark:`. */
-export function findBareLightEmerald(source: string): number[] {
-  if (!source.includes("text-emerald-")) return [];
+/** Trả về danh sách dòng (1-based) dùng `text-(emerald|amber|red|green|yellow)-(100|200|300|400)` mà thiếu tiền tố `dark:`. */
+export function findBareLightStatusText(source: string): number[] {
+  if (!/text-(?:emerald|amber|red|green|yellow)-/.test(source)) return [];
   const rawLines = source.split("\n");
   const cleanedLines = stripJsCommentsPreserveLines(source).split("\n");
-  const rx = /(?<![:\w-])((?:[a-z0-9[\]_-]+:)*)text-emerald-(?:200|300|400)(?![\w-])/g;
+  const rx = /(?<![:\w-])((?:[a-z0-9[\]_-]+:)*)text-(?:emerald|amber|red|green|yellow)-(?:100|200|300|400)(?![\w-])/g;
   const bad: number[] = [];
 
   for (let idx = 0; idx < cleanedLines.length; idx++) {
@@ -137,6 +137,9 @@ export function findBareLightEmerald(source: string): number[] {
   }
   return bad;
 }
+
+/** Giữ tương thích ngược cho caller cũ. */
+export const findBareLightEmerald = findBareLightStatusText;
 
 function walkUiSrc(dir: string, out: string[] = []): string[] {
   for (const name of readdirSync(dir)) {
@@ -168,18 +171,21 @@ describe("GEM-2861: clipboard.writeText error handling & Light Mode text-emerald
     expect(findUnguardedClipboardWrites("if (typeof navigator.clipboard?.writeText === 'function') {}")).toEqual([]);
   });
 
-  it("findBareLightEmerald bắt đúng class sáng thiếu dark: và thả dạng có dark:/nền tối", () => {
-    expect(findBareLightEmerald('<span className="text-emerald-400">ok</span>')).toEqual([1]);
-    expect(findBareLightEmerald('<span className="text-emerald-300">ok</span>')).toEqual([1]);
-    expect(findBareLightEmerald('<span className="hover:text-emerald-400">ok</span>')).toEqual([1]);
-    expect(findBareLightEmerald('<span className="text-emerald-400/80">ok</span>')).toEqual([1]);
-    expect(findBareLightEmerald('<span className="text-emerald-400 dark:text-emerald-400">ok</span>')).toEqual([1]);
+  it("findBareLightStatusText bắt đúng 5 họ màu sáng thiếu dark: và thả dạng có dark:/nền tối", () => {
+    expect(findBareLightStatusText('<span className="text-emerald-200">ok</span>')).toEqual([1]);
+    expect(findBareLightStatusText('<span className="text-amber-300">ok</span>')).toEqual([1]);
+    expect(findBareLightStatusText('<span className="text-red-100/70">ok</span>')).toEqual([1]);
+    expect(findBareLightStatusText('<span className="text-green-400">ok</span>')).toEqual([1]);
+    expect(findBareLightStatusText('<span className="text-yellow-400">ok</span>')).toEqual([1]);
+    expect(findBareLightStatusText('<span className="hover:text-red-400">ok</span>')).toEqual([1]);
+    expect(findBareLightStatusText('<span className="text-amber-400 dark:text-amber-400">ok</span>')).toEqual([1]);
 
-    expect(findBareLightEmerald('<span className="text-emerald-600 dark:text-emerald-400">ok</span>')).toEqual([]);
-    expect(findBareLightEmerald('<span className="dark:hover:text-emerald-400">ok</span>')).toEqual([]);
-    expect(findBareLightEmerald('<span className="bg-emerald-400">ok</span>')).toEqual([]);
-    expect(findBareLightEmerald('<span className="text-emerald-400">ok</span> // dark-surface-ok')).toEqual([]);
-    expect(findBareLightEmerald('// <span className="text-emerald-400">ok</span>')).toEqual([]);
+    expect(findBareLightStatusText('<span className="text-emerald-700 dark:text-emerald-200">ok</span>')).toEqual([]);
+    expect(findBareLightStatusText('<span className="text-amber-700 dark:text-amber-400">ok</span>')).toEqual([]);
+    expect(findBareLightStatusText('<span className="dark:hover:text-amber-400">ok</span>')).toEqual([]);
+    expect(findBareLightStatusText('<span className="bg-red-600/90 text-red-50">ok</span>')).toEqual([]);
+    expect(findBareLightStatusText('<span className="text-green-400">ok</span> {/* dark-surface-ok */}')).toEqual([]);
+    expect(findBareLightStatusText('// <span className="text-red-400">ok</span>')).toEqual([]);
   });
 
   it("baseline.clipboardWriteTextLegacy đã dọn sạch 0 và không có file nào vượt trần", () => {
@@ -201,14 +207,15 @@ describe("GEM-2861: clipboard.writeText error handling & Light Mode text-emerald
     expect(offenders).toEqual([]);
   });
 
-  it("không có file theo theme nào vượt trần text-emerald-(200|300|400) thiếu tiền tố dark:", () => {
+  it("không có file theo theme nào vượt trần text-(emerald|amber|red|green|yellow)-(100|200|300|400) thiếu tiền tố dark:", () => {
     const darkOnly = new Set(baseline.darkOnlySurfaceFiles as string[]);
     const emeraldLegacy = (baseline.lightEmeraldLegacy ?? {}) as Record<string, number>;
+    expect(Object.keys(emeraldLegacy)).toEqual([]);
     const offenders: string[] = [];
     for (const f of walkUiSrc(SRC)) {
       const rel = relative(SRC, f).replace(/\\/g, "/");
       if (darkOnly.has(rel)) continue;
-      const lines = findBareLightEmerald(readFileSync(f, "utf8"));
+      const lines = findBareLightStatusText(readFileSync(f, "utf8"));
       const allowed = emeraldLegacy[rel] ?? 0;
       if (lines.length > allowed) {
         offenders.push(`${rel}:${lines.join(",")} (actual=${lines.length} > allowed=${allowed})`);

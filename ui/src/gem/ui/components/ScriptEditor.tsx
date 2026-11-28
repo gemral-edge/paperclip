@@ -174,7 +174,7 @@ export function ScriptEditor({
             <FileText size={14} />
             <span
               className={
-                isUnderMin ? 'text-amber-400' : isOverMax ? 'text-danger' : 'text-txt-2'
+                isUnderMin ? 'text-amber-700 dark:text-amber-400' : isOverMax ? 'text-danger' : 'text-txt-2'
               }
             >
               {wordCount.toLocaleString('vi-VN')} từ
@@ -202,7 +202,7 @@ export function ScriptEditor({
             </span>
           )}
           {isDirty && (
-            <span className="text-xxs text-amber-400 flex items-center gap-1">
+            <span className="text-xxs text-amber-700 dark:text-amber-400 flex items-center gap-1">
               <AlertCircle size={10} />
               Chưa lưu
             </span>
@@ -228,7 +228,7 @@ export function ScriptEditor({
 
       {/* Word count warnings */}
       {isUnderMin && (
-        <div className="text-xs text-amber-400 flex items-center gap-1 p-2 rounded-card bg-amber-400/10">
+        <div className="text-xs text-amber-700 dark:text-amber-400 flex items-center gap-1 p-2 rounded-card bg-amber-400/10">
           <AlertCircle size={14} />
           Kịch bản quá ngắn ({wordCount}/{minWords} từ)
         </div>

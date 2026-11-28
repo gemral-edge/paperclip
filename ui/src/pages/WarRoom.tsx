@@ -252,7 +252,7 @@ function WarRoomMessageRow({
           <button
             onClick={() => onPin?.(id, !is_pinned)}
             className={`inline-flex items-center gap-1 h-6 px-2 text-[11px] bg-transparent border-none cursor-pointer rounded transition-colors ${
-              is_pinned ? "text-amber-500 hover:text-amber-400 bg-amber-500/10" : "text-muted-foreground hover:text-foreground hover:bg-accent"
+              is_pinned ? "text-amber-600 hover:text-amber-700 dark:text-amber-500 dark:hover:text-amber-400 bg-amber-500/10" : "text-muted-foreground hover:text-foreground hover:bg-accent"
             }`}
             title={is_pinned ? "Bỏ ghim" : "Ghim"}
           >

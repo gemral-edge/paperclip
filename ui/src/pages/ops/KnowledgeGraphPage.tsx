@@ -422,7 +422,7 @@ export default function KnowledgeGraphPage() {
         )}
 
         {graphifyError && (
-          <div className="text-[10px] text-red-300 mt-1 pointer-events-auto">⚠ {graphifyError}</div>
+          <div className="text-[10px] text-red-700 dark:text-red-300 mt-1 pointer-events-auto">⚠ {graphifyError}</div>
         )}
       </div>
 

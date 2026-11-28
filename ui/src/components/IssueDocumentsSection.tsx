@@ -883,7 +883,7 @@ export function IssueDocumentsSection({
                           size="sm"
                           className={cn(
                             "h-auto px-1.5 py-0 text-[11px] font-normal text-muted-foreground hover:text-foreground",
-                            isHistoricalPreview && "text-amber-300 hover:text-amber-200",
+                            isHistoricalPreview && "text-amber-700 hover:text-amber-800 dark:text-amber-300 dark:hover:text-amber-200",
                           )}
                         >
                           rev {displayedRevisionNumber}
@@ -1063,7 +1063,7 @@ export function IssueDocumentsSection({
                     <div className="rounded-md border border-amber-500/30 bg-amber-500/5 px-3 py-3">
                       <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                         <div className="space-y-1">
-                          <p className="text-sm font-medium text-amber-200">
+                          <p className="text-sm font-medium text-amber-800 dark:text-amber-200">
                             Viewing revision {selectedHistoricalRevision.revisionNumber}
                           </p>
                           <p className="text-xs text-muted-foreground">
@@ -1098,7 +1098,7 @@ export function IssueDocumentsSection({
                     <div className="rounded-md border border-amber-500/30 bg-amber-500/5 px-3 py-3">
                       <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                         <div className="space-y-1">
-                          <p className="text-sm font-medium text-amber-200">Out of date</p>
+                          <p className="text-sm font-medium text-amber-800 dark:text-amber-200">Out of date</p>
                           <p className="text-xs text-muted-foreground">
                             This document changed while you were editing. Your local draft is preserved and autosave is paused.
                           </p>
@@ -1212,9 +1212,9 @@ export function IssueDocumentsSection({
                     <span
                       className={`text-[11px] transition-opacity duration-150 ${
                         isHistoricalPreview
-                          ? "text-amber-300"
+                          ? "text-amber-700 dark:text-amber-300"
                           : activeConflict
-                          ? "text-amber-300"
+                          ? "text-amber-700 dark:text-amber-300"
                           : autosaveState === "error"
                             ? "text-destructive"
                             : "text-muted-foreground"

@@ -405,7 +405,7 @@ Forbidden: "tâm linh"→"tâm thức", NO document CTAs, NO bullet points, NO E
                       )}
                     </td>
                     <td className="px-4 py-3">
-                      <span className={`text-xs font-medium ${item.severity === 'critical' ? 'text-danger' : 'text-amber-400'}`}>
+                      <span className={`text-xs font-medium ${item.severity === 'critical' ? 'text-danger' : 'text-amber-700 dark:text-amber-400'}`}>
                         {item.severity === 'critical' ? 'Nghiêm trọng' : 'Cao'}
                       </span>
                     </td>
@@ -437,7 +437,7 @@ Forbidden: "tâm linh"→"tâm thức", NO document CTAs, NO bullet points, NO E
                 ).map((item) => (
                   <tr key={item.en} className="border-b border-border last:border-0">
                     <td className="px-4 py-3">
-                      <code className="text-sm text-amber-400 bg-amber-400/10 px-2 py-0.5 rounded">{item.en}</code>
+                      <code className="text-sm text-amber-700 dark:text-amber-400 bg-amber-400/10 px-2 py-0.5 rounded">{item.en}</code>
                     </td>
                     <td className="px-4 py-3">
                       <code className="text-sm text-success bg-success/10 px-2 py-0.5 rounded">{item.vi}</code>

@@ -303,11 +303,11 @@ function GenericListView({
                         <span
                           className={`px-1.5 py-0.5 text-[10px] rounded uppercase font-semibold ${
                             item[c.field] === 'official'
-                              ? 'bg-green-500/20 text-green-400'
+                              ? 'bg-green-500/20 text-green-700 dark:text-green-400'
                               : item[c.field] === 'verified'
                                 ? 'bg-blue-500/20 text-blue-400'
                                 : item[c.field] === 'community'
-                                  ? 'bg-amber-500/20 text-amber-400'
+                                  ? 'bg-amber-500/20 text-amber-700 dark:text-amber-400'
                                   : 'bg-muted text-muted-foreground'
                           }`}
                         >

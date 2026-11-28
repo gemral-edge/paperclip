@@ -77,9 +77,9 @@ interface BatchStats {
 const STATUS_CONFIG: Record<string, { label: string; color: string; icon: any }> = {
   pending: { label: 'Pending', color: 'bg-slate-500/20 text-slate-400 border-slate-500/40', icon: Clock },
   claimed: { label: 'Claimed', color: 'bg-blue-500/20 text-blue-400 border-blue-500/40', icon: Loader2 },
-  processing: { label: 'Processing', color: 'bg-amber-500/20 text-amber-400 border-amber-500/40', icon: Loader2 },
-  completed: { label: 'Completed', color: 'bg-green-500/20 text-green-400 border-green-500/40', icon: CheckCircle },
-  failed: { label: 'Failed', color: 'bg-red-500/20 text-red-400 border-red-500/40', icon: AlertCircle },
+  processing: { label: 'Processing', color: 'bg-amber-500/20 text-amber-700 dark:text-amber-400 border-amber-500/40', icon: Loader2 },
+  completed: { label: 'Completed', color: 'bg-green-500/20 text-green-700 dark:text-green-400 border-green-500/40', icon: CheckCircle },
+  failed: { label: 'Failed', color: 'bg-red-500/20 text-red-700 dark:text-red-400 border-red-500/40', icon: AlertCircle },
 };
 
 function Tip({ children, text }: { children: React.ReactNode; text: string }) {
