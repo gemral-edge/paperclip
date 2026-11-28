@@ -389,7 +389,7 @@ export default function KnowledgeGraphPage() {
               className={`px-2 py-1 rounded text-[10px] font-mono border ${(!topNOnly && minDegree === 0) ? "bg-[#22d3ee]/20 border-[#22d3ee] text-[#22d3ee]" : "border-border text-muted-foreground hover:bg-accent"}`}
             >🌐 All ({entities.length})</button>
 
-            <label className="flex items-center gap-1 text-[10px] text-white/70 cursor-pointer ml-2">
+            <label className={"flex items-center gap-1 text-[10px] text-white/70 cursor-pointer ml-2" /* dark-surface-ok */}>
               <input
                 type="checkbox"
                 checked={hideInferred}
@@ -413,7 +413,7 @@ export default function KnowledgeGraphPage() {
         )}
 
         {sourceMode === "graphify" && graphifyStats && (
-          <div className="text-[10px] text-white/50 mt-1 flex flex-wrap gap-3 pointer-events-auto">
+          <div className="text-[10px] text-muted-foreground mt-1 flex flex-wrap gap-3 pointer-events-auto">
             <span>📊 {graphifyStats.total_entities} nodes · {graphifyStats.total_relations} edges · {graphifyStats.communities} communities</span>
             <span className="text-[#10b981]">EXTRACTED {graphifyStats.extracted_pct}%</span>
             <span className="text-[#f59e0b]">INFERRED {graphifyStats.inferred_pct}%</span>

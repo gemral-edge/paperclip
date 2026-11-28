@@ -2658,7 +2658,7 @@ function ScriptDetailContent() {
                   onKeyDown={(e) => e.key === 'Enter' && !e.shiftKey && handleIterate(iterateInput)}
                   placeholder="Sửa phần 3, thêm ví dụ..."
                   disabled={iterating}
-                  className="flex-1 h-8 px-3 text-[12px] bg-bg-4 border border-border rounded-lg text-white placeholder:text-txt-3 focus:border-purple/40 focus:outline-none transition-colors disabled:opacity-50"
+                  className="flex-1 h-8 px-3 text-[12px] bg-bg-4 border border-border rounded-lg text-foreground placeholder:text-txt-3 focus:border-purple/40 focus:outline-none transition-colors disabled:opacity-50"
                 />
                 <button
                   onClick={() => handleIterate(iterateInput)}
@@ -2689,7 +2689,7 @@ function ScriptDetailContent() {
             onChange={(e) => setFeedbackNotes(e.target.value)}
             placeholder="Ghi chú: CTA quá aggressive, Hook cần emotional hơn..."
             rows={2}
-            className="w-full mb-2 p-2 text-[12px] bg-bg-4 border border-border rounded-lg text-white placeholder:text-txt-3 focus:border-emerald/40 focus:outline-none resize-none transition-colors"
+            className="w-full mb-2 p-2 text-[12px] bg-bg-4 border border-border rounded-lg text-foreground placeholder:text-txt-3 focus:border-emerald/40 focus:outline-none resize-none transition-colors"
           />
           <button
             onClick={handleSubmitFinal}

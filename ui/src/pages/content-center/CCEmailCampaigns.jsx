@@ -25,7 +25,7 @@ import { supabase } from '../../lib/supabaseClient';
 const PAGE_SIZE = 15;
 
 const STATUS_CONFIG = {
-  draft: { label: 'Bản nháp', color: 'text-white/50', bg: 'bg-bg-4' },
+  draft: { label: 'Bản nháp', color: 'text-muted-foreground', bg: 'bg-bg-4' },
   sending: { label: 'Đang gửi', color: 'text-[#00F0FF]', bg: 'bg-[#00F0FF]/12' },
   sent: { label: 'Đã gửi', color: 'text-[#3AF7A6]', bg: 'bg-[#3AF7A6]/12' },
   failed: { label: 'Thất bại', color: 'text-[#FF6B6B]', bg: 'bg-[#FF6B6B]/10' },
@@ -387,8 +387,8 @@ export default function CCEmailCampaigns() {
       ) : error ? (
         <div className="text-center py-10 px-5">
           <Mail size={32} className="mx-auto mb-2.5 text-[#FF6B6B]/40" />
-          <div className="text-[14px] text-white/35">Không thể tải dữ liệu</div>
-          <div className="text-[12px] text-white/20 mt-1">{error}</div>
+          <div className="text-[14px] text-muted-foreground">Không thể tải dữ liệu</div>
+          <div className="text-[12px] text-muted-foreground/70 mt-1">{error}</div>
           <button
             onClick={() => setPage((p) => p)}
             className="mt-3 h-8 px-3.5 text-[12px] font-semibold rounded-lg border-none cursor-pointer inline-flex items-center gap-1.5 bg-[#FFBD59]/15 text-[#FFBD59] hover:bg-[#FFBD59]/25 transition-colors"
@@ -398,9 +398,9 @@ export default function CCEmailCampaigns() {
         </div>
       ) : campaigns.length === 0 ? (
         <div className="text-center py-10 px-5">
-          <Mail size={32} className="mx-auto mb-2.5 text-white/10" />
-          <div className="text-[14px] text-white/35">Chưa có chiến dịch email</div>
-          <div className="text-[12px] text-white/20 mt-1">
+          <Mail size={32} className="mx-auto mb-2.5 text-muted-foreground/30" />
+          <div className="text-[14px] text-muted-foreground">Chưa có chiến dịch email</div>
+          <div className="text-[12px] text-muted-foreground/70 mt-1">
             {search || statusFilter || trackFilter
               ? 'Không tìm thấy kết quả phù hợp với bộ lọc hiện tại'
               : 'Tạo chiến dịch email đầu tiên để bắt đầu'}
